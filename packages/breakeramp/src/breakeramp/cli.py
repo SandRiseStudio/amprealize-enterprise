@@ -34,6 +34,7 @@ except ImportError as e:
 from .service import BreakerAmpService
 from .executors import PodmanExecutor
 from .models import PlanRequest, ApplyRequest, DestroyRequest
+from .display import LiveProgressDisplay, render_header, render_summary
 
 app = typer.Typer(
     name="breakeramp",
@@ -49,6 +50,221 @@ def get_service() -> BreakerAmpService:
     return BreakerAmpService(executor=executor)
 
 
+def _apply_amprealize_context(quiet: bool = False) -> Optional[str]:
+    """Apply amprealize context to environment if available.
+    
+    This ensures DATABASE_URL and other DSNs are set from the active context
+    before breakeramp expands blueprint variables.
+    
+    Returns the context name if applied, None otherwise.
+    """
+    try:
+        from amprealize.context import apply_context_to_environment
+        ctx_name = apply_context_to_environment(force=True)
+        if ctx_name and not quiet:
+            console.print(f"[dim]📍 Using context: {ctx_name}[/dim]")
+        return ctx_name
+    except ImportError:
+        # amprealize not installed - breakeramp running standalone
+        return None
+    except Exception:
+        # Context system not configured or failed - continue without it
+        return None
+
+
+def _get_environment_podman_machine(
+    service: BreakerAmpService,
+    environment: str,
+) -> Optional[str]:
+    """Return the configured Podman machine for an environment, if any."""
+    env_def = service.environments.get(environment)
+    if not env_def:
+        return None
+
+    runtime = getattr(env_def, "runtime", None)
+    if runtime is None or getattr(runtime, "provider", None) != "podman":
+        return None
+
+    return getattr(runtime, "podman_machine", None)
+
+
+def _list_podman_machine_names() -> List[str]:
+    """List available Podman machine names, stripped of active markers."""
+    import subprocess
+
+    result = subprocess.run(
+        ["podman", "machine", "list", "--format", "{{.Name}}"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        return []
+
+    names: List[str] = []
+    for line in result.stdout.strip().split("\n"):
+        name = line.strip().rstrip("*")
+        if name:
+            names.append(name)
+    return names
+
+
+def _select_podman_machine_for_environment(
+    available_names: List[str],
+    preferred_name: Optional[str] = None,
+) -> Optional[str]:
+    """Choose which Podman machine to start for a fresh run.
+
+    If the environment explicitly configures a Podman machine, only that
+    machine is eligible. Otherwise, fall back to the first amprealize-named
+    machine discovered locally.
+    """
+    if preferred_name:
+        return preferred_name if preferred_name in available_names else None
+
+    for name in available_names:
+        if "amprealize" in name.lower():
+            return name
+
+    return None
+
+
+def _is_cloud_dsn(dsn: str) -> bool:
+    """Return True if the DSN hostname is not a local address."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(dsn).hostname or "").lower()
+        return bool(host) and host not in ("localhost", "127.0.0.1", "::1")
+    except Exception:
+        return False
+
+
+def _check_context_blueprint_mismatch(
+    context_name: Optional[str],
+    environment: str,
+    service: BreakerAmpService,
+    blueprint_override: Optional[str] = None,
+) -> Optional[tuple]:
+    """Detect mismatch between a cloud context and a local-DB blueprint.
+
+    Returns ``(warning_message, suggested_environment)`` when the active
+    context points to a remote database but the selected environment would
+    spin up local database containers.  Returns ``None`` when there is no
+    mismatch (or not enough information to decide).
+    """
+    if not context_name:
+        return None
+
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn or not _is_cloud_dsn(dsn):
+        return None
+
+    # Resolve which blueprint the environment would use
+    env_def = service.environments.get(environment)
+    if not env_def:
+        return None
+
+    infra = getattr(env_def, "infrastructure", None)
+    blueprint_id = blueprint_override or getattr(infra, "blueprint_id", None)
+    if not blueprint_id:
+        return None
+
+    # If the blueprint is already cloud-oriented, there is no mismatch
+    cloud_env = "cloud-dev"
+    cloud_env_def = service.environments.get(cloud_env)
+    if not cloud_env_def:
+        return None  # no cloud-dev environment to suggest
+
+    cloud_infra = getattr(cloud_env_def, "infrastructure", None)
+    cloud_blueprint = getattr(cloud_infra, "blueprint_id", "cloud-dev")
+    if blueprint_id == cloud_blueprint:
+        return None
+
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(dsn).hostname or "cloud host"
+    except Exception:
+        host = "cloud host"
+
+    warning = (
+        f"Context '{context_name}' points to a remote database ({host}) "
+        f"but environment '{environment}' uses blueprint '{blueprint_id}' "
+        f"which starts local database containers.\n"
+        f"  → Use 'breakeramp fresh {cloud_env}' to skip local DB containers."
+    )
+    return warning, cloud_env
+
+
+def _recover_podman_machine_start(
+    service: BreakerAmpService,
+    machine_name: str,
+    *,
+    quiet: bool = False,
+) -> bool:
+    """Recreate a Podman machine when startup fails in a way `fresh` can tolerate.
+
+    This is intentionally destructive and is only appropriate for flows like
+    `breakeramp fresh`, where the caller has already chosen a full reset.
+    """
+    try:
+        from .executors.podman import PodmanExecutor
+        import subprocess
+
+        if not isinstance(service.executor, PodmanExecutor):
+            return False
+
+        machine_info = service.executor.inspect_machine(machine_name)
+        resources = machine_info.get("Resources", {}) if isinstance(machine_info, dict) else {}
+        ssh_cfg = machine_info.get("SSH", {}) if isinstance(machine_info, dict) else {}
+        ssh_port = ssh_cfg.get("Port")
+
+        cpus = resources.get("CPUs")
+        memory_mb = resources.get("Memory")
+        disk_gb = resources.get("DiskSize")
+
+        if not quiet:
+            console.print(f"[yellow]Attempting machine recovery for '{machine_name}'...[/yellow]")
+
+        try:
+            service.executor.stop_machine(machine_name)
+        except Exception:
+            pass
+
+        if ssh_port:
+            subprocess.run(
+                ["pkill", "-f", f"gvproxy.*-ssh-port {ssh_port}"],
+                capture_output=True,
+                text=True,
+            )
+
+        subprocess.run(
+            [
+                "rm",
+                "-f",
+                os.path.expanduser(f"~/.local/share/containers/podman/machine/applehv/{machine_name}-ignition.sock"),
+                os.path.expanduser(f"~/.config/containers/podman/machine/applehv/{machine_name}.lock"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        service.executor.remove_machine(machine_name, force=True)
+        service.executor.init_machine(
+            machine_name,
+            cpus=cpus,
+            memory_mb=memory_mb,
+            disk_gb=disk_gb,
+        )
+        service.executor.start_machine(machine_name)
+        return True
+    except Exception as exc:
+        if not quiet:
+            console.print(f"[yellow]Machine recovery failed: {exc}[/yellow]")
+        return False
+
+
+# =============================================================================
+# Plan Command
 # =============================================================================
 # Plan Command
 # =============================================================================
@@ -502,7 +718,7 @@ def apply(
                                             break
                                 if target:
                                     console.print(f"[dim]Force stopping Podman machine '{target}'...[/dim]")
-                                    subprocess.run(["podman", "machine", "stop", "--force", target], capture_output=True)
+                                    subprocess.run(["podman", "machine", "stop", target], capture_output=True)
                                     import time
                                     time.sleep(2)
                                     console.print(f"[dim]Starting Podman machine '{target}'...[/dim]")
@@ -1053,8 +1269,11 @@ def status(
 
     try:
         response = service.status(run_id)
-    except FileNotFoundError:
-        console.print(f"[red]Run {run_id} not found[/red]")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
     except Exception as e:
         console.print(f"[red]Status check failed: {e}[/red]")
@@ -1069,6 +1288,7 @@ def status(
         "PLANNED": "yellow",
         "PROVISIONING": "blue",
         "APPLIED": "green",
+        "DEGRADED": "yellow",
         "FAILED": "red",
         "DESTROYING": "orange",
         "DESTROYED": "dim",
@@ -1086,14 +1306,22 @@ def status(
     if response.checks:
         table = Table(title="Health Checks")
         table.add_column("Service", style="cyan")
-        table.add_column("Status", style="green")
+        table.add_column("Status")
         table.add_column("Last Probe")
 
+        status_colors = {
+            "running": "green",
+            "exited": "red",
+            "stopped": "red",
+            "removed": "dim",
+            "paused": "yellow",
+            "created": "yellow",
+        }
         for check in response.checks:
-            status_color = "green" if check.status == "healthy" else "red"
+            color = status_colors.get(check.status, "red")
             table.add_row(
                 check.name,
-                f"[{status_color}]{check.status}[/{status_color}]",
+                f"[{color}]{check.status}[/{color}]",
                 check.last_probe.isoformat()[:19],
             )
 
@@ -1112,9 +1340,6 @@ def status(
             ))
     except Exception:
         pass  # Skip insights if unavailable
-
-    if response.telemetry:
-        console.print(f"\n[dim]Token savings: {response.telemetry.token_savings_pct:.1f}%  |  Behavior reuse: {response.telemetry.behavior_reuse_pct:.1f}%[/dim]")
 
 
 # =============================================================================
@@ -1797,7 +2022,23 @@ def up(
         breakeramp up --rebuild-images         # Rebuild local images with latest code
     """
     import subprocess
+    
+    # Apply amprealize context to get DATABASE_URL and other DSNs
+    ctx_name = _apply_amprealize_context(quiet=quiet)
+    
     service = get_service()
+
+    # Warn (and offer to switch) when cloud context + local-DB blueprint
+    mismatch = _check_context_blueprint_mismatch(ctx_name, environment, service, blueprint)
+    if mismatch:
+        warning_msg, suggested_env = mismatch
+        console.print(f"[yellow]⚠ {warning_msg}[/yellow]")
+        console.print()
+        if typer.confirm(f"Switch to '{suggested_env}' environment instead?", default=True):
+            environment = suggested_env
+            blueprint = None
+            console.print(f"[green]→ Switched to '{environment}'[/green]")
+            console.print()
 
     # Check for existing active environment with running containers
     if not force:
@@ -1983,9 +2224,10 @@ def list_environments(
     table.add_column("Phase")
     table.add_column("Blueprint")
     table.add_column("Created")
-    # Show actual status column when reconciling
+    # Show actual status columns when reconciling
     if not no_reconcile:
         table.add_column("Containers", justify="right")
+        table.add_column("Health")
 
     for env in environments:
         phase_colors = {
@@ -2010,13 +2252,25 @@ def list_environments(
 
         if not no_reconcile:
             container_count = env.get("container_count", 0)
+            running_count = env.get("running_count", 0)
             actual_status = env.get("actual_status", "")
-            if actual_status == "RUNNING":
-                row.append(f"[green]{container_count}[/green]")
-            elif actual_status == "STALE":
-                row.append("[red]0 (stale)[/red]")
+
+            # Show running/total counts
+            if actual_status == "STALE":
+                row.append("[red]0[/red]")
+                row.append("[red]STALE[/red]")
+            elif actual_status == "STOPPED":
+                row.append(f"[red]0/{container_count}[/red]")
+                row.append("[red]STOPPED[/red]")
+            elif actual_status == "DEGRADED":
+                row.append(f"[yellow]{running_count}/{container_count}[/yellow]")
+                row.append("[yellow]DEGRADED[/yellow]")
+            elif actual_status == "RUNNING":
+                row.append(f"[green]{running_count}/{container_count}[/green]")
+                row.append("[green]HEALTHY[/green]")
             else:
                 row.append(str(container_count))
+                row.append("[dim]UNKNOWN[/dim]")
 
         table.add_row(*row)
 
@@ -3816,8 +4070,23 @@ def fresh(
         breakeramp fresh --auto-cleanup          # Auto-cleanup if resources low
         breakeramp fresh --skip-backup           # Skip pre-nuke database backup
     """
-    import subprocess
-    import time
+    # Apply amprealize context to get DATABASE_URL and other DSNs
+    ctx_name = _apply_amprealize_context(quiet=quiet)
+
+    service = get_service()
+
+    # Warn (and offer to switch) when cloud context + local-DB blueprint
+    mismatch = _check_context_blueprint_mismatch(ctx_name, environment, service, blueprint)
+    if mismatch:
+        warning_msg, suggested_env = mismatch
+        console.print(f"[yellow]⚠ {warning_msg}[/yellow]")
+        console.print()
+        if not force:
+            if typer.confirm(f"Switch to '{suggested_env}' environment instead?", default=True):
+                environment = suggested_env
+                blueprint = None  # use the environment's default blueprint
+                console.print(f"[green]→ Switched to '{environment}'[/green]")
+                console.print()
 
     # Confirmation prompt
     if not force:
@@ -3839,12 +4108,6 @@ def fresh(
 
     console.print()
 
-    # Phase 1: Nuke
-    if not quiet:
-        console.print("[bold cyan]Phase 1/2: Nuking existing environment...[/bold cyan]")
-        console.print()
-
-    # Call nuke directly (it's defined above in this module)
     try:
         nuke(
             dry_run=False,
@@ -3856,7 +4119,7 @@ def fresh(
             include_machine=False,
             force=True,  # Already confirmed above
             json_output=False,
-            quiet=quiet,
+            quiet=True,
             skip_backup=skip_backup,
         )
     except typer.Exit as e:
@@ -3867,30 +4130,15 @@ def fresh(
         console.print(f"[red]Nuke failed: {e}[/red]")
         raise typer.Exit(1)
 
-    # Brief pause to let things settle
-    time.sleep(2)
-
-    console.print()
-
-    # Phase 2: Start machine if it was stopped
     if not skip_machine_stop:
-        if not quiet:
-            console.print("[dim]Starting Podman machine...[/dim]")
-
         try:
-            # Find amprealize machine
-            result = subprocess.run(
-                ["podman", "machine", "list", "--format", "{{.Name}}"],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            import subprocess
+
+            preferred_machine = _get_environment_podman_machine(service, environment)
+            machine_name = _select_podman_machine_for_environment(
+                _list_podman_machine_names(),
+                preferred_name=preferred_machine,
             )
-            machine_name = None
-            for line in result.stdout.strip().split("\n"):
-                name = line.strip().rstrip("*")
-                if "amprealize" in name.lower():
-                    machine_name = name
-                    break
 
             if machine_name:
                 start_result = subprocess.run(
@@ -3899,54 +4147,52 @@ def fresh(
                     text=True,
                     timeout=120,
                 )
-                if start_result.returncode == 0:
-                    if not quiet:
-                        console.print(f"[green]✓ Started Podman machine '{machine_name}'[/green]")
-                elif "already running" in start_result.stderr.lower():
-                    if not quiet:
-                        console.print(f"[dim]Podman machine '{machine_name}' already running[/dim]")
-                else:
-                    console.print(f"[yellow]⚠ Could not start machine: {start_result.stderr}[/yellow]")
-            else:
-                if not quiet:
-                    console.print("[dim]No amprealize Podman machine found, continuing...[/dim]")
+                if start_result.returncode != 0 and "already running" not in start_result.stderr.lower():
+                    console.print(f"[yellow]Could not start machine: {start_result.stderr.strip()}[/yellow]")
+                    if _recover_podman_machine_start(service, machine_name, quiet=quiet):
+                        if not quiet:
+                            console.print(f"[green]✓ Recovered Podman machine '{machine_name}'[/green]")
+            elif not quiet:
+                console.print("[dim]No Podman machine to start[/dim]")
         except Exception as e:
-            console.print(f"[yellow]⚠ Machine start error: {e}[/yellow]")
+            console.print(f"[yellow]Machine start error: {e}[/yellow]")
 
-        # Wait a moment for machine to be ready
-        time.sleep(3)
-
-    console.print()
-
-    # Phase 3: Bring up fresh environment
-    if not quiet:
-        console.print("[bold cyan]Phase 2/2: Bringing up fresh environment...[/bold cyan]")
-        console.print()
-
-    # Call up directly
+    display = LiveProgressDisplay(console=console, quiet=quiet)
     try:
-        up(
-            environment=environment,
-            blueprint=blueprint,
-            force=True,  # Force to ensure fresh creation
-            skip_resource_check=skip_resource_check,
-            auto_cleanup=auto_cleanup,
-            rebuild_images=True,  # Always rebuild images on fresh to ensure latest code
-            quiet=quiet,
-        )
-    except typer.Exit as e:
-        if e.exit_code != 0:
-            console.print("[red]Failed to bring up environment[/red]")
-            raise
+        with display:
+            display.on_phase("plan", "Planning fresh environment")
+
+            from .models import PlanRequest as _PlanReq
+            plan_req = _PlanReq(
+                environment=environment,
+                blueprint=blueprint,
+            )
+
+            plan_response = service.plan(plan_req)
+            display.on_step_done("plan", detail=plan_response.plan_id)
+
+            display.on_phase("apply", "Applying environment")
+
+            from .models import ApplyRequest as _ApplyReq
+            apply_req = _ApplyReq(
+                plan_id=plan_response.plan_id,
+                watch=True,
+                force_podman=True,
+                skip_resource_check=skip_resource_check,
+                auto_cleanup=auto_cleanup,
+                rebuild_images=True,  # Always rebuild on fresh to ensure latest code
+            )
+
+            # Note: Enterprise service.apply() doesn't support progress callbacks yet
+            apply_response = service.apply(apply_req)
+            display.on_step_done("apply")
     except Exception as e:
-        console.print(f"[red]Failed to bring up environment: {e}[/red]")
+        console.print(f"[red]Fresh apply failed: {e}[/red]")
         raise typer.Exit(1)
 
-    # Additional stabilization time for fresh environments
-    # Services may need extra time after healthchecks pass to be fully ready
-    if not quiet:
-        console.print("[dim]Allowing services to fully stabilize...[/dim]")
-    time.sleep(5)
+    # Print summary after Live exits
+    if apply_response:
+        display.print_summary(amp_run_id=apply_response.amp_run_id)
 
     console.print()
     console.print("[bold green]✓ Fresh environment ready![/bold green]")

@@ -470,6 +470,12 @@ class BoardService:
         def _execute(conn: Any) -> None:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
+                created_by: Optional[str] = None
+                if actor.id:
+                    cur.execute("SELECT 1 FROM auth.users WHERE id = %s", (actor.id,))
+                    if cur.fetchone() is not None:
+                        created_by = actor.id
+
                 # Allocate sequential display number for the project
                 display_num = None
                 if request.project_id:
@@ -485,7 +491,7 @@ class BoardService:
                     RETURNING id
                     """,
                     (request.project_id, request.name, request.description,
-                     json.dumps(settings.model_dump()), timestamp, timestamp, actor.id, org_id,
+                     json.dumps(settings.model_dump()), timestamp, timestamp, created_by, org_id,
                      display_num),
                 )
                 row = cur.fetchone()
@@ -1460,17 +1466,25 @@ class BoardService:
         if not items:
             return items
 
+        # Fast path: if we already checked and parent_id doesn't exist, skip
+        # the DB round-trip entirely (~150ms saved on neon).
+        if getattr(self, "_parent_id_checked", False) and not self._parent_id_exists:
+            return items
+
         parent_ids = [i.item_id for i in items]
 
         def _query(conn: Any) -> List[Dict]:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
-                if not getattr(self, "_parent_id_exists", None):
+                # Use a sentinel to distinguish "not checked" from "checked and False".
+                _checked = getattr(self, "_parent_id_checked", False)
+                if not _checked:
                     cur.execute(
                         """SELECT column_name FROM information_schema.columns
                            WHERE table_schema = 'board' AND table_name = 'work_items' AND column_name = 'parent_id'"""
                     )
                     self._parent_id_exists = bool(cur.fetchone())
+                    self._parent_id_checked = True
                 if not self._parent_id_exists:
                     return []
 
@@ -1775,9 +1789,11 @@ class BoardService:
         project_id: Optional[str] = None,
         board_id: Optional[str] = None,
         item_type: Optional[WorkItemType] = None,
+        item_types: Optional[List[WorkItemType]] = None,
         parent_id: Optional[str] = None,
         status: Optional[WorkItemStatus] = None,
         priority: Optional[WorkItemPriority] = None,
+        priorities: Optional[List[WorkItemPriority]] = None,
         assignee_id: Optional[str] = None,
         assignee_type: Optional[str] = None,
         labels: Optional[List[str]] = None,
@@ -1832,23 +1848,31 @@ class BoardService:
                 conditions.append("b.project_id = %s"); values.append(project_id)
             if board_id:
                 conditions.append("w.board_id = %s"); values.append(board_id)
-            if item_type:
+            resolved_item_types = item_types if item_types else ([item_type] if item_type else [])
+            if resolved_item_types:
                 # Match both new and legacy DB values (pre-migration compat)
                 _REVERSE_ALIASES = {"goal": "epic", "feature": "story"}
-                legacy = _REVERSE_ALIASES.get(item_type.value)
-                if legacy:
-                    conditions.append("w.item_type IN (%s, %s)")
-                    values.extend([item_type.value, legacy])
-                else:
-                    conditions.append("w.item_type = %s"); values.append(item_type.value)
+                accepted_values: list[str] = []
+                for resolved_item_type in resolved_item_types:
+                    accepted_values.append(resolved_item_type.value)
+                    legacy = _REVERSE_ALIASES.get(resolved_item_type.value)
+                    if legacy:
+                        accepted_values.append(legacy)
+                conditions.append("w.item_type = ANY(%s)")
+                values.append(list(dict.fromkeys(accepted_values)))
             if parent_id:
                 conditions.append("w.parent_id = %s"); values.append(parent_id)
             if status:
                 conditions.append("w.status = %s"); values.append(status.value)
-            if priority:
-                conditions.append("w.priority = %s"); values.append(priority.value)
+            resolved_priorities = priorities if priorities else ([priority] if priority else [])
+            if resolved_priorities:
+                conditions.append("w.priority = ANY(%s)")
+                values.append([resolved_priority.value for resolved_priority in resolved_priorities])
             if assignee_id:
-                conditions.append("w.assignee_id = %s"); values.append(assignee_id)
+                if assignee_id == "__unassigned__":
+                    conditions.append("w.assignee_id IS NULL")
+                else:
+                    conditions.append("w.assignee_id = %s"); values.append(assignee_id)
             if assignee_type:
                 conditions.append("w.assignee_type = %s"); values.append(assignee_type)
             if labels:
@@ -1878,17 +1902,22 @@ class BoardService:
             values.extend([limit, offset])
 
             with conn.cursor() as cur:
+                # Always join boards→projects to get the slug for display_id
+                # in a single round-trip (eliminates _enrich_display_ids query).
                 if needs_board_join:
-                    # Join with boards to filter by project_id
                     cur.execute(
-                        f"""SELECT w.* FROM work_items w
+                        f"""SELECT w.*, p.slug AS _project_slug FROM work_items w
                             JOIN boards b ON w.board_id = b.id
+                            LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
                             {where} {order_clause} LIMIT %s OFFSET %s""",
                         values
                     )
                 else:
                     cur.execute(
-                        f"SELECT * FROM work_items w {where} {order_clause} LIMIT %s OFFSET %s",
+                        f"""SELECT w.*, p.slug AS _project_slug FROM work_items w
+                            LEFT JOIN boards b ON w.board_id = b.id
+                            LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
+                            {where} {order_clause} LIMIT %s OFFSET %s""",
                         values
                     )
                 cols = [d[0] for d in cur.description]
@@ -1898,9 +1927,99 @@ class BoardService:
             operation="work_item.list", service_prefix="board", executor=_query, telemetry=self._telemetry
         )
         items = [self._row_to_work_item(r) for r in results]
+
+        # Build display_id from the slug returned by the inline JOIN (no extra query)
+        for item, row in zip(items, results):
+            slug = row.get("_project_slug")
+            if slug and item.display_number and not item.display_id:
+                item.display_id = f"{slug}-{item.display_number}"
+
         self._enrich_child_aggregation(items, org_id=org_id)
-        self._enrich_display_ids(items, org_id=org_id)
         return items
+
+    def count_work_items(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        board_id: Optional[str] = None,
+        item_type: Optional[WorkItemType] = None,
+        item_types: Optional[List[WorkItemType]] = None,
+        parent_id: Optional[str] = None,
+        status: Optional[WorkItemStatus] = None,
+        priority: Optional[WorkItemPriority] = None,
+        priorities: Optional[List[WorkItemPriority]] = None,
+        assignee_id: Optional[str] = None,
+        assignee_type: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        sprint_id: Optional[str] = None,
+        title_search: Optional[str] = None,
+        due_before: Optional[str] = None,
+        due_after: Optional[str] = None,
+        org_id: Optional[str] = None,
+    ) -> int:
+        """Return the total count of work items matching the given filters."""
+
+        def _query(conn: Any) -> int:
+            self._pool.set_tenant_context(conn, org_id, None)
+            conditions, values = [], []
+            needs_board_join = project_id is not None
+
+            if project_id:
+                conditions.append("b.project_id = %s"); values.append(project_id)
+            if board_id:
+                conditions.append("w.board_id = %s"); values.append(board_id)
+            resolved_item_types = item_types if item_types else ([item_type] if item_type else [])
+            if resolved_item_types:
+                _REVERSE_ALIASES = {"goal": "epic", "feature": "story"}
+                accepted_values: list[str] = []
+                for resolved_item_type in resolved_item_types:
+                    accepted_values.append(resolved_item_type.value)
+                    legacy = _REVERSE_ALIASES.get(resolved_item_type.value)
+                    if legacy:
+                        accepted_values.append(legacy)
+                conditions.append("w.item_type = ANY(%s)")
+                values.append(list(dict.fromkeys(accepted_values)))
+            if parent_id:
+                conditions.append("w.parent_id = %s"); values.append(parent_id)
+            if status:
+                conditions.append("w.status = %s"); values.append(status.value)
+            resolved_priorities = priorities if priorities else ([priority] if priority else [])
+            if resolved_priorities:
+                conditions.append("w.priority = ANY(%s)")
+                values.append([resolved_priority.value for resolved_priority in resolved_priorities])
+            if assignee_id:
+                if assignee_id == "__unassigned__":
+                    conditions.append("w.assignee_id IS NULL")
+                else:
+                    conditions.append("w.assignee_id = %s"); values.append(assignee_id)
+            if assignee_type:
+                conditions.append("w.assignee_type = %s"); values.append(assignee_type)
+            if labels:
+                conditions.append("w.labels && %s::varchar[]"); values.append(labels)
+            if sprint_id:
+                conditions.append("w.sprint_id = %s"); values.append(sprint_id)
+            if title_search:
+                conditions.append("w.title ILIKE %s"); values.append(f"%{title_search}%")
+            if due_before:
+                conditions.append("w.due_date <= %s"); values.append(due_before)
+            if due_after:
+                conditions.append("w.due_date >= %s"); values.append(due_after)
+
+            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+            with conn.cursor() as cur:
+                if needs_board_join:
+                    cur.execute(
+                        f"SELECT COUNT(*) FROM work_items w JOIN boards b ON w.board_id = b.id {where}",
+                        values,
+                    )
+                else:
+                    cur.execute(f"SELECT COUNT(*) FROM work_items w {where}", values)
+                return cur.fetchone()[0]
+
+        return self._pool.run_query(
+            operation="work_item.count", service_prefix="board", executor=_query, telemetry=self._telemetry
+        )
 
     # ------------------------------------------------------------------
     # Upward cascade: auto-promote parent when all children are complete

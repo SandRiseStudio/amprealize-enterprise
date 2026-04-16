@@ -15,12 +15,20 @@ from tests.conftest import (
     assert_test_database,
     _PRODUCTION_DB_NAMES,
     _PRODUCTION_HOSTNAMES,
+    _LOCAL_TEST_HOSTNAMES,
     _mask_dsn_password,
 )
 
 
 class TestAssertTestDatabase:
     """Verify assert_test_database blocks production DSNs."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_safety_override(self):
+        """Ensure tests aren't affected by outer AMPREALIZE_TEST_SAFETY_OVERRIDE."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_TEST_SAFETY_OVERRIDE", None)
+            yield
 
     def test_blocks_production_db_name_amprealize(self):
         dsn = "postgresql://user:pass@localhost:5432/amprealize"  # pragma: allowlist secret
@@ -56,6 +64,12 @@ class TestAssertTestDatabase:
         with patch.dict(os.environ, {"AMPREALIZE_TEST_SAFETY_OVERRIDE": "1"}):
             # Should NOT raise when override is set
             assert_test_database(dsn)
+
+    def test_safety_override_blocks_remote_cloud_host(self):
+        dsn = "postgresql://user:pass@ep-jolly-surf-amsysllf.c-5.us-east-1.aws.neon.tech/neondb"  # pragma: allowlist secret
+        with patch.dict(os.environ, {"AMPREALIZE_TEST_SAFETY_OVERRIDE": "1"}):
+            with pytest.raises(RuntimeError, match="remote/cloud database"):
+                assert_test_database(dsn)
 
     def test_safety_override_must_be_explicit(self):
         dsn = "postgresql://user:pass@localhost:5432/amprealize"  # pragma: allowlist secret
@@ -95,6 +109,16 @@ class TestProductionHostnames:
 
     def test_localhost_allowed(self):
         assert "localhost" not in _PRODUCTION_HOSTNAMES
+
+
+class TestLocalTestHostnames:
+    """Verify override-local host allowlist."""
+
+    def test_localhost_allowed_for_override(self):
+        assert "localhost" in _LOCAL_TEST_HOSTNAMES
+
+    def test_host_containers_internal_allowed_for_override(self):
+        assert "host.containers.internal" in _LOCAL_TEST_HOSTNAMES
 
 
 class TestMaskDsnPassword:

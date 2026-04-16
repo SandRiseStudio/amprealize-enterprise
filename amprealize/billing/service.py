@@ -5,7 +5,7 @@ Install amprealize-enterprise[billing] for Amprealize billing integration.
 """
 
 try:
-    from amprealize_enterprise.billing.service import (
+    from amprealize.enterprise.billing.service import (
         AmprealizeBillingService,
         AmprealizeBillingHooks,
     )

@@ -32,11 +32,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock heavy optional deps so cli.py / api.py can be imported in test env
-# without the full breakeramp / raze packages installed.
-for _mod in ("amprealize.breakeramp", "amprealize.breakeramp.service"):
-    if _mod not in sys.modules:
-        sys.modules[_mod] = MagicMock()
+from amprealize import HAS_ENTERPRISE
+
+_skip_oss_only = pytest.mark.skipif(
+    HAS_ENTERPRISE,
+    reason="OSS-only test; enterprise provides real implementations",
+)
 
 from amprealize.caps_enforcer import (
     CapsEnforcer,
@@ -493,6 +494,7 @@ class TestCapsEnforcer:
         enforcer = CapsEnforcer()
         assert enforcer.get_usage_summary() == {}
 
+    @_skip_oss_only
     def test_factory_returns_oss_stub(self) -> None:
         """Without amprealize-enterprise, factory returns OSS stub."""
         reset_caps_enforcer()
@@ -507,6 +509,7 @@ class TestCapsEnforcer:
 # ===========================================================================
 
 
+@_skip_oss_only
 class TestCloudClient:
     """CloudClient — OSS Pattern 3 stub (raise on call)."""
 
@@ -548,6 +551,7 @@ class TestCloudClient:
 # ===========================================================================
 
 
+@_skip_oss_only
 class TestDeployMigrate:
     """deploy_migrate — OSS Pattern 3 stubs."""
 

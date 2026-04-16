@@ -8,10 +8,11 @@ import asyncio
 import logging
 import os
 import signal
+import time
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, List, Optional, Tuple
 
-import redis.asyncio as redis
+import redis
 
 from execution_queue.models import ExecutionJob, ExecutionResult, ExecutionStatus, Priority
 
@@ -51,9 +52,11 @@ class ExecutionQueueConsumer:
     def __init__(
         self,
         redis_url: Optional[str] = None,
-        redis_client: Optional[redis.Redis] = None,
+        redis_client: Optional[redis.asyncio.Redis] = None,
         consumer_group: str = "execution-workers",
         consumer_name: Optional[str] = None,
+        worker_id: Optional[str] = None,
+        group_name: Optional[str] = None,
         stream_prefix: str = "amprealize:executions",
         block_ms: int = 5000,
         batch_size: int = 1,
@@ -71,8 +74,13 @@ class ExecutionQueueConsumer:
             batch_size: Max messages to read per XREADGROUP call
             max_retries: Max retries before sending to DLQ
         """
+        if group_name is not None:
+            consumer_group = group_name
+        if consumer_name is None and worker_id is not None:
+            consumer_name = worker_id
+
         self._redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
-        self._redis: Optional[redis.Redis] = redis_client
+        self._redis: Optional[redis.asyncio.Redis] = redis_client
         self._owns_redis = redis_client is None
         self._consumer_group = consumer_group
         self._consumer_name = consumer_name or f"worker-{os.getpid()}"
@@ -83,16 +91,24 @@ class ExecutionQueueConsumer:
         self._running = False
         self._current_job: Optional[ExecutionJob] = None
 
-    async def _get_redis(self) -> redis.Redis:
+    async def _get_redis(self) -> redis.asyncio.Redis:
         """Get or create Redis connection."""
         if self._redis is None:
-            self._redis = redis.from_url(self._redis_url, decode_responses=False)
+            self._redis = redis.asyncio.from_url(self._redis_url, decode_responses=False)
         return self._redis
+
+    async def _ensure_connected(self) -> redis.asyncio.Redis:
+        """Backward-compatible alias for tests expecting eager connection setup."""
+        return await self._get_redis()
 
     async def close(self) -> None:
         """Close Redis connection if we own it."""
         if self._redis and self._owns_redis:
-            await self._redis.close()
+            close = getattr(self._redis, "aclose", None) or getattr(self._redis, "close", None)
+            if close is not None:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
             self._redis = None
 
     def _get_stream_key(self, priority: Priority) -> str:
@@ -114,7 +130,7 @@ class ExecutionQueueConsumer:
                 await r.xgroup_create(
                     stream_key,
                     self._consumer_group,
-                    id="0",  # Read from beginning for new groups
+                    id="$",  # Start at current tail for new groups
                     mkstream=True,
                 )
                 logger.info(f"Created consumer group {self._consumer_group} on {stream_key}")
@@ -124,6 +140,67 @@ class ExecutionQueueConsumer:
                     pass
                 else:
                     raise
+
+    async def _ensure_consumer_group(self, stream_key: str) -> None:
+        """Backward-compatible helper for creating a single consumer group."""
+        r = await self._get_redis()
+
+        try:
+            await r.xgroup_create(
+                stream_key,
+                self._consumer_group,
+                id="$",
+                mkstream=True,
+            )
+        except redis.ResponseError as e:
+            if "BUSYGROUP" not in str(e):
+                raise
+
+    async def claim_job(
+        self,
+        timeout_ms: Optional[int] = None,
+        priorities: Optional[List[Priority]] = None,
+    ) -> Optional[ExecutionJob]:
+        """Claim a single job from the queue.
+
+        This compatibility API returns one job at a time and favors higher
+        priorities when multiple queues contain work.
+        """
+        priorities = priorities or [Priority.HIGH, Priority.NORMAL, Priority.LOW]
+        await self._ensure_consumer_groups()
+
+        r = await self._get_redis()
+        timeout_ms = self._block_ms if timeout_ms is None else timeout_ms
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000.0
+
+        while True:
+            for priority in priorities:
+                stream_key = self._get_stream_key(priority)
+                results = await r.xreadgroup(
+                    self._consumer_group,
+                    self._consumer_name,
+                    {stream_key: ">"},
+                    count=1,
+                    block=1,
+                )
+
+                if results:
+                    _, messages = results[0]
+                    if messages:
+                        _, data = messages[0]
+                        return ExecutionJob.from_dict(data)
+
+            if timeout_ms <= 0 or time.monotonic() >= deadline:
+                return None
+
+    async def ack_job(
+        self,
+        message_id: str,
+        stream_key: str,
+        result: Optional[ExecutionResult] = None,
+    ) -> None:
+        """Backward-compatible alias for acknowledging a claimed message."""
+        await self.ack(stream_key, message_id)
 
     async def consume(
         self,

@@ -303,19 +303,23 @@ class MCPLazyToolLoader:
 
         # Find tools matching this group's prefixes
         for original_name, tool_info in self._all_tool_manifests.items():
-            # Check if tool matches any prefix for this group
-            matches_group = False
-            for prefix in group.tool_prefixes:
-                if original_name.startswith(prefix):
-                    matches_group = True
-                    break
+            if group_id == ToolGroupId.CORE:
+                # CORE group uses CORE_TOOLS as the authoritative set —
+                # it contains tools from many prefixes (auth, behaviors,
+                # research_wiki, tools, etc.) so prefix matching alone
+                # would miss cross-cutting tools.
+                if original_name not in CORE_TOOLS:
+                    continue
+            else:
+                # Non-core groups use prefix matching
+                matches_group = False
+                for prefix in group.tool_prefixes:
+                    if original_name.startswith(prefix):
+                        matches_group = True
+                        break
 
-            if not matches_group:
-                continue
-
-            # For core group, only load tools in CORE_TOOLS set
-            if group_id == ToolGroupId.CORE and original_name not in CORE_TOOLS:
-                continue
+                if not matches_group:
+                    continue
 
             # Module gating — skip tools whose module is disabled
             if not self._is_tool_allowed_by_module(original_name):

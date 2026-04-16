@@ -5,7 +5,7 @@ Install amprealize-enterprise[billing] for webhook integration.
 """
 
 try:
-    from amprealize_enterprise.billing.webhook_routes import (
+    from amprealize.enterprise.billing.webhook_routes import (
         create_webhook_router,
         create_amprealize_webhook_router,
         WebhookResponse,

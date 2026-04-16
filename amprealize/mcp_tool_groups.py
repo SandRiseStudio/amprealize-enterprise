@@ -125,7 +125,7 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         name="Core",
         description="Essential Amprealize tools always available",
         tool_prefixes=["auth.", "behaviors.", "projects.", "orgs.", "workItems.", "runs.", "context.", "boards."],
-        max_tools=42,
+        max_tools=55,  # Must be >= len(CORE_TOOLS); was 42, missing 8 tools
         priority=0,  # Highest priority
         requires_auth=False,  # Auth tools don't require auth
         activation_keywords=["start", "login", "behavior", "project", "work"],

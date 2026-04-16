@@ -605,7 +605,7 @@ class Settings(BaseSettings):
     # Credentials: amprealize:amprealize_dev (matching BreakerAmp default blueprint)
     amprealize_behavior_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dbehavior"
     amprealize_workflow_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dworkflow"
-    amprealize_action_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dexecution"
+    amprealize_action_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Daction"
     amprealize_run_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dexecution"
     amprealize_compliance_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dcompliance"
     amprealize_metrics_pg_dsn: str = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dmetrics"

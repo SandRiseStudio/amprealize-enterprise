@@ -703,17 +703,31 @@ class DistributedRateLimiter:
         self,
         redis_url: Optional[str] = None,
         tier_limits: Optional[Dict[SubscriptionTier, TierLimits]] = None,
+        key_prefix: Optional[str] = None,
     ):
         """Initialize distributed rate limiter.
 
         Args:
             redis_url: Redis connection URL. If None, tries env vars.
             tier_limits: Override default tier limits.
+            key_prefix: Optional Redis key prefix. When unset, production uses the
+                stable ``mcp:ratelimit`` prefix, while pytest gets an instance-
+                scoped prefix to avoid cross-test leakage through shared Redis.
         """
         self._tier_limits = tier_limits or TIER_LIMITS
         self._redis_client: Optional["aioredis.Redis"] = None
         self._use_redis = False
         self._redis_url = redis_url
+        if key_prefix is not None:
+            self._key_prefix = key_prefix
+        else:
+            default_prefix = os.getenv("MCP_RATE_LIMIT_KEY_PREFIX")
+            if default_prefix:
+                self._key_prefix = default_prefix
+            elif os.getenv("PYTEST_CURRENT_TEST"):
+                self._key_prefix = f"mcp:ratelimit:test:{id(self)}"
+            else:
+                self._key_prefix = "mcp:ratelimit"
 
         # In-memory fallback state
         self._memory_counters: Dict[str, Dict[str, Any]] = {}
@@ -727,6 +741,15 @@ class DistributedRateLimiter:
             "denies_total": 0,
             "redis_errors": 0,
         }
+
+    def _redis_minute_key(self, identifier: str) -> str:
+        return f"{self._key_prefix}:{identifier}:minute"
+
+    def _redis_daily_key(self, identifier: str, day_key: int) -> str:
+        return f"{self._key_prefix}:{identifier}:daily:{day_key}"
+
+    def _redis_pattern(self, identifier: str) -> str:
+        return f"{self._key_prefix}:{identifier}:*"
 
     async def _ensure_redis(self) -> bool:
         """Lazily initialize Redis connection."""
@@ -876,7 +899,7 @@ class DistributedRateLimiter:
         tier: str,
     ) -> DistributedRateLimitResult:
         """Check minute limit using Redis sliding window."""
-        key = f"mcp:ratelimit:{identifier}:minute"
+        key = self._redis_minute_key(identifier)
         window_start = now - 60
 
         lua_script = """
@@ -1002,7 +1025,7 @@ class DistributedRateLimiter:
     ) -> DistributedRateLimitResult:
         """Check daily quota using Redis."""
         day_key = now // 86400
-        key = f"mcp:ratelimit:{identifier}:daily:{day_key}"
+        key = self._redis_daily_key(identifier, day_key)
 
         try:
             pipe = self._redis_client.pipeline()
@@ -1110,9 +1133,9 @@ class DistributedRateLimiter:
 
     async def _get_usage_redis(self, identifier: str, now: int) -> Dict[str, Any]:
         """Get usage from Redis."""
-        minute_key = f"mcp:ratelimit:{identifier}:minute"
+        minute_key = self._redis_minute_key(identifier)
         day_key = now // 86400
-        daily_key = f"mcp:ratelimit:{identifier}:daily:{day_key}"
+        daily_key = self._redis_daily_key(identifier, day_key)
 
         try:
             pipe = self._redis_client.pipeline()
@@ -1180,7 +1203,7 @@ class DistributedRateLimiter:
 
     async def _reset_redis(self, identifier: str) -> Dict[str, Any]:
         """Reset limits in Redis."""
-        pattern = f"mcp:ratelimit:{identifier}:*"
+        pattern = self._redis_pattern(identifier)
 
         try:
             keys = []

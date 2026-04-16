@@ -32,7 +32,7 @@ class SignatureMetadata:
 
 
 try:
-    from amprealize_enterprise.crypto.signing import (
+    from amprealize.enterprise.crypto.signing import (
         AuditSigner,
         generate_signing_key,
         load_signer_from_settings,

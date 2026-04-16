@@ -1,7 +1,7 @@
 """Analytics warehouse - OSS Stub. Full implementation in amprealize-enterprise."""
 
 try:
-    from amprealize_enterprise.analytics.warehouse import AnalyticsWarehouse
+    from amprealize.enterprise.analytics.warehouse import AnalyticsWarehouse
 except ImportError:
 
     class AnalyticsWarehouse:  # type: ignore[no-redef]

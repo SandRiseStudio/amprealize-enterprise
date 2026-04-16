@@ -1,7 +1,7 @@
 """Codebase analyzer - OSS Stub. Full implementation in amprealize-enterprise."""
 
 try:
-    from amprealize_enterprise.research.codebase_analyzer import (
+    from amprealize.enterprise.research.codebase_analyzer import (
         CodebaseAnalyzer,
         CodebaseSnapshot,
         get_codebase_context,

@@ -769,7 +769,7 @@ class TestExecutorSourceProviderIntegration:
 
         # Mock the lazy WorkspaceConfig import inside _provision_with_provider
         mock_wsc = MagicMock()
-        with patch.dict("sys.modules", {"breakeramp": MagicMock(WorkspaceConfig=mock_wsc)}):
+        with patch("breakeramp.WorkspaceConfig", mock_wsc):
             result = await executor.provision_workspace(resolved)
 
         # Verify source provider was called
@@ -800,7 +800,7 @@ class TestExecutorSourceProviderIntegration:
 
         mock_wsc = MagicMock()
         with patch("amprealize.mode_executors.resolve_source_provider", return_value=None), \
-             patch.dict("sys.modules", {"breakeramp": MagicMock(WorkspaceConfig=mock_wsc)}):
+             patch("breakeramp.WorkspaceConfig", mock_wsc):
             result = await executor.provision_workspace(resolved)
 
         assert result.workspace_id == "run-123"
@@ -839,6 +839,6 @@ class TestExecutorSourceProviderIntegration:
 
         # Should not raise — clone failure is non-fatal
         mock_wsc = MagicMock()
-        with patch.dict("sys.modules", {"breakeramp": MagicMock(WorkspaceConfig=mock_wsc)}):
+        with patch("breakeramp.WorkspaceConfig", mock_wsc):
             result = await executor.provision_workspace(resolved)
         assert result.workspace_id == "run-123"

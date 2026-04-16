@@ -137,6 +137,22 @@ class TestCreateRunParity:
         assert result["actor"]["id"] == "rest-user"
         assert result["actor"]["surface"] == "api"
 
+    def test_rest_create_run_without_actor_uses_anonymous_context(self, rest_adapter: RestRunServiceAdapter):
+        payload = {
+            "workflow_name": "Smoke Workflow",
+            "behavior_ids": [],
+            "metadata": {"source": "smoke"},
+            "initial_message": "Anonymous REST run",
+        }
+        result = rest_adapter.create_run(payload)
+
+        assert result["run_id"]
+        assert result["status"] == RunStatus.PENDING
+        assert result["workflow_name"] == "Smoke Workflow"
+        assert result["message"] == "Anonymous REST run"
+        assert result["actor"]["id"] == "system"
+        assert result["actor"]["surface"] == "api"
+
     def test_mcp_create_run(self, mcp_adapter: MCPRunServiceAdapter):
         payload = {
             "actor": {"id": "mcp-user", "role": "STUDENT", "surface": "mcp"},

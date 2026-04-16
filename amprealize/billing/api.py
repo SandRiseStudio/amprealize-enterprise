@@ -5,7 +5,7 @@ Install amprealize-enterprise[billing] for billing API routes.
 """
 
 try:
-    from amprealize_enterprise.billing.api import (
+    from amprealize.enterprise.billing.api import (
         create_billing_router,
         CreateCustomerRequest,
         UpdateCustomerRequest,

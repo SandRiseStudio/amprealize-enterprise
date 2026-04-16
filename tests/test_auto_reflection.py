@@ -161,10 +161,17 @@ class TestAutoReflectionExecution:
              patch.object(loop, "_persist_reflection_candidates"):
             loop._run_post_run_reflection("run-tel", _make_phase_outputs())
 
-        # Should emit reflection.candidate_extracted event
+        # Should emit reflection.candidate_extracted event (may be followed
+        # by enterprise auto_reflection.completed, so find it by type)
         telemetry.emit_event.assert_called()
-        call_kwargs = telemetry.emit_event.call_args_list[-1][1]
-        assert call_kwargs["event_type"] == "reflection.candidate_extracted"
+        candidate_calls = [
+            c[1] for c in telemetry.emit_event.call_args_list
+            if c[1].get("event_type") == "reflection.candidate_extracted"
+        ]
+        assert len(candidate_calls) == 1, (
+            f"Expected 1 candidate_extracted event, got {len(candidate_calls)}"
+        )
+        call_kwargs = candidate_calls[0]
         assert call_kwargs["payload"]["candidate_id"] == "behavior_parse_user_input"
         assert call_kwargs["payload"]["confidence"] == 0.82
 

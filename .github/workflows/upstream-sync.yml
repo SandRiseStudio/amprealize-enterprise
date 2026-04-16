@@ -1,0 +1,181 @@
+name: Upstream OSS Sync
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC (after typical US West Coast working hours)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'OSS branch to sync from'
+        required: false
+        default: 'main'
+        type: string
+      dry_run:
+        description: 'Preview changes without merging'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  OSS_REMOTE: upstream
+  OSS_REPO: amprealize/amprealize
+  SYNC_BRANCH: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync from OSS upstream
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout enterprise repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add OSS upstream remote
+        run: |
+          BRANCH="${{ github.event.inputs.branch || env.SYNC_BRANCH }}"
+          git remote add ${{ env.OSS_REMOTE }} \
+            https://github.com/${{ env.OSS_REPO }}.git 2>/dev/null || true
+          git fetch ${{ env.OSS_REMOTE }} "$BRANCH"
+          echo "SYNC_SOURCE_BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Check for new commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..${{ env.OSS_REMOTE }}/${{ env.SYNC_SOURCE_BRANCH }})
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "OSS upstream is $BEHIND commits ahead"
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "Already up to date — nothing to sync."
+          fi
+
+      - name: Attempt merge (dry run)
+        if: steps.check.outputs.behind != '0'
+        id: merge_check
+        run: |
+          # Create a temp branch to test the merge
+          git checkout -b sync/upstream-check
+          if git merge --no-commit --no-ff ${{ env.OSS_REMOTE }}/${{ env.SYNC_SOURCE_BRANCH }} 2>/dev/null; then
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            echo "Merge is clean — no conflicts"
+            git merge --abort 2>/dev/null || true
+          else
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            # Capture conflicted files
+            CONFLICTS=$(git diff --name-only --diff-filter=U | head -50)
+            echo "Conflicted files:"
+            echo "$CONFLICTS"
+            echo "conflicts<<EOF" >> $GITHUB_OUTPUT
+            echo "$CONFLICTS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            git merge --abort 2>/dev/null || true
+          fi
+          git checkout main
+
+      - name: Create sync branch and merge
+        if: >
+          steps.check.outputs.behind != '0'
+          && steps.merge_check.outputs.has_conflicts == 'false'
+          && github.event.inputs.dry_run != 'true'
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git merge --no-ff ${{ env.OSS_REMOTE }}/${{ env.SYNC_SOURCE_BRANCH }} \
+            -m "chore: sync from OSS upstream (${{ env.SYNC_SOURCE_BRANCH }})"
+          git push origin "$BRANCH"
+          echo "SYNC_PR_BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Create pull request
+        if: >
+          steps.check.outputs.behind != '0'
+          && steps.merge_check.outputs.has_conflicts == 'false'
+          && github.event.inputs.dry_run != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const behind = ${{ steps.check.outputs.behind }};
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `chore: sync ${behind} commits from OSS upstream`,
+              head: process.env.SYNC_PR_BRANCH,
+              base: 'main',
+              body: [
+                '## Upstream OSS Sync',
+                '',
+                `Syncing **${behind}** commits from \`${{ env.OSS_REPO }}\` (\`${{ env.SYNC_SOURCE_BRANCH }}\`).`,
+                '',
+                'This PR was created automatically by the upstream sync workflow.',
+                '',
+                '### Review checklist',
+                '- [ ] Enterprise-specific files are unaffected',
+                '- [ ] No enterprise feature regressions',
+                '- [ ] CI passes',
+                '',
+                'See [UPSTREAM_SYNC.md](../docs/UPSTREAM_SYNC.md) for conflict resolution guidance.',
+              ].join('\n'),
+              labels: ['upstream-sync'],
+            });
+            console.log(`Created PR #${pr.number}: ${pr.html_url}`);
+
+      - name: Report conflicts (create issue)
+        if: >
+          steps.check.outputs.behind != '0'
+          && steps.merge_check.outputs.has_conflicts == 'true'
+          && github.event.inputs.dry_run != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const conflicts = `${{ steps.merge_check.outputs.conflicts }}`;
+            const behind = ${{ steps.check.outputs.behind }};
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Upstream sync blocked: ${behind} commits with merge conflicts`,
+              body: [
+                '## Upstream Sync Conflict',
+                '',
+                `Attempted to sync **${behind}** commits from \`${{ env.OSS_REPO }}\` (\`${{ env.SYNC_SOURCE_BRANCH }}\`) but merge conflicts were detected.`,
+                '',
+                '### Conflicted files',
+                '```',
+                conflicts,
+                '```',
+                '',
+                '### Resolution',
+                'Follow the steps in [UPSTREAM_SYNC.md](../docs/UPSTREAM_SYNC.md):',
+                '```bash',
+                'git fetch upstream main',
+                'git checkout -b sync/upstream-manual',
+                'git merge upstream/main',
+                '# Resolve conflicts in the files listed above',
+                'git add .',
+                'git commit',
+                'git push origin sync/upstream-manual',
+                '```',
+                '',
+                'Then create a PR from `sync/upstream-manual` → `main`.',
+              ].join('\n'),
+              labels: ['upstream-sync', 'needs-manual-resolution'],
+            });
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Commits behind: ${{ steps.check.outputs.behind }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Conflicts: ${{ steps.merge_check.outputs.has_conflicts || 'n/a' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Dry run: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY

@@ -1,6 +1,6 @@
 -- Action Service Schema (PostgresActionService)
 -- Creates actions + replays tables for WORM action recording and replay tracking.
--- Designed for use in the `execution` schema when using modular monolith layout.
+-- Designed for use in the `action` schema when using modular monolith layout.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -57,7 +57,7 @@ CREATE TRIGGER set_actions_updated_at
 -- ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS replays (
     replay_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    status TEXT NOT NULL CHECK (status IN ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED')),
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'PARTIAL')),
     progress FLOAT NOT NULL DEFAULT 0.0 CHECK (progress >= 0.0 AND progress <= 1.0),
     logs JSONB NOT NULL DEFAULT '[]'::jsonb,
     failed_action_ids JSONB NOT NULL DEFAULT '[]'::jsonb,

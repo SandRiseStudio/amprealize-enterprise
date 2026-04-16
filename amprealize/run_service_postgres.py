@@ -95,6 +95,11 @@ class PostgresRunService:
 
         def _execute(conn: Any) -> None:
             with conn.cursor() as cur:
+                user_id = self._resolve_existing_user_id(
+                    cur,
+                    actor_id=actor.id,
+                    triggering_user_id=request.triggering_user_id,
+                )
                 cur.execute(
                     """
                     INSERT INTO runs (
@@ -113,7 +118,7 @@ class PostgresRunService:
                         run_id,
                         created_at,
                         created_at,
-                        actor.id if actor.id != "api-user" else None,  # Only set if real user
+                        user_id,
                         metadata.get("project_id"),
                         metadata.get("session_id"),
                         actor.surface,
@@ -660,6 +665,50 @@ class PostgresRunService:
         if request.actor and request.actor.role:
             metadata["actor_role"] = request.actor.role
         return metadata
+
+    def _resolve_existing_user_id(
+        self,
+        cur: Any,
+        *,
+        actor_id: Optional[str],
+        triggering_user_id: Optional[str],
+    ) -> Optional[str]:
+        """Resolve the backing auth.users identifier for a run.
+
+        REST, CLI, and MCP surfaces may use synthetic actor identifiers such as
+        ``api-user`` or ``local-cli`` that are valid telemetry principals but not
+        rows in ``auth.users``. In that case we store ``NULL`` in ``runs.user_id``
+        and preserve the actor role/surface in run context.
+        """
+
+        candidates: List[str] = []
+        for candidate in (actor_id, triggering_user_id):
+            if not candidate:
+                continue
+            normalized = str(candidate).strip()
+            if not normalized or normalized in {"api-user", "unknown", "system", "local-cli"}:
+                continue
+            if normalized not in candidates:
+                candidates.append(normalized)
+
+        for candidate in candidates:
+            try:
+                cur.execute("SELECT id FROM auth.users WHERE id = %s LIMIT 1", (candidate,))
+                row = cur.fetchone()
+            except Exception:
+                return None
+
+            if not row:
+                continue
+
+            if isinstance(row, dict):
+                resolved = row.get("id")
+            else:
+                resolved = row[0]
+
+            return str(resolved) if resolved is not None else None
+
+        return None
 
     def _merge_metadata(
         self,

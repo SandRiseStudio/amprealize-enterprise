@@ -13,12 +13,8 @@ from typing import TYPE_CHECKING
 # ---------------------------------------------------------------------------
 # Enterprise edition detection
 # ---------------------------------------------------------------------------
-try:
-    import amprealize_enterprise as _enterprise  # noqa: F401
-
-    HAS_ENTERPRISE = True
-except ImportError:
-    HAS_ENTERPRISE = False
+# Enterprise fork: amprealize.enterprise is always available.
+HAS_ENTERPRISE = True
 
 # ---------------------------------------------------------------------------
 # Lazy import mapping: attribute_name → (relative_module, attribute_name_in_module)

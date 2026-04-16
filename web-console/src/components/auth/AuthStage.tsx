@@ -1,9 +1,5 @@
 import type { ReactNode } from 'react';
-import {
-  Bot,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import './AuthStage.css';
 
@@ -14,24 +10,6 @@ interface AuthStageProps {
   children: ReactNode;
   footer?: ReactNode;
 }
-
-const supportingNotes = [
-  {
-    icon: Sparkles,
-    title: 'Fast handoff',
-    description: 'Sign in without losing momentum.',
-  },
-  {
-    icon: Bot,
-    title: 'Human-first',
-    description: 'Agents stay available, never overwhelming.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Clear recovery',
-    description: 'Errors stay understandable and actionable.',
-  },
-] as const;
 
 export function AuthStage({
   panelEyebrow,
@@ -60,10 +38,10 @@ export function AuthStage({
             </div>
             <div className="auth-stage-brand-copy">
               <span className="auth-stage-brand-name">{PRODUCT_DISPLAY_NAME}</span>
-              <span className="auth-stage-brand-meta">Web Console</span>
+              <span className="auth-stage-brand-meta">Behavior engine</span>
             </div>
           </div>
-          <p className="auth-stage-tagline">Projects, boards, runs, and agents in one fast place.</p>
+          <p className="auth-stage-tagline">Reusable behaviors for agents, tools, and workflows.</p>
         </header>
 
         <section className="auth-stage-panel" aria-label={panelTitle}>
@@ -78,20 +56,6 @@ export function AuthStage({
             {footer}
           </div>
         </section>
-
-        <div className="auth-stage-support" aria-label={`${PRODUCT_DISPLAY_NAME} sign-in principles`}>
-          {supportingNotes.map(({ icon: Icon, title, description }) => (
-            <div key={title} className="auth-stage-support-item">
-              <div className="auth-stage-support-icon" aria-hidden="true">
-                <Icon size={16} strokeWidth={2} />
-              </div>
-              <div className="auth-stage-support-copy">
-                <span>{title}</span>
-                <small>{description}</small>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

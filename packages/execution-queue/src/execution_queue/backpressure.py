@@ -5,7 +5,10 @@ depth and rejecting new jobs when at capacity.
 """
 
 import logging
+import os
 from typing import Dict, Optional
+
+import redis
 
 from execution_queue.models import Priority
 from execution_queue.publisher import ExecutionQueuePublisher
@@ -48,9 +51,13 @@ class BackpressureMonitor:
 
     def __init__(
         self,
-        publisher: ExecutionQueuePublisher,
+        publisher: Optional[ExecutionQueuePublisher] = None,
         max_depth_per_priority: Optional[Dict[Priority, int]] = None,
         max_total_depth: int = 10000,
+        max_queue_depth: Optional[int] = None,
+        redis_url: Optional[str] = None,
+        redis_client: Optional[redis.asyncio.Redis] = None,
+        stream_prefix: str = "amprealize:executions",
     ):
         """Initialize the monitor.
 
@@ -66,6 +73,39 @@ class BackpressureMonitor:
             Priority.LOW: 2000,
         }
         self._max_total = max_total_depth
+        self._max_queue_depth = max_queue_depth if max_queue_depth is not None else max_total_depth
+        self._redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
+        self._redis: Optional[redis.asyncio.Redis] = redis_client
+        self._owns_redis = redis_client is None
+        self._stream_prefix = stream_prefix
+
+    async def _get_redis(self) -> redis.asyncio.Redis:
+        """Get or create a Redis connection for legacy single-stream checks."""
+        if self._redis is None:
+            self._redis = redis.asyncio.from_url(self._redis_url, decode_responses=False)
+        return self._redis
+
+    async def close(self) -> None:
+        """Close Redis connection if we own it."""
+        if self._redis and self._owns_redis:
+            close = getattr(self._redis, "aclose", None) or getattr(self._redis, "close", None)
+            if close is not None:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
+            self._redis = None
+
+    async def check_pressure(self, stream_key: str) -> None:
+        """Backward-compatible single-stream pressure check."""
+        r = await self._get_redis()
+        current = await r.xlen(stream_key)
+
+        if current >= self._max_queue_depth:
+            raise QueueFullError(
+                f"Queue at capacity ({current}/{self._max_queue_depth})",
+                current_depth=current,
+                max_depth=self._max_queue_depth,
+            )
 
     async def check_capacity(self, priority: Priority) -> None:
         """Check if queue has capacity for a new job.
@@ -76,6 +116,11 @@ class BackpressureMonitor:
         Raises:
             QueueFullError: If queue is at capacity
         """
+        if self._publisher is None:
+            stream_key = f"{self._stream_prefix}:{priority.value}"
+            await self.check_pressure(stream_key)
+            return
+
         current = await self._publisher.get_queue_depth(priority)
         max_depth = self._max_per_priority.get(priority, 1000)
 
@@ -101,6 +146,20 @@ class BackpressureMonitor:
         Raises:
             QueueFullError: If total queue depth exceeds limit
         """
+        if self._publisher is None:
+            r = await self._get_redis()
+            total = 0
+            for priority in Priority:
+                total += await r.xlen(f"{self._stream_prefix}:{priority.value}")
+
+            if total >= self._max_total:
+                raise QueueFullError(
+                    f"Total queue depth at capacity ({total}/{self._max_total})",
+                    current_depth=total,
+                    max_depth=self._max_total,
+                )
+            return
+
         depths = await self._publisher.get_all_queue_depths()
         total = sum(depths.values())
 
@@ -125,7 +184,15 @@ class BackpressureMonitor:
         Returns:
             Dict with depth info and health indicators
         """
-        depths = await self._publisher.get_all_queue_depths()
+        if self._publisher is None:
+            r = await self._get_redis()
+            depths = {
+                priority: await r.xlen(f"{self._stream_prefix}:{priority.value}")
+                for priority in Priority
+            }
+        else:
+            depths = await self._publisher.get_all_queue_depths()
+
         total = sum(depths.values())
 
         return {
@@ -165,5 +232,8 @@ class BackpressureMonitor:
 
         if check_total:
             await self.check_total_capacity()
+
+        if self._publisher is None:
+            raise RuntimeError("enqueue_with_backpressure requires a publisher instance")
 
         return await self._publisher.enqueue(job)

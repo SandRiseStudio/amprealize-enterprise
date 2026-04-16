@@ -33,7 +33,7 @@ REMOTE_ONLY_SURFACES = frozenset({"web", "api"})
 # =============================================================================
 
 try:
-    from amprealize_enterprise.multi_tenant.settings import (
+    from amprealize.enterprise.multi_tenant.settings import (
         SettingsService,
         OrgSettings,
         ProjectSettings,

@@ -26,10 +26,20 @@ interface SidebarNavProps {
 interface NavItemProps {
   label: string;
   icon: React.ReactNode;
+  description?: string;
+  ariaLabel?: string;
   active?: boolean;
   nested?: boolean;
   onClick: () => void;
   trailing?: React.ReactNode;
+  secondaryAction?: {
+    icon: React.ReactNode;
+    label: string;
+    title?: string;
+    onClick: () => void;
+  };
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
   role?: string;
   level?: number;
@@ -139,13 +149,33 @@ function loadProjectIdList(storageKey: string): string[] {
   }
 }
 
-const NavItem = memo(function NavItem({ label, icon, active, nested, onClick, trailing, onKeyDown, role, level, expanded, controls }: NavItemProps) {
-  return (
+const NavItem = memo(function NavItem({
+  label,
+  icon,
+  description,
+  ariaLabel,
+  active,
+  nested,
+  onClick,
+  trailing,
+  secondaryAction,
+  onMouseEnter,
+  onFocus,
+  onKeyDown,
+  role,
+  level,
+  expanded,
+  controls,
+}: NavItemProps) {
+  const button = (
     <button
       type="button"
-      className={`sidebar-nav-item ${active ? 'active' : ''} ${nested ? 'nested' : ''}`}
+      className={`sidebar-nav-item ${active ? 'active' : ''} ${nested ? 'nested' : ''} ${secondaryAction ? 'sidebar-nav-item--with-action' : ''}`}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onFocus={onFocus}
       onKeyDown={onKeyDown}
+      aria-label={ariaLabel}
       aria-current={active ? 'page' : undefined}
       aria-expanded={expanded}
       aria-controls={controls}
@@ -157,10 +187,30 @@ const NavItem = memo(function NavItem({ label, icon, active, nested, onClick, tr
         <span className="sidebar-nav-icon-wrap">{icon}</span>
         <span className="sidebar-nav-copy">
           <span className="sidebar-nav-label">{label}</span>
+          {description && <span className="sidebar-nav-description">{description}</span>}
         </span>
       </span>
       {trailing && <span className="sidebar-nav-trailing">{trailing}</span>}
     </button>
+  );
+
+  if (!secondaryAction) {
+    return button;
+  }
+
+  return (
+    <div className={`sidebar-nav-row ${active ? 'active' : ''} ${nested ? 'nested' : ''}`}>
+      {button}
+      <button
+        type="button"
+        className="sidebar-nav-inline-action"
+        aria-label={secondaryAction.label}
+        title={secondaryAction.title ?? secondaryAction.label}
+        onClick={secondaryAction.onClick}
+      >
+        {secondaryAction.icon}
+      </button>
+    </div>
   );
 });
 
@@ -185,9 +235,12 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
   onMoveFocus,
   variant = 'default',
 }: SidebarProjectNodeProps) {
-  const { data: boards = [] } = useBoards(project.id);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [shouldLoadBoards, setShouldLoadBoards] = useState(isActive);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const { data: boards = [] } = useBoards(project.id, {
+    enabled: shouldLoadBoards || pickerOpen || isActive,
+  });
 
   const defaultBoard = useMemo(() => boards.find((b) => b.is_default) ?? boards[0], [boards]);
   const hasMultipleBoards = boards.length > 1;
@@ -216,6 +269,16 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
     };
   }, [pickerOpen]);
 
+  useEffect(() => {
+    if (isActive || pickerOpen) {
+      setShouldLoadBoards(true);
+    }
+  }, [isActive, pickerOpen]);
+
+  const primeBoards = useCallback(() => {
+    setShouldLoadBoards(true);
+  }, []);
+
   const handleProjectClick = useCallback(() => {
     if (defaultBoard) {
       onNavigate(`/projects/${project.id}/boards/${defaultBoard.board_id}`);
@@ -237,10 +300,12 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
   return (
     <div className={`sidebar-project-row ${variant === 'default' ? 'sidebar-project-row--dim' : ''}`} ref={pickerRef}>
       <button
-        type="button"
-        className={`sidebar-nav-item project-item ${isActive ? 'active' : ''}`}
-        onClick={handleProjectClick}
-        onKeyDown={handleKeyDown}
+      type="button"
+      className={`sidebar-nav-item project-item ${isActive ? 'active' : ''}`}
+      onClick={handleProjectClick}
+      onMouseEnter={primeBoards}
+      onFocus={primeBoards}
+      onKeyDown={handleKeyDown}
         aria-current={isActive ? 'page' : undefined}
         data-sidebar-focusable="true"
         role="treeitem"
@@ -284,12 +349,14 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
               title="Switch board"
               onClick={(event) => {
                 event.stopPropagation();
+                setShouldLoadBoards(true);
                 setPickerOpen((prev) => !prev);
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   event.stopPropagation();
+                  setShouldLoadBoards(true);
                   setPickerOpen((prev) => !prev);
                 }
               }}
@@ -644,6 +711,7 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                   level={1}
                 />
                 )}
+              </div>
             </div>
           </div>
         )}
@@ -676,12 +744,13 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
           >
             <span className="sidebar-section-title-group">
               <span className="sidebar-section-dot" />
-              <span>Tools</span>
+              <span>Studio</span>
             </span>
             <ChevronIcon expanded={!visibleSections.tools} />
           </button>
           <div className={`sidebar-section-body ${visibleSections.tools ? 'collapsed' : ''}`}>
             <div className="sidebar-section-body-inner">
+              {hasBehaviors && (
               <NavItem
                 label="Behavior Search"
                 icon={<SearchIcon />}
@@ -699,6 +768,8 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                 role="treeitem"
                 level={1}
               />
+              )}
+              {hasBehaviors && (
               <NavItem
                 label="Behavior Extraction"
                 icon={<SparkIcon />}
@@ -716,6 +787,7 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                 role="treeitem"
                 level={1}
               />
+              )}
             </div>
           </div>
         </div>

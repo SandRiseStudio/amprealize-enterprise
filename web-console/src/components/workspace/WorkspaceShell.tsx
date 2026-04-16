@@ -32,7 +32,31 @@ import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { ProfileMenu } from './ProfileMenu';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
+import { useApiPlatformRuntime } from '../../api/platformRuntime';
 import './WorkspaceShell.css';
+
+function formatVersionLabel(raw: string): string {
+  const t = raw.trim();
+  if (!t) return 'v0.1.0';
+  if (t.startsWith('v') || t.startsWith('V')) return t;
+  return `v${t}`;
+}
+
+/** Compact semver for the narrow sidebar rail (full value stays in `title`). */
+function shortVersionForRail(raw: string): string {
+  const v = formatVersionLabel(raw);
+  const m = /^v?(\d+\.\d+)(?:\.\d+)?/i.exec(v);
+  if (m) return `v${m[1]}`;
+  return v;
+}
+
+function railDistributionLabel(distribution: 'oss' | 'enterprise' | undefined): string {
+  return distribution === 'enterprise' ? 'ENT' : 'OSS';
+}
+
+function railEditionAbbrev(edition: 'starter' | 'premium'): string {
+  return edition === 'premium' ? 'Pr' : 'St';
+}
 
 type ShellPresenceStatus = 'active' | 'idle' | 'away' | 'disconnected';
 
@@ -93,6 +117,27 @@ interface SidebarProps {
 
 const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const { data: runtime } = useApiPlatformRuntime();
+  const versionFull = formatVersionLabel(runtime?.version ?? '0.1.0');
+  const versionShort = shortVersionForRail(runtime?.version ?? '0.1.0');
+  const distRail = railDistributionLabel(runtime?.distribution);
+  const distFull = runtime?.distribution === 'enterprise' ? 'Enterprise' : 'OSS';
+  const edition = runtime?.edition ?? null;
+  const contextName = runtime?.context_name ?? 'unknown';
+
+  const runtimePillText = useMemo(() => {
+    const segments = [`${distRail} ${versionShort}`];
+    if (edition) segments.push(railEditionAbbrev(edition));
+    segments.push(contextName);
+    return segments.join(' · ');
+  }, [contextName, distRail, edition, versionShort]);
+
+  const runtimePillTitle = useMemo(() => {
+    const segments = [`${distFull} ${versionFull}`];
+    if (edition) segments.push(edition === 'premium' ? 'Premium' : 'Starter');
+    segments.push(contextName);
+    return segments.join(' · ');
+  }, [contextName, distFull, edition, versionFull]);
 
   return (
     <aside
@@ -138,10 +183,14 @@ const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: Sidebar
       <nav className="sidebar-nav">{children}</nav>
 
       <div className="sidebar-footer">
-        <ProfileMenu compact={collapsed} dropdownPosition="top" />
+        <div className="sidebar-footer-profile">
+          <ProfileMenu compact={collapsed} dropdownPosition="top" />
+        </div>
         {!collapsed && (
-          <div className="sidebar-footer-meta">
-            <span className="sidebar-version">v0.1.0</span>
+          <div className="sidebar-footer-meta" aria-label="Runtime environment">
+            <span className="sidebar-chip sidebar-chip--runtime" title={runtimePillTitle}>
+              {runtimePillText}
+            </span>
           </div>
         )}
       </div>
@@ -628,16 +677,18 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
   const { currentOrgId } = useOrgContext();
   const { data: project } = useProject(projectId);
   const liveOrgId = currentOrgId ?? project?.org_id ?? null;
-  const { data: agents = [] } = useProjectAgents(Boolean(projectId));
+  const { data: agents = [] } = useProjectAgents(projectId ?? null, {
+    enabled: Boolean(projectId) && mode !== 'board',
+  });
   const { data: executionList } = useExecutionList(liveOrgId, projectId, {
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && mode !== 'board',
     limit: 12,
     refetchInterval: 4000,
   });
   const executionStream = useExecutionStream({
     orgId: liveOrgId,
     projectId,
-    enabled: Boolean(projectId && liveOrgId),
+    enabled: Boolean(projectId && liveOrgId) && mode !== 'board',
   });
 
   const livePresenceList = useMemo<ShellPresenceParticipant[]>(() => {

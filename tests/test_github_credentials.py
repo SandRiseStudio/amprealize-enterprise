@@ -349,9 +349,17 @@ class TestGitHubCredentialRepositoryIntegration:
         # Skip if no database connection
         pytest.importorskip("psycopg2")
         from amprealize.storage.postgres_pool import PostgresPool
+        from amprealize.utils.dsn import resolve_postgres_dsn
 
         try:
-            pool = PostgresPool()
+            pool = PostgresPool(
+                resolve_postgres_dsn(
+                    service="AUTH",
+                    explicit_dsn=None,
+                    env_var="AMPREALIZE_AUTH_PG_DSN",
+                    default_dsn="postgresql://localhost:5432/amprealize",
+                )
+            )
             return GitHubCredentialRepository(pool=pool)
         except Exception:
             pytest.skip("Database not available")

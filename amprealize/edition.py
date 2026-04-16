@@ -1,9 +1,8 @@
 """Edition resolver — detect OSS vs Enterprise and surface capabilities.
 
-Edition is determined by whether ``amprealize-enterprise`` is installed.
-Tier (Starter/Premium) within Enterprise is resolved by the enterprise
-package's billing integration — here it's represented as Pattern 1 stub
-(``resolve_tier = None``).
+Enterprise fork: ``amprealize.enterprise`` is always present, so this
+module directly imports ``resolve_tier`` from the enterprise subpackage.
+Tier (Starter/Premium) is resolved via billing integration or license key.
 
 Part of Phases 1 & 4 of GUIDEAI-748 (Modular Installation System).
 """
@@ -37,12 +36,9 @@ class Edition(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Tier resolution — Pattern 1 stub (None means "not available in OSS")
+# Tier resolution — enterprise fork: directly import resolve_tier
 # ---------------------------------------------------------------------------
-# The enterprise package replaces this with a real callable:
-#   from amprealize_enterprise.edition_tier import resolve_tier
-# That function calls BillingService to determine Starter vs Premium.
-resolve_tier = None
+from amprealize.enterprise.edition_tier import resolve_tier  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -128,21 +124,18 @@ _ENTERPRISE_PREMIUM_CAPS = EditionCapabilities(
 def detect_edition() -> Edition:
     """Detect which edition is running.
 
-    * No ``amprealize-enterprise`` → :attr:`Edition.OSS`
-    * Enterprise installed, tier resolution available → delegate to
-      ``resolve_tier()`` from the enterprise package
-    * Enterprise installed, no tier resolution → default to Starter
+    Enterprise fork: always resolves to an enterprise tier via
+    ``resolve_tier()`` from ``amprealize.enterprise.edition_tier``.
     """
     if not HAS_ENTERPRISE:
         return Edition.OSS
 
-    if resolve_tier is not None:
-        tier = resolve_tier()
-        if tier == "premium":
-            return Edition.ENTERPRISE_PREMIUM
+    if resolve_tier is None or not callable(resolve_tier):
         return Edition.ENTERPRISE_STARTER
 
-    # Enterprise installed but tier resolution not wired → Starter default
+    tier = resolve_tier()
+    if tier == "premium":
+        return Edition.ENTERPRISE_PREMIUM
     return Edition.ENTERPRISE_STARTER
 
 

@@ -244,15 +244,13 @@ services:
       TELEMETRY_DATABASE_URL: "postgresql://${AMPREALIZE_PG_USER_TELEMETRY:-telemetry}:${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_dev}@telemetry-db:5432/${AMPREALIZE_PG_DB_TELEMETRY:-telemetry}"
       # Explicit Org DSN for OrganizationService (auth schema first)
       AMPREALIZE_ORG_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dauth,execution,board,behavior,workflow,consent,audit,public"
-
-      # =========================================================================
       # LEGACY: Per-service DSNs (for backward compatibility during migration)
       # These all point to amprealize-db now with search_path including all schemas
       # =========================================================================
       # search_path includes: auth, execution, board, behavior, workflow, consent, audit, public
       AMPREALIZE_AUTH_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dauth,execution,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_BOARD_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dboard,auth,execution,behavior,workflow,consent,audit,public"
-      AMPREALIZE_ACTION_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
+      AMPREALIZE_ACTION_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Daction,execution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_RUN_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_EXECUTION_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_WORKFLOW_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dworkflow,auth,execution,board,behavior,consent,audit,public"
@@ -349,7 +347,7 @@ services:
       # Consolidated DB DSNs for MCP-backed services
       AMPREALIZE_BEHAVIOR_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dbehavior,auth,execution,board,workflow,consent,audit,public"
       AMPREALIZE_WORKFLOW_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dworkflow,auth,execution,board,behavior,consent,audit,public"
-      AMPREALIZE_ACTION_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
+        AMPREALIZE_ACTION_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Daction,execution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_RUN_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_COMPLIANCE_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dconsent,auth,execution,board,behavior,workflow,audit,public"
       AMPREALIZE_METRICS_PG_DSN: "postgresql://${AMPREALIZE_PG_USER_TELEMETRY:-telemetry}:${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_dev}@telemetry-db:5432/${AMPREALIZE_PG_DB_TELEMETRY:-telemetry}"

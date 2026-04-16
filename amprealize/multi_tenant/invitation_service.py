@@ -5,7 +5,7 @@ Install: pip install amprealize-enterprise
 """
 
 try:
-    from amprealize_enterprise.multi_tenant.invitation_service import InvitationService
+    from amprealize.enterprise.multi_tenant.invitation_service import InvitationService
 except ImportError:
     InvitationService = None
 

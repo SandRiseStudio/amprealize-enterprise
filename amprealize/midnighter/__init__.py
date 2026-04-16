@@ -5,7 +5,7 @@ Install amprealize-enterprise[midnighter] for BC-SFT training integration.
 """
 
 try:
-    from amprealize_enterprise.midnighter import (
+    from amprealize.enterprise.midnighter import (
         create_midnighter_service,
         MidnighterService,
         MidnighterHooks,

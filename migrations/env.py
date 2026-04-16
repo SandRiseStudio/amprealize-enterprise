@@ -47,7 +47,26 @@ else:
         )
 
 # This is the Alembic Config object
-config = context.config
+class _FallbackConfig:
+    """Minimal stand-in for Alembic Config during plain module imports."""
+
+    config_file_name = None
+    config_ini_section = "alembic"
+
+    def __init__(self) -> None:
+        self._options: dict[str, str] = {}
+
+    def set_main_option(self, key: str, value: str) -> None:
+        self._options[key] = value
+
+    def get_main_option(self, key: str, default: str = "") -> str:
+        return self._options.get(key, default)
+
+    def get_section(self, section: str, default: dict | None = None) -> dict:
+        return default or {}
+
+
+config = getattr(context, "config", None) or _FallbackConfig()
 
 # Set database URL in config (overrides alembic.ini)
 # Escape % for ConfigParser interpolation
@@ -191,7 +210,8 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
+if getattr(context, "config", None) is not None:
+    if context.is_offline_mode():
+        run_migrations_offline()
+    else:
+        run_migrations_online()

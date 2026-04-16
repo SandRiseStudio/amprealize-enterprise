@@ -5,7 +5,7 @@ Install: pip install amprealize-enterprise
 """
 
 try:
-    from amprealize_enterprise.multi_tenant.settings_api import create_settings_routes
+    from amprealize.enterprise.multi_tenant.settings_api import create_settings_routes
     SETTINGS_ROUTES_AVAILABLE = True
 except ImportError:
     SETTINGS_ROUTES_AVAILABLE = False

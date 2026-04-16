@@ -148,28 +148,35 @@ def get_caps_enforcer() -> CapsEnforcer:
     """Return the caps enforcer singleton.
 
     Resolution order:
-    1. Real enforcer from ``amprealize_enterprise`` (if installed)
-    2. ``EditionCapsEnforcer`` for Enterprise Starter (capped)
-    3. No-op ``CapsEnforcer`` for OSS / Enterprise Premium (uncapped)
+    1. Enterprise caps enforcer for starter edition (when enterprise is active)
+    2. Edition-based enforcer for starter without enterprise
+    3. No-op enforcer for OSS and Enterprise Premium (both uncapped)
     """
     global _enforcer
     if _enforcer is not None:
         return _enforcer
 
-    try:
-        from amprealize_enterprise.caps_enforcer import (  # type: ignore[import-not-found]
-            CapsEnforcer as EnterpriseCapsEnforcer,
-        )
+    # Import HAS_ENTERPRISE via the edition module so tests that patch
+    # ``amprealize.edition.HAS_ENTERPRISE`` are respected.
+    from amprealize import edition as _ed
 
-        _enforcer = EnterpriseCapsEnforcer()
-    except ImportError:
-        from amprealize.edition import Edition, detect_edition
+    detected = _ed.detect_edition()
 
-        edition = detect_edition()
-        if edition == Edition.ENTERPRISE_STARTER:
+    if detected == _ed.Edition.ENTERPRISE_STARTER:
+        if _ed.HAS_ENTERPRISE:
+            try:
+                from amprealize.enterprise.caps_enforcer import (
+                    CapsEnforcer as EnterpriseCapsEnforcer,
+                )
+
+                _enforcer = EnterpriseCapsEnforcer()
+            except ImportError:
+                pass
+        if _enforcer is None:
             _enforcer = EditionCapsEnforcer()
-        else:
-            _enforcer = CapsEnforcer()
+    else:
+        # OSS and Enterprise Premium are both uncapped
+        _enforcer = CapsEnforcer()
 
     return _enforcer
 

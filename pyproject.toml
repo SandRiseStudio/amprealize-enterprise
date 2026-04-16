@@ -3,13 +3,13 @@ requires = ["setuptools>=69.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "amprealize"
+name = "amprealize-enterprise"
 version = "0.1.0"
-description = "Amprealize developer tooling and task orchestration helpers"
+description = "Amprealize Enterprise — superset of OSS with billing, analytics, crypto, and multi-tenant features"
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["amprealize", "cli", "developer-tools"]
-license = { text = "Apache-2.0" }
+keywords = ["amprealize", "enterprise", "cli", "developer-tools"]
+license = { text = "Proprietary" }
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -46,9 +46,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://breakeramp.dev"
 Documentation = "https://breakeramp.dev/docs"
-Source = "https://github.com/SandRiseStudio/amprealize"
-"Bug Tracker" = "https://github.com/SandRiseStudio/amprealize/issues"
-Changelog = "https://github.com/SandRiseStudio/amprealize/blob/main/BUILD_TIMELINE.md"
+Source = "https://github.com/SandRiseStudio/amprealize-enterprise"
+"Bug Tracker" = "https://github.com/SandRiseStudio/amprealize-enterprise/issues"
+Changelog = "https://github.com/SandRiseStudio/amprealize-enterprise/blob/main/BUILD_TIMELINE.md"
 
 [project.optional-dependencies]
 dev = [
@@ -94,8 +94,14 @@ ml = [
 breakeramp = [
   "breakeramp[cli]>=0.1.0",
 ]
-enterprise = [
-  "amprealize-enterprise~=0.1.0",
+crypto = [
+  "cryptography>=41.0,<43.0",
+]
+research = [
+  "pdfplumber>=0.10,<1.0",
+]
+billing = [
+  # billing-specific deps go here when needed
 ]
 
 [project.scripts]

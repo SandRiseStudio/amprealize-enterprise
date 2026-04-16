@@ -1,7 +1,7 @@
 """Research ingesters - OSS Stub. Full implementation in amprealize-enterprise."""
 
 try:
-    from amprealize_enterprise.research.ingesters import (
+    from amprealize.enterprise.research.ingesters import (
         BaseIngester,
         MarkdownIngester,
         URLIngester,

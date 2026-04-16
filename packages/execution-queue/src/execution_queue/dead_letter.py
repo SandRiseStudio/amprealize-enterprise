@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
-import redis.asyncio as redis
+import redis
 
 from execution_queue.models import ExecutionJob, Priority
 
@@ -42,7 +42,7 @@ class DeadLetterHandler:
     def __init__(
         self,
         redis_url: Optional[str] = None,
-        redis_client: Optional[redis.Redis] = None,
+        redis_client: Optional[redis.asyncio.Redis] = None,
         stream_prefix: str = "amprealize:executions",
     ):
         """Initialize the handler.
@@ -53,20 +53,24 @@ class DeadLetterHandler:
             stream_prefix: Prefix for stream keys
         """
         self._redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
-        self._redis: Optional[redis.Redis] = redis_client
+        self._redis: Optional[redis.asyncio.Redis] = redis_client
         self._owns_redis = redis_client is None
         self._stream_prefix = stream_prefix
 
-    async def _get_redis(self) -> redis.Redis:
+    async def _get_redis(self) -> redis.asyncio.Redis:
         """Get or create Redis connection."""
         if self._redis is None:
-            self._redis = redis.from_url(self._redis_url, decode_responses=False)
+            self._redis = redis.asyncio.from_url(self._redis_url, decode_responses=False)
         return self._redis
 
     async def close(self) -> None:
         """Close Redis connection if we own it."""
         if self._redis and self._owns_redis:
-            await self._redis.close()
+            close = getattr(self._redis, "aclose", None) or getattr(self._redis, "close", None)
+            if close is not None:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
             self._redis = None
 
     def _get_dlq_key(self) -> str:
@@ -76,6 +80,31 @@ class DeadLetterHandler:
     def _get_stream_key(self, priority: Priority) -> str:
         """Get stream key for a priority."""
         return f"{self._stream_prefix}:{priority.value}"
+
+    async def move_to_dlq(
+        self,
+        job: ExecutionJob,
+        original_stream: str,
+        error: str,
+    ) -> str:
+        """Backward-compatible helper to move a job into the dead-letter queue."""
+        r = await self._get_redis()
+        job.last_error = error
+        message_id = await r.xadd(self._get_dlq_key(), job.to_dict())
+
+        if isinstance(message_id, bytes):
+            message_id = message_id.decode("utf-8")
+
+        logger.warning(
+            "Moved job to DLQ",
+            extra={
+                "job_id": job.job_id,
+                "original_stream": original_stream,
+                "error": error,
+                "message_id": message_id,
+            },
+        )
+        return message_id
 
     async def get_count(self) -> int:
         """Get number of jobs in the DLQ."""

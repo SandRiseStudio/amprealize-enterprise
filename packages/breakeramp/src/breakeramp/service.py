@@ -2369,25 +2369,55 @@ class BreakerAmpService:
             amp_run_id=amp_run_id,
         )
 
+    def resolve_run_id(self, amp_run_id: str) -> Tuple[str, Path]:
+        """Resolve a full or prefix run ID to its state file path.
+
+        Supports exact matches and unambiguous prefix matches. This allows
+        users to pass truncated IDs (e.g. from ``breakeramp list`` output).
+
+        Args:
+            amp_run_id: Full run ID or unique prefix
+
+        Returns:
+            Tuple of (resolved_full_id, state_file_path)
+
+        Raises:
+            FileNotFoundError: No matching run found
+            ValueError: Prefix matches multiple runs (ambiguous)
+        """
+        # Try exact match first
+        exact_path = self.environments_dir / f"{amp_run_id}.json"
+        if exact_path.exists():
+            return amp_run_id, exact_path
+
+        # Try prefix match
+        matches = list(self.environments_dir.glob(f"{amp_run_id}*.json"))
+        if len(matches) == 1:
+            full_id = matches[0].stem
+            return full_id, matches[0]
+        elif len(matches) > 1:
+            ids = [m.stem for m in matches]
+            raise ValueError(
+                f"Ambiguous run ID prefix '{amp_run_id}' matches {len(matches)} runs: "
+                + ", ".join(ids[:5])
+            )
+        else:
+            raise FileNotFoundError(f"No environment found for run ID '{amp_run_id}'")
+
     def status(self, amp_run_id: str) -> StatusResponse:
         """Get the status of an environment.
 
         Args:
-            amp_run_id: Run identifier
+            amp_run_id: Full run ID or unique prefix
 
         Returns:
             Status response with health checks and telemetry
-        """
-        env_path = self.environments_dir / f"{amp_run_id}.json"
 
-        if not env_path.exists():
-            return StatusResponse(
-                amp_run_id=amp_run_id,
-                phase="UNKNOWN",
-                progress_pct=0,
-                checks=[],
-                telemetry=None,
-            )
+        Raises:
+            FileNotFoundError: No matching run found
+            ValueError: Ambiguous prefix
+        """
+        amp_run_id, env_path = self.resolve_run_id(amp_run_id)
 
         with open(env_path, "r") as f:
             run = json.load(f)
@@ -2424,6 +2454,10 @@ class BreakerAmpService:
                 continue
 
             status = self.executor.get_container_status(container_id)
+            # "unknown" from the executor means podman can't find the container
+            # at all — it was removed, not just stopped.
+            if status == "unknown":
+                status = "removed"
             if status != "running":
                 all_running = False
 
@@ -2443,7 +2477,6 @@ class BreakerAmpService:
             phase=phase,
             progress_pct=100 if phase in ["APPLIED", "DEGRADED"] else 50,
             checks=checks,
-            telemetry=TelemetryData(token_savings_pct=0.3, behavior_reuse_pct=0.7),
             environment_outputs_path=str(env_path),
             audit_trail=[],
         )
@@ -2633,12 +2666,14 @@ class BreakerAmpService:
         result = []
         stale_paths = []
 
-        # Get actual running containers if we need to reconcile
+        # Get actual containers if we need to reconcile
         actual_containers: set[str] = set()
+        container_statuses: dict[str, str] = {}  # name -> status ("running", "exited", etc.)
         if reconcile:
             try:
                 containers = self.executor.list_containers(all_containers=True)
                 actual_containers = {c.name for c in containers}
+                container_statuses = {c.name: c.status.lower() for c in containers}
             except Exception:
                 # If we can't list containers (machine not running), skip reconciliation
                 reconcile = False
@@ -2655,20 +2690,29 @@ class BreakerAmpService:
             amp_run_id = data.get("amp_run_id", "")
             phase = data.get("phase", "UNKNOWN")
 
-            # Check if any containers for this run actually exist
+            # Check if any containers for this run actually exist and their health
             actual_status = "UNKNOWN"
             container_count = 0
+            running_count = 0
             if reconcile and amp_run_id:
                 # Containers are named: {amp_run_id}-{service_name}
                 run_containers = [c for c in actual_containers if c.startswith(f"{amp_run_id}-")]
                 container_count = len(run_containers)
+                running_count = sum(
+                    1 for c in run_containers
+                    if container_statuses.get(c, "") == "running"
+                )
 
                 if container_count == 0:
                     actual_status = "STALE"
                     if auto_cleanup:
                         stale_paths.append(path)
-                else:
+                elif running_count == container_count:
                     actual_status = "RUNNING"
+                elif running_count > 0:
+                    actual_status = "DEGRADED"
+                else:
+                    actual_status = "STOPPED"
 
             entry = {
                 "amp_run_id": amp_run_id,
@@ -2681,6 +2725,7 @@ class BreakerAmpService:
             if reconcile:
                 entry["actual_status"] = actual_status
                 entry["container_count"] = container_count
+                entry["running_count"] = running_count
 
             # Only include non-stale entries (or all if auto_cleanup is False)
             if not auto_cleanup or actual_status != "STALE":

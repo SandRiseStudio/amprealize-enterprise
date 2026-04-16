@@ -131,6 +131,13 @@ _E4_FLAGS: List[FeatureFlag] = [
         metadata={"epic": "E4", "story": "S4.2"},
     ),
     FeatureFlag(
+        name="feature.wiki_reflection",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_WIKI_REFLECTION", "false").lower() == "true",
+        description="Post-run wiki reflection nudge to update AI Learning Wiki",
+        metadata={"epic": "E4", "story": "S4.2"},
+    ),
+    FeatureFlag(
         name="feature.pack_generation",
         flag_type=FlagType.BOOLEAN,
         enabled=False,

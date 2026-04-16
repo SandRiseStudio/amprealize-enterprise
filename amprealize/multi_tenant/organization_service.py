@@ -5,7 +5,7 @@ Install: pip install amprealize-enterprise
 """
 
 try:
-    from amprealize_enterprise.multi_tenant.organization_service import OrganizationService
+    from amprealize.enterprise.multi_tenant.organization_service import OrganizationService
 except ImportError:
     OrganizationService = None
 

@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Optional, TYPE_CHECKING
 
-import redis.asyncio as redis
+import redis
 
 from execution_queue.models import ExecutionJob, Priority
 
@@ -35,7 +35,7 @@ class ExecutionQueuePublisher:
     def __init__(
         self,
         redis_url: Optional[str] = None,
-        redis_client: Optional[redis.Redis] = None,
+        redis_client: Optional[redis.asyncio.Redis] = None,
         stream_prefix: str = "amprealize:executions",
         max_stream_length: int = 100000,
     ):
@@ -48,21 +48,29 @@ class ExecutionQueuePublisher:
             max_stream_length: Max entries per stream (older trimmed)
         """
         self._redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
-        self._redis: Optional[redis.Redis] = redis_client
+        self._redis: Optional[redis.asyncio.Redis] = redis_client
         self._owns_redis = redis_client is None
         self._stream_prefix = stream_prefix
         self._max_stream_length = max_stream_length
 
-    async def _get_redis(self) -> redis.Redis:
+    async def _get_redis(self) -> redis.asyncio.Redis:
         """Get or create Redis connection."""
         if self._redis is None:
-            self._redis = redis.from_url(self._redis_url, decode_responses=False)
+            self._redis = redis.asyncio.from_url(self._redis_url, decode_responses=False)
         return self._redis
+
+    async def _ensure_connected(self) -> redis.asyncio.Redis:
+        """Backward-compatible alias for tests expecting eager connection setup."""
+        return await self._get_redis()
 
     async def close(self) -> None:
         """Close Redis connection if we own it."""
         if self._redis and self._owns_redis:
-            await self._redis.close()
+            close = getattr(self._redis, "aclose", None) or getattr(self._redis, "close", None)
+            if close is not None:
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
             self._redis = None
 
     def _get_stream_key(self, priority: Priority) -> str:

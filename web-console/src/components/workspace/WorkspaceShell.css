@@ -166,17 +166,92 @@
   position: relative;
   z-index: 1;
   display: flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 6px 5px 6px 7px;
   border-top: 1px solid var(--color-border-subtle);
-  min-height: 48px;
+  min-height: 40px;
   background: rgba(249, 252, 255, 0.42);
+  /* visible so ProfileMenu dropdown (absolute, opens upward) is not clipped */
+  overflow: visible;
+}
+
+.sidebar-footer-profile {
+  position: relative;
+  z-index: 2;
+  flex: 0 1 50%;
+  min-width: 0;
+}
+
+/* Tighter profile control in the rail footer only (ProfileMenu is sidebar-only here). */
+.sidebar-footer .profile-menu-trigger {
+  gap: 4px;
+  padding: 2px 5px 2px 3px;
+  min-height: 28px;
+  border-radius: 999px;
+  width: 100%;
+  max-width: 100%;
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.22s ease,
+    transform 0.18s ease;
+}
+
+.sidebar-footer .profile-menu-trigger:hover {
+  background-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(47, 138, 184, 0.12), 0 4px 14px rgba(15, 78, 120, 0.08);
+}
+
+.sidebar-footer .profile-menu-avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+}
+
+.sidebar-footer .profile-menu-name {
+  max-width: min(88px, 50vw);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-footer .profile-menu-chevron {
+  width: 8px;
+  height: 8px;
+  opacity: 0.72;
+  flex-shrink: 0;
+}
+
+/* Default ProfileMenu aligns dropdown with right:0; wide min-width extends past the
+   shell's left edge and gets clipped by .workspace-shell { overflow: hidden }. */
+.sidebar-footer .profile-menu-dropdown {
+  left: 0;
+  right: auto;
+}
+
+.workspace-sidebar.collapsed .sidebar-footer .profile-menu-compact .profile-menu-trigger {
+  padding: 4px;
+  min-height: auto;
+}
+
+.workspace-sidebar.collapsed .sidebar-footer .profile-menu-compact .profile-menu-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
 }
 
 /* Collapsed sidebar: center the profile */
 .workspace-sidebar.collapsed .sidebar-footer {
   justify-content: center;
+}
+
+.workspace-sidebar.collapsed .sidebar-footer-profile {
+  flex: 0 0 auto;
+  max-width: none;
 }
 
 .sidebar-brand {
@@ -255,24 +330,150 @@
 
 .sidebar-footer-meta {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: flex-start;
+  gap: 3px;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sidebar-footer-status,
-.sidebar-version {
+.sidebar-chip {
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border-default) 72%, var(--glass-outline));
+  min-height: 18px;
+  padding: 1px 6px;
   border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.42);
-  font-size: 10px;
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  text-transform: none;
+  color: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-text-primary));
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.88) 0%,
+    rgba(248, 252, 255, 0.5) 42%,
+    rgba(255, 255, 255, 0.62) 100%
+  );
+  backdrop-filter: blur(12px) saturate(165%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 0 0 1px rgba(47, 138, 184, 0.07),
+    0 3px 10px rgba(12, 74, 110, 0.07);
+  transition:
+    transform 0.22s cubic-bezier(0.34, 1.25, 0.64, 1),
+    box-shadow 0.24s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.sidebar-chip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    120% 80% at 20% 0%,
+    rgba(255, 255, 255, 0.55),
+    transparent 55%
+  );
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-chip:hover::after {
+  opacity: 1;
+}
+
+.sidebar-chip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, rgba(47, 138, 184, 0.35) 45%, rgba(255, 255, 255, 0.72));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.92) inset,
+    0 0 0 1px rgba(31, 182, 166, 0.14),
+    0 6px 18px rgba(12, 74, 110, 0.11),
+    0 0 22px rgba(31, 182, 166, 0.1);
+}
+
+.sidebar-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent-secondary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* Single footer pill: distribution + version + optional edition + context */
+.sidebar-chip--runtime {
+  flex: 1 1 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 2px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  justify-content: flex-start;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-primary) 72%, #0c4a6e);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(236, 254, 255, 0.55) 38%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  border-color: color-mix(in srgb, rgba(47, 138, 184, 0.28) 40%, rgba(255, 255, 255, 0.65));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 0 0 1px rgba(47, 138, 184, 0.1),
+    0 3px 12px rgba(12, 74, 110, 0.08),
+    0 0 18px rgba(31, 182, 166, 0.12);
+}
+
+.sidebar-chip--runtime:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 0 0 1px rgba(47, 138, 184, 0.16),
+    0 6px 20px rgba(12, 74, 110, 0.12),
+    0 0 26px rgba(31, 182, 166, 0.18);
+}
+
+/* Footer chip: no backdrop blur (muddy/dark edge on frosted sidebar) or heavy outer glow */
+.sidebar-footer .sidebar-chip {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.82) inset;
+}
+
+.sidebar-footer .sidebar-chip--runtime {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: color-mix(in srgb, var(--color-border-subtle) 90%, rgba(47, 138, 184, 0.12));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.88) inset;
+}
+
+.sidebar-footer .sidebar-chip:hover {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.92) inset;
+}
+
+.sidebar-footer .sidebar-chip--runtime:hover {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.94) inset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-chip,
+  .sidebar-chip::after {
+    transition: none;
+  }
+
+  .sidebar-chip:hover {
+    transform: none;
+  }
 }
 
 .sidebar-footer-status {

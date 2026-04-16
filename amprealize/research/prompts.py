@@ -1,7 +1,7 @@
 """Research prompts - OSS Stub. Full implementation in amprealize-enterprise."""
 
 try:
-    from amprealize_enterprise.research.prompts import (
+    from amprealize.enterprise.research.prompts import (
         COMPREHENSION_SYSTEM_PROMPT,
         COMPREHENSION_USER_PROMPT,
         EVALUATION_SYSTEM_PROMPT,

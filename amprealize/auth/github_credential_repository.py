@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -429,9 +430,9 @@ class GitHubCredentialRepository:
             dsn: Database connection string (used if pool not provided)
         """
         self._pool = pool or PostgresPool(dsn or resolve_postgres_dsn(
-            service="github_credentials",
-            explicit_dsn=None,
-            env_var="AMPREALIZE_GITHUB_CREDENTIALS_PG_DSN",
+            service="AUTH",
+            explicit_dsn=os.getenv("AMPREALIZE_GITHUB_CREDENTIALS_PG_DSN"),
+            env_var="AMPREALIZE_AUTH_PG_DSN",
             default_dsn="postgresql://localhost:5432/amprealize",
         ))
         self._encryption = encryption_service or CredentialEncryptionService()

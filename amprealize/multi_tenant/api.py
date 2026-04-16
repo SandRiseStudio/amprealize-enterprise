@@ -5,7 +5,7 @@ Install: pip install amprealize-enterprise
 """
 
 try:
-    from amprealize_enterprise.multi_tenant.api import create_org_routes
+    from amprealize.enterprise.multi_tenant.api import create_org_routes
     ORG_ROUTES_AVAILABLE = True
 except ImportError:
     ORG_ROUTES_AVAILABLE = False

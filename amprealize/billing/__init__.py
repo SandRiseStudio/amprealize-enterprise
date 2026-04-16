@@ -79,17 +79,17 @@ except ImportError:
 
 # Enterprise integration wrappers (moved to amprealize-enterprise)
 try:
-    from amprealize_enterprise.billing.service import (
+    from amprealize.enterprise.billing.service import (
         AmprealizeBillingService as BillingService,
         AmprealizeBillingHooks,
     )
-    from amprealize_enterprise.billing.webhook_routes import (
+    from amprealize.enterprise.billing.webhook_routes import (
         create_webhook_router,
         create_amprealize_webhook_router,
         WebhookResponse,
         WebhookStatusResponse,
     )
-    from amprealize_enterprise.billing.api import (
+    from amprealize.enterprise.billing.api import (
         create_billing_router,
         CreateCustomerRequest as APICreateCustomerRequest,
         UpdateCustomerRequest as APIUpdateCustomerRequest,

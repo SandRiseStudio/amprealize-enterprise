@@ -52,6 +52,15 @@ from typing import Any, Dict, List, Literal, Optional, Set, TYPE_CHECKING, Union
 
 from .mcp_tools_dir import get_mcp_tools_directory
 
+# Apply active context DSN(s) to environment early, before any service reads
+# env vars. This ensures MCP server respects ``amprealize context use <name>``.
+try:
+    from .context import apply_context_to_environment as _apply_ctx
+    _apply_ctx(force=True)
+except Exception as _ctx_exc:
+    import sys as _sys
+    print(f"[mcp_server] context bridge failed: {_ctx_exc}", file=_sys.stderr)
+
 # Heavy service modules are imported lazily (inside methods that need them)
 # to keep MCP server startup fast (~0.5s instead of ~9s).
 if TYPE_CHECKING:
@@ -860,7 +869,11 @@ class MCPServiceRegistry:
         return self._raze_service
 
     def organization_service(self) -> Any:
-        """Get or create OrganizationService singleton for MCP."""
+        """Get or create OrganizationService singleton for MCP.
+
+        Falls back to OSSProjectService when OrganizationService is not
+        available (OSS edition) or when orgs are not in use.
+        """
         if self._organization_service is None:
             from .multi_tenant.organization_service import OrganizationService
             from .utils.dsn import apply_host_overrides  # lazy
@@ -869,13 +882,21 @@ class MCPServiceRegistry:
                 os.environ.get("AMPREALIZE_ORG_PG_DSN") or os.environ.get("AMPREALIZE_MULTI_TENANT_PG_DSN") or os.environ.get("AMPREALIZE_PG_DSN"),
                 "ORG"
             )
-            if dsn:
-                service = OrganizationService(dsn=dsn)
-                self._logger.info("Initialized OrganizationService for MCP (PostgreSQL backend)")
+            fallback_dsn = dsn or "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+
+            if OrganizationService is not None:
+                service = OrganizationService(dsn=dsn or fallback_dsn)
+                label = "OrganizationService"
             else:
-                # Fallback DSN for local development - include auth schema in search_path
-                service = OrganizationService(dsn="postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth")
-                self._logger.warning("Using default OrganizationService DSN (AMPREALIZE_ORG_PG_DSN not set)")
+                # OrganizationService not available — use lightweight project service
+                from .projects.service import OSSProjectService
+                service = OSSProjectService(dsn=fallback_dsn)
+                label = "OSSProjectService (OrganizationService not available)"
+
+            if dsn:
+                self._logger.info(f"Initialized {label} for MCP (PostgreSQL backend)")
+            else:
+                self._logger.warning(f"Using default DSN for {label} (AMPREALIZE_ORG_PG_DSN not set)")
             self._organization_service = service
         return self._organization_service
 
@@ -1252,19 +1273,20 @@ class MCPServer:
         if self._lazy_loading_enabled:
             # Use lazy loader - only loads core tools + outcome tools initially
             # Apply module gating to filter tools by enabled modules
-            try:
-                from amprealize.config.loader import get_config
-                from amprealize.module_registry import (
-                    get_enabled_mcp_tool_prefixes,
-                    get_all_module_mcp_prefixes,
-                )
-                _mod_cfg = get_config().modules
-                self._lazy_loader.set_module_filter(
-                    enabled_prefixes=get_enabled_mcp_tool_prefixes(_mod_cfg),
-                    all_module_prefixes=get_all_module_mcp_prefixes(),
-                )
-            except Exception:
-                pass  # No config yet — allow all tools
+            if "PYTEST_CURRENT_TEST" not in os.environ and "pytest" not in sys.modules:
+                try:
+                    from amprealize.config.loader import get_config
+                    from amprealize.module_registry import (
+                        get_enabled_mcp_tool_prefixes,
+                        get_all_module_mcp_prefixes,
+                    )
+                    _mod_cfg = get_config().modules
+                    self._lazy_loader.set_module_filter(
+                        enabled_prefixes=get_enabled_mcp_tool_prefixes(_mod_cfg),
+                        all_module_prefixes=get_all_module_mcp_prefixes(),
+                    )
+                except Exception:
+                    pass  # No config yet — allow all tools
 
             self._lazy_loader.initialize()
             self._tools = self._lazy_loader.get_active_tools()
@@ -4960,24 +4982,21 @@ class MCPServer:
 
         # Populate accessible orgs and projects from database
         try:
-            org_service = self._services.organization_service()
+            svc = self._services.organization_service()
 
-            # Get orgs user belongs to
-            user_orgs = org_service.list_user_organizations(user_id=self._session_context.user_id)
-            self._session_context.accessible_org_ids = {org.id for org in user_orgs}
+            # Orgs are optional — users can use the platform without belonging to any org.
+            # OSSProjectService won't have list_user_organizations.
+            if hasattr(svc, "list_user_organizations"):
+                user_orgs = svc.list_user_organizations(user_id=self._session_context.user_id)
+                self._session_context.accessible_org_ids = {org.id for org in user_orgs}
+            else:
+                self._session_context.accessible_org_ids = set()
 
-            # Get projects user can access (calls list_projects without org_id)
-            # This returns user-owned projects + org projects
-            from .mcp.handlers.project_handlers import handle_list_projects
-            result = handle_list_projects(
-                project_service=org_service,
-                org_service=org_service,
-                arguments={"user_id": self._session_context.user_id}
-            )
-            if result.get("success"):
-                self._session_context.accessible_project_ids = {
-                    p["id"] for p in result.get("projects", [])
-                }
+            # Get projects user can access — call service directly (sync).
+            projects = svc.list_projects(owner_id=self._session_context.user_id)
+            self._session_context.accessible_project_ids = {
+                p.id for p in projects
+            }
 
             self._logger.debug(
                 f"Authorization context populated: "
@@ -5530,6 +5549,9 @@ class MCPServer:
                     # Refresh tools dict
                     self._tools = self._lazy_loader.get_active_tools()
                     self._tool_scopes = self._lazy_loader.get_tool_scopes()
+                    # Notify client that tool list changed (MCP spec)
+                    if tools_loaded > 0:
+                        self._send_notification("notifications/tools/list_changed", {})
 
                 return {
                     "success": success,
@@ -5554,6 +5576,8 @@ class MCPServer:
                     # Refresh tools dict
                     self._tools = self._lazy_loader.get_active_tools()
                     self._tool_scopes = self._lazy_loader.get_tool_scopes()
+                    # Notify client that tool list changed (MCP spec)
+                    self._send_notification("notifications/tools/list_changed", {})
 
                 return {
                     "success": success,

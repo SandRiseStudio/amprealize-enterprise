@@ -22,12 +22,10 @@ export default defineConfig({
         if (existsSync(srcEntry)) {
           return {
             '@amprealize/collab-client': srcEntry,
-            '@amprealize/collab-client': srcEntry,
           };
         }
         if (existsSync(distEntry)) {
           return {
-            '@amprealize/collab-client': distEntry,
             '@amprealize/collab-client': distEntry,
           };
         }
@@ -35,7 +33,6 @@ export default defineConfig({
 
       if (existsSync(localFallback)) {
         return {
-          '@amprealize/collab-client': localFallback,
           '@amprealize/collab-client': localFallback,
         };
       }
@@ -57,7 +54,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: 'happy-dom',
     setupFiles: './src/test/setup.ts',
     include: ['src/**/*.test.{ts,tsx}'],
   },

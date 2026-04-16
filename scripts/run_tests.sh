@@ -8,7 +8,7 @@
 #   ./scripts/run_tests.sh -n 2               # Run with 2 workers
 #   ./scripts/run_tests.sh tests/test_cli_*.py  # Run specific tests
 #   ./scripts/run_tests.sh --check-only       # Only check environment
-#   ./scripts/run_tests.sh --breakeramp --env ci    # Use breakeramp with 'ci' environment
+#   ./scripts/run_tests.sh --breakeramp --env test  # Use breakeramp with 'test' environment
 #   ./scripts/run_tests.sh --env-file custom.yaml --env prod  # Custom manifest and environment
 
 set -euo pipefail
@@ -85,14 +85,164 @@ PYTEST_ARGS=()
 CONNECTION_TIMEOUT=5
 QUERY_TIMEOUT=30
 AMPREALIZE_TEST_INFRA_MODE="${AMPREALIZE_TEST_INFRA_MODE:-legacy}"
-AMPREALIZE_BREAKERAMP_ENV_FILE_DEFAULT="$REPO_ROOT/environments.yaml"
-export AMPREALIZE_BREAKERAMP_ENV_FILE="${AMPREALIZE_BREAKERAMP_ENV_FILE:-$AMPREALIZE_BREAKERAMP_ENV_FILE_DEFAULT}"
-export AMPREALIZE_BREAKERAMP_ENVIRONMENT="${AMPREALIZE_BREAKERAMP_ENVIRONMENT:-ci}"
+AMPREALIZE_BREAKERAMP_ENV_FILE="${AMPREALIZE_BREAKERAMP_ENV_FILE:-}"
+AMPREALIZE_BREAKERAMP_ENVIRONMENT="${AMPREALIZE_BREAKERAMP_ENVIRONMENT:-}"
 AMPREALIZE_BREAKERAMP_MANAGED_MACHINE=""
 AMPREALIZE_BREAKERAMP_MACHINE_NAME=""
 NETSTAT_LAST_RX_BYTES=""
 NETSTAT_LAST_TX_BYTES=""
 WITH_KAFKA=false
+AMPREALIZE_PYTHON_BIN=""
+AMPREALIZE_CLI_CMD=()
+AMPREALIZE_REPO_PYTHONPATH=""
+
+build_repo_pythonpath() {
+    local entry=""
+    local pythonpath="$REPO_ROOT"
+
+    for entry in "$REPO_ROOT"/packages/*/src; do
+        [ -d "$entry" ] || continue
+        pythonpath="${pythonpath}:$entry"
+    done
+
+    if [ -n "${PYTHONPATH:-}" ]; then
+        pythonpath="${pythonpath}:$PYTHONPATH"
+    fi
+
+    printf '%s\n' "$pythonpath"
+}
+
+resolve_breakeramp_env_file() {
+    local requested_path="${1:-}"
+    local -a candidates=()
+
+    if [ -n "$requested_path" ]; then
+        candidates+=("$requested_path")
+    fi
+
+    candidates+=(
+        "$REPO_ROOT/config/breakeramp/environments.yaml"
+        "$REPO_ROOT/infra/environments.yaml"
+        "$REPO_ROOT/environments.yaml"
+    )
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        [ -n "$candidate" ] || continue
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    if [ ${#candidates[@]} -gt 0 ]; then
+        printf '%s\n' "${candidates[0]}"
+    else
+        printf '%s\n' "$REPO_ROOT/config/breakeramp/environments.yaml"
+    fi
+}
+
+resolve_python_bin() {
+    local -a candidates=()
+    local candidate=""
+
+    if [ -n "${AMPREALIZE_PYTHON_BIN:-}" ]; then
+        candidates+=("$AMPREALIZE_PYTHON_BIN")
+    fi
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+        candidates+=("$VIRTUAL_ENV/bin/python")
+    fi
+    if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+        candidates+=("$REPO_ROOT/.venv/bin/python")
+    fi
+    if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
+        candidates+=("$REPO_ROOT/.venv/Scripts/python.exe")
+    fi
+
+    candidate=$(command -v python3 2>/dev/null || true)
+    [ -n "$candidate" ] && candidates+=("$candidate")
+    candidate=$(command -v python 2>/dev/null || true)
+    [ -n "$candidate" ] && candidates+=("$candidate")
+
+    for candidate in "${candidates[@]}"; do
+        [ -x "$candidate" ] || continue
+        if (cd "$REPO_ROOT" && "$candidate" - <<'PY' >/dev/null 2>&1
+import importlib.util
+
+missing = []
+if importlib.util.find_spec("yaml") is None:
+    missing.append("yaml")
+if importlib.util.find_spec("pytest") is None:
+    missing.append("pytest")
+if importlib.util.find_spec("amprealize.cli") is None:
+    missing.append("amprealize.cli")
+if importlib.util.find_spec("breakeramp") is None:
+    missing.append("breakeramp")
+
+raise SystemExit(0 if not missing else 1)
+PY
+); then
+            AMPREALIZE_PYTHON_BIN="$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+run_python() {
+    "$AMPREALIZE_PYTHON_BIN" "$@"
+}
+
+resolve_breakeramp_environment() {
+    local env_file="$1"
+    local requested_env="${2:-}"
+
+    if [ ! -f "$env_file" ]; then
+        if [ -n "$requested_env" ]; then
+            printf '%s\n' "$requested_env"
+        else
+            printf '%s\n' "test"
+        fi
+        return 0
+    fi
+
+    run_python - "$env_file" "$requested_env" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+manifest_path = Path(sys.argv[1])
+requested = sys.argv[2].strip()
+
+data = yaml.safe_load(manifest_path.read_text()) or {}
+environments = list((data.get("environments") or {}).keys())
+
+if requested:
+    print(requested)
+    raise SystemExit(0)
+
+for preferred in ("test", "development", "staging"):
+    if preferred in environments:
+        print(preferred)
+        raise SystemExit(0)
+
+if environments:
+    print(environments[0])
+else:
+    print("test")
+PY
+}
+
+resolve_amprealize_cli_cmd() {
+    if [ -z "$AMPREALIZE_PYTHON_BIN" ]; then
+        return 1
+    fi
+
+    AMPREALIZE_CLI_CMD=("$AMPREALIZE_PYTHON_BIN" -m amprealize.cli)
+    return 0
+}
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -129,11 +279,12 @@ while [[ $# -gt 0 ]]; do
             echo -e "${CYAN}Options:${NC}"
             print_kv "--check-only" "Only check environment, don't run tests"
             print_kv "--breakeramp" "Use BreakerAmp infrastructure mode"
-            print_kv "--env <name>" "Specify environment name (default: ci)"
-            print_kv "--env-file <path>" "Specify environment manifest file"
+            print_kv "--env <name>" "Specify environment name (auto-detected from manifest by default)"
+            print_kv "--env-file <path>" "Specify environment manifest file (auto-discovered by default)"
             print_kv "--with-kafka" "Enable Kafka streaming module"
             print_kv "-n <workers>" "Number of parallel workers (0=serial)"
             print_kv "AMPREALIZE_COMPOSE_BIN" "Override compose binary (default: podman compose)"
+            print_kv "AMPREALIZE_PYTHON_BIN" "Override Python interpreter used for CLI, pytest, and migrations"
             print_kv "AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES" "1 = legacy one-Postgres-per-service; 0 (default) = modular monolith + Alembic on behavior DB"
             print_kv "COMPOSE_PROFILES" "e.g. per-service-db — start extra Postgres services in infra/docker-compose.test.yml"
             print_kv "-h, --help" "Show this help message"
@@ -141,6 +292,7 @@ while [[ $# -gt 0 ]]; do
             echo -e "${CYAN}Examples:${NC}"
             print_info "$0                                    # Run all tests"
             print_info "$0 --breakeramp                       # Use breakeramp infra"
+            print_info "$0 --breakeramp --env test            # Use 'test' env"
             print_info "$0 --breakeramp --env development     # Use 'development' env"
             print_info "$0 --breakeramp --env test --with-kafka  # Include Kafka"
             print_info "$0 -n 4 tests/test_api.py            # Run tests in parallel"
@@ -157,6 +309,28 @@ done
 if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
     PYTEST_ARGS=("tests/")
 fi
+
+AMPREALIZE_REPO_PYTHONPATH="$(build_repo_pythonpath)"
+export PYTHONPATH="$AMPREALIZE_REPO_PYTHONPATH"
+
+if ! resolve_python_bin; then
+    print_error "Unable to find a Python interpreter with pytest, yaml, and the local amprealize package available"
+    print_info "Activate your virtual environment or set AMPREALIZE_PYTHON_BIN"
+    exit 1
+fi
+
+if ! resolve_amprealize_cli_cmd; then
+    print_error "Unable to configure the Amprealize CLI command"
+    exit 1
+fi
+
+if [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ]; then
+    AMPREALIZE_BREAKERAMP_ENV_FILE="$(resolve_breakeramp_env_file "$AMPREALIZE_BREAKERAMP_ENV_FILE")"
+    AMPREALIZE_BREAKERAMP_ENVIRONMENT="$(resolve_breakeramp_environment "$AMPREALIZE_BREAKERAMP_ENV_FILE" "$AMPREALIZE_BREAKERAMP_ENVIRONMENT")"
+fi
+
+export AMPREALIZE_BREAKERAMP_ENV_FILE
+export AMPREALIZE_BREAKERAMP_ENVIRONMENT
 
 STAGING_STACK_MODE="${AMPREALIZE_ENABLE_STAGING_STACK:-auto}"
 START_STAGING_STACK=false
@@ -176,7 +350,7 @@ load_breakeramp_variables() {
     [ ! -f "$env_file" ] && return 1
 
     # Parse YAML and export variables
-    eval "$(python - "$env_file" "$env_name" <<'PY'
+    eval "$(run_python - "$env_file" "$env_name" <<'PY'
 import sys, yaml
 from pathlib import Path
 
@@ -207,7 +381,7 @@ load_breakeramp_endpoints() {
 
     [ ! -f "$env_file" ] && return 1
 
-    python - "$env_file" "$env_name" <<'PY'
+    run_python - "$env_file" "$env_name" <<'PY'
 import sys, yaml
 from pathlib import Path
 
@@ -394,7 +568,7 @@ export AMPREALIZE_ALEMBIC_DATABASE_URL="${AMPREALIZE_ALEMBIC_DATABASE_URL:-postg
 # Construct DSNs from the (possibly overridden) variables
 export AMPREALIZE_BEHAVIOR_PG_DSN="${AMPREALIZE_BEHAVIOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR behavior)}"
 export AMPREALIZE_WORKFLOW_PG_DSN="${AMPREALIZE_WORKFLOW_PG_DSN:-$(amprealize_service_dsn WORKFLOW workflow)}"
-export AMPREALIZE_ACTION_PG_DSN="${AMPREALIZE_ACTION_PG_DSN:-$(amprealize_service_dsn ACTION execution)}"
+export AMPREALIZE_ACTION_PG_DSN="${AMPREALIZE_ACTION_PG_DSN:-$(amprealize_service_dsn ACTION action)}"
 export AMPREALIZE_RUN_PG_DSN="${AMPREALIZE_RUN_PG_DSN:-$(amprealize_service_dsn RUN execution)}"
 export AMPREALIZE_COMPLIANCE_PG_DSN="${AMPREALIZE_COMPLIANCE_PG_DSN:-$(amprealize_service_dsn COMPLIANCE compliance)}"
 export AMPREALIZE_AUTH_PG_DSN="${AMPREALIZE_AUTH_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
@@ -410,7 +584,7 @@ export AMPREALIZE_BOARD_PG_DSN="${AMPREALIZE_BOARD_PG_DSN:-$(amprealize_service_
 export AMPREALIZE_ORG_PG_DSN="${AMPREALIZE_ORG_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
 export AMPREALIZE_AGENT_REGISTRY_PG_DSN="${AMPREALIZE_AGENT_REGISTRY_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
 export AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN="${AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR execution)}"
-export AMPREALIZE_EXECUTION_PG_DSN="${AMPREALIZE_EXECUTION_PG_DSN:-$AMPREALIZE_ACTION_PG_DSN}"
+export AMPREALIZE_EXECUTION_PG_DSN="${AMPREALIZE_EXECUTION_PG_DSN:-$AMPREALIZE_RUN_PG_DSN}"
 export AMPREALIZE_PG_DSN="${AMPREALIZE_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
 
 # Convenience for tools that read DATABASE_URL (only if unset)
@@ -459,7 +633,9 @@ fi
 ORIGINAL_API_BASE_URL="http://${API_SERVER_HOST}:${API_SERVER_PORT}"
 
 build_default_api_server_cmd() {
-    local cmd="uvicorn amprealize.api:create_app --factory --host 0.0.0.0 --port ${API_SERVER_PORT}"
+    local python_cmd
+    python_cmd=$(printf '%q' "$AMPREALIZE_PYTHON_BIN")
+    local cmd="${python_cmd} -m uvicorn amprealize.api:create_app --factory --host 0.0.0.0 --port ${API_SERVER_PORT}"
     if [ "$API_SERVER_WORKERS" -gt 1 ]; then
         cmd="${cmd} --workers ${API_SERVER_WORKERS}"
     fi
@@ -548,7 +724,7 @@ check_port() {
 }
 
 find_free_port() {
-    python - <<'PY'
+    run_python - <<'PY'
 import socket
 s = socket.socket()
 s.bind(("127.0.0.1", 0))
@@ -563,7 +739,7 @@ format_bytes() {
         echo "${bytes}B"
         return
     fi
-    python - <<PY
+    run_python - <<PY
 value = float(${bytes:-0})
 units = ["B", "KB", "MB", "GB", "TB"]
 idx = 0
@@ -807,7 +983,7 @@ api_server_supports_internal_auth() {
 # =============================================================================
 
 load_breakeramp_env_details() {
-    python - "$1" "$2" <<'PY'
+    run_python - "$1" "$2" <<'PY'
 import json, sys, yaml
 from pathlib import Path
 
@@ -948,7 +1124,7 @@ ensure_breakeramp_infrastructure() {
     # Plan
     print_info "Planning..."
     local plan_output
-    plan_output=$(AMPREALIZE_ENV_FILE="$env_file" amprealize breakeramp plan \
+    plan_output=$("${AMPREALIZE_CLI_CMD[@]}" breakeramp plan \
         --blueprint-id "$blueprint_id" \
         --environment "$env_name" \
         --env-file "$env_file" \
@@ -981,7 +1157,7 @@ ensure_breakeramp_infrastructure() {
     # - auto-resolve-conflicts: Resolve port conflicts automatically
     # - stale-max-age-hours=0: Clean ALL stale containers (any age)
     print_info "Applying (with auto-resolve and proactive cleanup enabled)..."
-    AMPREALIZE_ENV_FILE="$env_file" amprealize breakeramp apply \
+    "${AMPREALIZE_CLI_CMD[@]}" breakeramp apply \
         --plan-id "$AMPREALIZE_BREAKERAMP_PLAN_ID" \
         --env-file "$env_file" \
         --force-podman \
@@ -1040,7 +1216,7 @@ teardown_breakeramp_infrastructure() {
         local env_file="$AMPREALIZE_BREAKERAMP_ENV_FILE"
         [ -f "$env_file" ] && export AMPREALIZE_ENV_FILE="$env_file"
         print_info "Tearing down infrastructure..."
-        amprealize breakeramp destroy \
+        "${AMPREALIZE_CLI_CMD[@]}" breakeramp destroy \
             --run-id "$AMPREALIZE_BREAKERAMP_RUN_ID" \
             --reason "POST_TEST" \
             --force-podman \
@@ -1226,7 +1402,7 @@ ensure_schema() {
     fi
 
     # Run migration - suppress output but allow failures (migrations may have been applied)
-    python "$migration_script" --dsn "${!dsn_var}" >/dev/null 2>&1 || true
+    "$AMPREALIZE_PYTHON_BIN" "$migration_script" --dsn "${!dsn_var}" >/dev/null 2>&1 || true
     return 0
 }
 
@@ -1247,7 +1423,7 @@ ensure_all_schemas() {
     if is_service_required "$AMPREALIZE_PG_PORT_TELEMETRY"; then
         ensure_schema "Telemetry" "telemetry_events" "AMPREALIZE_TELEMETRY_PG_DSN" "$REPO_ROOT/scripts/run_postgres_telemetry_migration.py"
         # Base telemetry warehouse (001)
-        python "$REPO_ROOT/scripts/run_postgres_telemetry_migration.py" --dsn "$AMPREALIZE_TELEMETRY_PG_DSN" --migration "$REPO_ROOT/schema/migrations/001_create_telemetry_warehouse.sql" >/dev/null 2>&1 || true
+        "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_telemetry_migration.py" --dsn "$AMPREALIZE_TELEMETRY_PG_DSN" --migration "$REPO_ROOT/schema/migrations/001_create_telemetry_warehouse.sql" >/dev/null 2>&1 || true
     fi
 
     # Metrics schema (port 6439)
@@ -1259,7 +1435,7 @@ ensure_all_schemas() {
     if is_service_required "$AMPREALIZE_PG_PORT_BEHAVIOR"; then
         if [ "${AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES:-0}" != "1" ]; then
             print_info "Applying Alembic migrations (modular monolith Postgres)…"
-            if ! DATABASE_URL="$AMPREALIZE_ALEMBIC_DATABASE_URL" python "$REPO_ROOT/scripts/run_alembic_migrations.py"; then
+            if ! DATABASE_URL="$AMPREALIZE_ALEMBIC_DATABASE_URL" "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_alembic_migrations.py"; then
                 print_error "Alembic upgrade failed"
                 exit 1
             fi
@@ -1271,9 +1447,9 @@ ensure_all_schemas() {
                 "$REPO_ROOT/schema/migrations/015_add_behavior_namespace.sql"
             )
             for migration in "${migrations[@]}"; do
-                [ -f "$migration" ] && python "$REPO_ROOT/scripts/run_postgres_behavior_migration.py" --migration "$migration" >/dev/null 2>&1
+                [ -f "$migration" ] && "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_behavior_migration.py" --migration "$migration" >/dev/null 2>&1
             done
-            python "$REPO_ROOT/scripts/run_postgres_trace_migration.py" --dsn "$AMPREALIZE_TRACE_ANALYSIS_PG_DSN" >/dev/null 2>&1 || true
+            "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_trace_migration.py" --dsn "$AMPREALIZE_TRACE_ANALYSIS_PG_DSN" >/dev/null 2>&1 || true
         fi
     fi
 
@@ -1284,20 +1460,20 @@ ensure_all_schemas() {
                 "$REPO_ROOT/schema/migrations/009_refactor_workflow_schema.sql"
             )
             for migration in "${workflow_migrations[@]}"; do
-                [ -f "$migration" ] && python "$REPO_ROOT/scripts/run_postgres_workflow_migration.py" --migration "$migration" >/dev/null 2>&1 || true
+                [ -f "$migration" ] && "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_workflow_migration.py" --migration "$migration" >/dev/null 2>&1 || true
             done
         fi
         if is_service_required "$AMPREALIZE_PG_PORT_ACTION"; then
-            python "$REPO_ROOT/scripts/run_postgres_action_migration.py" >/dev/null 2>&1 || true
+            "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_action_migration.py" >/dev/null 2>&1 || true
         fi
         if is_service_required "$AMPREALIZE_PG_PORT_RUN"; then
-            python "$REPO_ROOT/scripts/run_postgres_run_migration.py" >/dev/null 2>&1 || true
+            "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_run_migration.py" >/dev/null 2>&1 || true
         fi
         if is_service_required "$AMPREALIZE_PG_PORT_COMPLIANCE"; then
-            python "$REPO_ROOT/scripts/run_postgres_compliance_migration.py" >/dev/null 2>&1 || true
+            "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_compliance_migration.py" >/dev/null 2>&1 || true
         fi
         if is_service_required "$AMPREALIZE_PG_PORT_AUTH"; then
-            python "$REPO_ROOT/scripts/run_postgres_auth_migration.py" >/dev/null 2>&1 || true
+            "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_auth_migration.py" >/dev/null 2>&1 || true
         fi
     fi
 
@@ -1463,7 +1639,7 @@ start_api_server
 
 print_header "Running Tests"
 
-PYTEST_CMD="pytest"
+PYTEST_CMD="$(printf '%q' "$AMPREALIZE_PYTHON_BIN") -m pytest"
 [ "$PARALLEL_WORKERS" -gt 0 ] && PYTEST_CMD="$PYTEST_CMD -n $PARALLEL_WORKERS --dist=loadfile"
 PYTEST_CMD="$PYTEST_CMD -v ${PYTEST_ARGS[*]}"
 

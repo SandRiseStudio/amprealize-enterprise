@@ -1,7 +1,7 @@
 """Base ingester - OSS Stub. Full implementation in amprealize-enterprise."""
 
 try:
-    from amprealize_enterprise.research.ingesters.base import (
+    from amprealize.enterprise.research.ingesters.base import (
         BaseIngester,
         count_words,
         extract_figure_captions,

@@ -141,6 +141,45 @@ class UserAuthService:
             logger.error(f"Failed to get user by email {email}: {e}")
         return None
 
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """Get a user by internal username.
+
+        Internal usernames are stored in ``auth.users.metadata.username`` so the
+        canonical ``auth.users`` table can serve both OAuth and internal auth.
+        """
+        if not username:
+            return None
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT id, email, display_name, avatar_url, is_active,
+                               email_verified, password_hash, created_at, updated_at, metadata
+                        FROM auth.users
+                        WHERE LOWER(COALESCE(metadata->>'username', '')) = LOWER(%s)
+                        """,
+                        (username,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        return User(
+                            id=row["id"],
+                            email=row["email"],
+                            display_name=row["display_name"],
+                            avatar_url=row["avatar_url"],
+                            is_active=row["is_active"],
+                            email_verified=row["email_verified"] or False,
+                            password_hash=row.get("password_hash"),
+                            created_at=row["created_at"],
+                            updated_at=row["updated_at"],
+                            metadata=row.get("metadata") or {},
+                        )
+        except Exception as e:
+            logger.error(f"Failed to get user by username {username}: {e}")
+        return None
+
     def create_user(
         self,
         email: str,
@@ -210,6 +249,67 @@ class UserAuthService:
         except Exception as e:
             logger.error(f"Failed to create user: {e}")
         return None
+
+    def create_internal_user(
+        self,
+        *,
+        username: str,
+        password: str,
+        email: Optional[str] = None,
+    ) -> User:
+        """Create an internal username/password user on the canonical auth table."""
+        normalized_username = username.strip()
+        if not normalized_username:
+            raise ValueError("Username is required")
+        if not password:
+            raise ValueError("Password is required")
+
+        if self.get_user_by_username(normalized_username) is not None:
+            raise ValueError(f"Username '{normalized_username}' already exists")
+
+        resolved_email = (email or f"{normalized_username}@internal.amprealize.local").strip().lower()
+        existing_email = self.get_user_by_email(resolved_email)
+        if existing_email is not None:
+            raise ValueError(f"Email '{resolved_email}' already exists")
+
+        user = self.create_user(
+            email=resolved_email,
+            display_name=normalized_username,
+            password=password,
+            email_verified=bool(email),
+            metadata={
+                "username": normalized_username,
+                "auth_provider": "internal",
+            },
+        )
+        if user is None:
+            raise RuntimeError("Failed to create internal user")
+        return user
+
+    def authenticate_user(self, username: str, password: str) -> Optional[User]:
+        """Authenticate an internal user by username and password."""
+        user = self.get_user_by_username(username)
+        if user is None or not user.is_active:
+            return None
+        if not self.verify_password(user.id, password):
+            return None
+
+        self._record_login(user.id)
+        refreshed = self.get_user_by_id(user.id)
+        return refreshed or user
+
+    def _record_login(self, user_id: str) -> None:
+        """Best-effort update of last_login_at for successful auth."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE auth.users SET last_login_at = NOW(), updated_at = NOW() WHERE id = %s",
+                        (user_id,),
+                    )
+                    conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to update last_login_at for {user_id}: {e}")
 
     def verify_password(self, user_id: str, password: str) -> bool:
         """Verify a user's password.
