@@ -778,6 +778,7 @@ def _render_device_activation_page(
     session: Optional[DeviceAuthorizationSession] = None,
     message: Optional[str] = None,
     error: Optional[str] = None,
+    approver_hint: Optional[str] = None,
 ) -> HTMLResponse:
     safe_code = html.escape(user_code or "")
 
@@ -821,6 +822,7 @@ def _render_device_activation_page(
 
         actions_html = ""
         if session.status is DeviceAuthorizationStatus.PENDING:
+            _approver_val = html.escape(approver_hint or "")
             actions_html = textwrap.dedent(
                 f"""
                 <div class=\"action-grid\">
@@ -828,8 +830,8 @@ def _render_device_activation_page(
                         <h3>Approve access</h3>
                         <input type=\"hidden\" name=\"action\" value=\"approve\" />
                         <input type=\"hidden\" name=\"user_code\" value=\"{html.escape(session.user_code)}\" />
-                        <label for=\"approve-name\">Approver name</label>
-                        <input id=\"approve-name\" name=\"approver\" value=\"web-reviewer\" required />
+                        <label for=\"approve-name\">Your user ID or email</label>
+                        <input id=\"approve-name\" name=\"approver\" value=\"{_approver_val}\" placeholder=\"your-id or email@example.com\" required />
                         <label for=\"approve-roles\">Roles (comma-separated)</label>
                         <input id=\"approve-roles\" name=\"roles\" value=\"STRATEGIST\" />
                         <label class=\"checkbox\">
@@ -841,8 +843,8 @@ def _render_device_activation_page(
                         <h3>Deny request</h3>
                         <input type=\"hidden\" name=\"action\" value=\"deny\" />
                         <input type=\"hidden\" name=\"user_code\" value=\"{html.escape(session.user_code)}\" />
-                        <label for=\"deny-name\">Responder</label>
-                        <input id=\"deny-name\" name=\"approver\" value=\"web-reviewer\" required />
+                        <label for=\"deny-name\">Your user ID or email</label>
+                        <input id=\"deny-name\" name=\"approver\" value=\"{_approver_val}\" placeholder=\"your-id or email@example.com\" required />
                         <label for=\"deny-reason\">Reason</label>
                         <input id=\"deny-reason\" name=\"reason\" placeholder=\"Optional reason\" />
                         <button type=\"submit\" class=\"btn danger\">Deny</button>
@@ -1254,18 +1256,36 @@ def create_app(
     # This ensures OAuth users get their user_id populated in request.state
     from amprealize.auth.middleware import AuthMiddleware, AuthConfig
 
+    _skip_paths = {
+        "/health", "/health/", "/metrics", "/docs", "/openapi.json", "/redoc",
+        "/api/v1/capabilities",
+        "/api/v1/platform/runtime",
+        "/device/activate",          # Device flow HTML form (GET + POST)
+        "/api/v1/device/authorize",  # Device flow activation page alias (HTML)
+        "/api/v1/device/token",      # Device flow token endpoint
+        "/api/v1/auth/device/authorize",  # Device flow start (JSON) — CLI entrypoint
+        "/api/v1/auth/device/token",      # Device flow poll (JSON)
+        "/api/v1/auth/device/lookup",     # Device code lookup for activation UI
+        "/api/v1/auth/device/refresh",    # Refresh-token grant
+        "/api/v1/activate",          # Activation page
+        "/api/v1/auth/oauth",        # OAuth flow endpoints
+    }
+
+    # Public-preview mode (M1 of amprealize.ai): expose read-only wiki without
+    # requiring authentication. Toggled via AMPREALIZE_PUBLIC_PREVIEW=1.
+    if os.getenv("AMPREALIZE_PUBLIC_PREVIEW", "").lower() in ("1", "true", "yes"):
+        _skip_paths.update({
+            "/api/v1/wiki",      # catches /api/v1/wiki/* via prefix match
+            "/api/v1/wiki/",
+        })
+        logger.info("Public preview mode enabled: /api/v1/wiki/* is unauthenticated")
+
     auth_config = AuthConfig(
-        skip_paths={
-            "/health", "/health/", "/metrics", "/docs", "/openapi.json", "/redoc",
-            "/api/v1/capabilities",
-            "/api/v1/platform/runtime",
-            "/api/v1/device/authorize",  # Device flow doesn't need auth
-            "/api/v1/device/token",  # Token endpoint
-            "/api/v1/activate",  # Activation page
-            "/api/v1/auth/oauth",  # OAuth flow endpoints
-        },
+        skip_paths=_skip_paths,
         auth_required=auth_enabled,
     )
+    if (os.getenv("AMPREALIZE_FEATURE_FLAGS_ADMIN_SECRET") or "").strip():
+        auth_config.skip_paths.add("/api/v1/platform/feature-flags")
 
     # Mount TenantMiddleware for PostgreSQL RLS (added before AuthMiddleware
     # in code so Auth wraps Tenant in ASGI stack: Auth → Tenant → app).
@@ -1295,6 +1315,7 @@ def create_app(
         AuthMiddleware,
         config=auth_config,
         device_flow_manager=container.device_flow_manager,
+        postgres_device_store=container.postgres_device_store,
     )
 
     @app.get("/api/v1/capabilities", response_model=ApiCapabilitiesResponse, tags=["platform"])
@@ -1310,6 +1331,10 @@ def create_app(
         from amprealize.platform_runtime import build_platform_runtime_dict
 
         return PlatformRuntimeMetadataResponse(**build_platform_runtime_dict())
+
+    from amprealize.services.feature_flags_platform_api import register_feature_flags_platform_routes
+
+    register_feature_flags_platform_routes(app)
 
     @app.get("/api/v1/modules", tags=["platform"])
     def get_enabled_modules() -> Dict[str, Any]:
@@ -5906,6 +5931,9 @@ def create_app(
         """
         Register a new internal auth user and return authentication tokens.
 
+        Disabled when AMPREALIZE_INVITE_ONLY=true (returns 403). Invite-only
+        mode gates all new-user creation — existing users are unaffected.
+
         Request body:
             username (str): Username (min 3 characters)
             password (str): Password (min 8 characters)
@@ -5914,6 +5942,15 @@ def create_app(
         Returns:
             Authentication tokens and user info
         """
+        if os.getenv("AMPREALIZE_INVITE_ONLY", "").lower() in ("1", "true", "yes"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Amprealize is currently invite-only. "
+                    "Request access at https://amprealize.ai."
+                ),
+            )
+
         username = payload.get("username")
         password = payload.get("password")
         email = payload.get("email")
@@ -6670,6 +6707,8 @@ def create_app(
         internal_user_id = user_info.user_id
         logger.info(f"OAuth user authenticated: {provider}:{user_info.user_id}")
 
+        invite_only = os.getenv("AMPREALIZE_INVITE_ONLY", "").lower() in ("1", "true", "yes")
+
         # Ensure user exists in auth.users for FK constraints (projects, boards, etc.)
         try:
             # Get pool from org_service which has the auth schema connection
@@ -6678,9 +6717,19 @@ def create_app(
                 with pool.connection() as conn:
                     with conn.cursor() as cur:
                         # Check if user already exists
-                        cur.execute("SELECT id FROM auth.users WHERE id = %s", (internal_user_id,))
-                        if not cur.fetchone():
-                            # Create user record
+                        cur.execute("SELECT id FROM auth.users WHERE id = %s OR email = %s",
+                                    (internal_user_id, user_info.email or ""))
+                        existing = cur.fetchone()
+                        if not existing:
+                            if invite_only:
+                                raise HTTPException(
+                                    status_code=status.HTTP_403_FORBIDDEN,
+                                    detail=(
+                                        "Amprealize is currently invite-only. "
+                                        "Request access at https://amprealize.ai."
+                                    ),
+                                )
+                            # Create user record (open registration)
                             cur.execute("""
                                 INSERT INTO auth.users (id, email, display_name, avatar_url, is_active, email_verified)
                                 VALUES (%s, %s, %s, %s, true, true)
@@ -6697,6 +6746,8 @@ def create_app(
                             logger.debug(f"User {internal_user_id} already exists in auth.users")
             else:
                 logger.warning("No PostgreSQL pool available, skipping user creation")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Failed to ensure user exists in auth.users: {e}")
 
@@ -7624,7 +7675,7 @@ def create_app(
         )
 
     @app.get("/device/activate", response_class=HTMLResponse)
-    def show_device_activation_form(user_code: Optional[str] = None) -> HTMLResponse:
+    def show_device_activation_form(user_code: Optional[str] = None, approver: Optional[str] = None) -> HTMLResponse:
         normalized = ""
         session: Optional[DeviceAuthorizationSession] = None
         error: Optional[str] = None
@@ -7656,13 +7707,14 @@ def create_app(
             user_code=normalized or (user_code or ""),
             session=session,
             error=error,
+            approver_hint=approver,
         )
 
     # Backwards-compatible aliases for device activation.
     # Some clients/proxies expect a versioned `/v1/device/authorize` path.
     @app.get("/api/v1/device/authorize", response_class=HTMLResponse)
-    def show_device_activation_form_v1(user_code: Optional[str] = None) -> HTMLResponse:
-        return show_device_activation_form(user_code=user_code)
+    def show_device_activation_form_v1(user_code: Optional[str] = None, approver: Optional[str] = None) -> HTMLResponse:
+        return show_device_activation_form(user_code=user_code, approver=approver)
 
     @app.post("/device/activate", response_class=HTMLResponse)
     def submit_device_activation(
@@ -8318,6 +8370,21 @@ def create_app(
             )
         except Exception as exc:
             logger.warning("Retention worker unavailable: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Wiki Routes (read-only, filesystem-based — no DB required)
+    # Mirrors OSS amprealize/api.py; served at /api/v1/wiki/*.
+    # In public preview mode these paths are added to AuthMiddleware's
+    # skip_paths below so they work without a logged-in user.
+    # ------------------------------------------------------------------
+    try:
+        from amprealize.services.wiki_api import create_wiki_routes
+
+        wiki_routes = create_wiki_routes()
+        app.include_router(wiki_routes, prefix="/api")
+        logger.info("Wiki routes registered at /api/v1/wiki/*")
+    except Exception as exc:
+        logger.warning("Wiki routes unavailable: %s", exc)
 
     # ------------------------------------------------------------------
     # Dashboard Stats

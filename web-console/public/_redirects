@@ -1,0 +1,4 @@
+# Cloudflare Pages SPA routing.
+# All non-file, non-API paths fall back to index.html so react-router can
+# handle them client-side. Served by Cloudflare at the edge.
+/*    /index.html   200

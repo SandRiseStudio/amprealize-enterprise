@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -13,9 +14,25 @@ from datetime import datetime, UTC, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-try:  # pragma: no cover - optional dependency
-    import numpy as np  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
+# ---------------------------------------------------------------------------
+# Heavy ML dependencies — probed via importlib so that merely importing this
+# module never triggers torch / sentence-transformers initialisation. The
+# actual `import` statements are deferred to _load_model() / _embedding_retrieve()
+# so the API starts in <1 s without pulling gigabytes of weights into memory.
+# ---------------------------------------------------------------------------
+def _pkg_available(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+_NUMPY_AVAILABLE = _pkg_available("numpy")
+_SENTENCE_TRANSFORMERS_AVAILABLE = _pkg_available("sentence_transformers")
+_FAISS_AVAILABLE = _pkg_available("faiss")
+
+# Keep a module-level alias for numpy only (it's lightweight and used in many
+# code paths; importing it once is fine).  torch / sentence_transformers stay
+# deferred entirely.
+if _NUMPY_AVAILABLE:
+    import numpy as np  # type: ignore  # noqa: E402
+else:
     np = None  # type: ignore
 
 from .behavior_service import BehaviorSearchResult, BehaviorService, SearchBehaviorsRequest
@@ -33,15 +50,40 @@ from .storage.embedding_metrics import (
     record_faiss_index_rebuild,
 )
 
-try:  # pragma: no cover - optional dependency
-    from sentence_transformers import SentenceTransformer  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    SentenceTransformer = None  # type: ignore
+class _LazyModule:
+    """Proxy that defers `import <package>` until the first attribute access.
 
-try:  # pragma: no cover - optional dependency
-    import faiss  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    faiss = None  # type: ignore
+    This lets the module-level variable look like the real module to all
+    existing `module.attr` callsites while guaranteeing that the actual
+    `import` statement (and the torch/CUDA initialisation it triggers) never
+    runs at API startup — only when a semantic retrieval is actually requested.
+
+    `bool(instance)` returns True only when the package is installed, so
+    guard expressions like ``if faiss is not None:`` continue to work.
+    """
+
+    def __init__(self, package: str) -> None:
+        object.__setattr__(self, "_package", package)
+        object.__setattr__(self, "_mod", None)
+
+    def _load(self) -> Any:
+        mod = object.__getattribute__(self, "_mod")
+        if mod is None:
+            import importlib  # noqa: PLC0415
+            mod = importlib.import_module(object.__getattribute__(self, "_package"))
+            object.__setattr__(self, "_mod", mod)
+        return mod
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._load(), name)
+
+    def __bool__(self) -> bool:
+        return _pkg_available(object.__getattribute__(self, "_package"))
+
+
+# Deferred module handles — all existing `faiss.Foo` / `SentenceTransformer()`
+# callsites work unchanged; the real import fires only on first use.
+faiss: Any = _LazyModule("faiss") if _FAISS_AVAILABLE else None  # type: ignore
 
 try:  # pragma: no cover - optional dependency
     from sqlalchemy.orm import Session  # type: ignore
@@ -144,7 +186,9 @@ class BehaviorRetriever:
 
         self._eager_load_model = eager_load_model
 
-        self._semantic_available = SentenceTransformer is not None and faiss is not None and np is not None
+        self._semantic_available = (
+            _SENTENCE_TRANSFORMERS_AVAILABLE and _FAISS_AVAILABLE and _NUMPY_AVAILABLE
+        )
         self._model: Optional[Any] = None
         self._index: Any = None
         self._behavior_ids: List[str] = []
@@ -166,20 +210,23 @@ class BehaviorRetriever:
             self._use_database = False
 
         if self._semantic_available:
-            # Eagerly load model at initialization to avoid per-query overhead
-            # When EMBEDDING_MODEL_LAZY_LOAD=true, model loads on first retrieve() call
             if self._eager_load_model:
+                # Eager mode: pre-load model + FAISS index now so first request is fast.
                 try:
                     self._load_model()
                     logger.info("BehaviorRetriever model %s loaded at initialization", self._model_name)
                 except Exception as exc:
                     logger.warning("Failed to eagerly load model; will load on first use: %s", exc)
+                self._load_index()
             else:
+                # Lazy mode: defer both model *and* FAISS index to first retrieve() call.
+                # Nothing ML-related is imported until an embedding request arrives —
+                # torch/sentence-transformers stay out of the startup critical path.
                 logger.info(
-                    "BehaviorRetriever lazy loading enabled; model %s will load on first use",
+                    "BehaviorRetriever lazy loading enabled; model %s and FAISS index will "
+                    "load on first use (EMBEDDING_MODEL_LAZY_LOAD=true)",
                     self._model_name,
                 )
-            self._load_index()
         else:
             logger.info(
                 "Semantic retrieval dependencies missing; operating in keyword-only mode."
@@ -201,7 +248,12 @@ class BehaviorRetriever:
                 "reason": "sentence-transformers and faiss not available (install amprealize[ml] to enable semantic retrieval)",
             }
         if self._index is None or not self._behavior_ids:
-            return self.build_index()
+            # In lazy mode the index was not loaded at __init__; try loading from disk
+            # on first retrieval before falling back to a full rebuild.
+            if not self._eager_load_model:
+                self._load_index()
+            if self._index is None or not self._behavior_ids:
+                return self.build_index()
         return {
             "status": "ready",
             "mode": "semantic",
@@ -925,11 +977,14 @@ class BehaviorRetriever:
             logger.info("Loading behavior retriever model %s (first use, expect 10-20s delay)", model_name)
             load_start = time.time()
 
-            if SentenceTransformer is None:  # pragma: no cover - defensive
-                raise RuntimeError("SentenceTransformer dependency unavailable")
+            if not _SENTENCE_TRANSFORMERS_AVAILABLE:  # pragma: no cover - defensive
+                raise RuntimeError("sentence_transformers not installed")
 
             try:
-                loaded_model = SentenceTransformer(
+                # Deferred import — only triggers on first embedding request, never at
+                # API startup. Keeps boot time <5 s regardless of [semantic] install.
+                from sentence_transformers import SentenceTransformer as _ST  # type: ignore  # noqa: PLC0415
+                loaded_model = _ST(
                     model_name,
                     device=self._device
                 )  # pragma: no cover - heavy path

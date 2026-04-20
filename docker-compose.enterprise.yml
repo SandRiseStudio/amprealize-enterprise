@@ -1,0 +1,119 @@
+# Amprealize Enterprise — single-node Docker Compose stack.
+#
+# Spins up the full self-hosted Enterprise deployment on a single Linux
+# host. Intended for proof-of-concept installs, small teams (< 25 users),
+# and as the reference that the Helm chart derives from.
+#
+# Production customers should run the Kubernetes path (charts/amprealize/)
+# for HA + managed upgrades. Lane C of GUIDEAI-5.
+#
+# Usage:
+#   1. Copy `env.enterprise.example` to `.env.enterprise` and fill values.
+#   2. docker compose -f docker-compose.enterprise.yml up -d
+#   3. Activate your license on first boot via the web-console.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amprealize}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.enterprise}
+      POSTGRES_DB: ${POSTGRES_DB:-amprealize}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-amprealize}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TELEMETRY_USER:-amprealize_telemetry}
+      POSTGRES_PASSWORD: ${TELEMETRY_PASSWORD:?set TELEMETRY_PASSWORD in .env.enterprise}
+      POSTGRES_DB: ${TELEMETRY_DB:-amprealize_telemetry}
+    volumes:
+      - telemetry_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TELEMETRY_USER:-amprealize_telemetry}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.enterprise}
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    image: ${AMPREALIZE_IMAGE:-ghcr.io/amprealize/amprealize-enterprise:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AMPREALIZE_TIER: enterprise
+      AMPREALIZE_AUTH_ENABLED: "true"
+      AMPREALIZE_LICENSE_KEY: ${AMPREALIZE_LICENSE_KEY:?set AMPREALIZE_LICENSE_KEY in .env.enterprise}
+      AMPREALIZE_MAIN_DSN: postgresql://${POSTGRES_USER:-amprealize}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-amprealize}
+      AMPREALIZE_TELEMETRY_DSN: postgresql://${TELEMETRY_USER:-amprealize_telemetry}:${TELEMETRY_PASSWORD}@timescaledb:5432/${TELEMETRY_DB:-amprealize_telemetry}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      AMPREALIZE_JWT_SECRET: ${AMPREALIZE_JWT_SECRET:?set AMPREALIZE_JWT_SECRET in .env.enterprise}
+      AMPREALIZE_CORS_ORIGINS: ${AMPREALIZE_CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - api_logs:/app/logs
+    ports:
+      - "${AMPREALIZE_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Reverse proxy with automatic TLS. Comment out if fronting with your own
+  # ingress (nginx, Traefik, cloud LB).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      AMPREALIZE_DOMAIN: ${AMPREALIZE_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  telemetry_data:
+  redis_data:
+  api_logs:
+  caddy_data:
+  caddy_config:

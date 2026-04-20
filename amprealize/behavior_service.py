@@ -12,10 +12,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import psycopg2.errors
 
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    SentenceTransformer = None
+import importlib.util as _ilu
+
+_ST_AVAILABLE = _ilu.find_spec("sentence_transformers") is not None
+SentenceTransformer = None  # loaded on first use inside _get_embedding_model()
 
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.storage.redis_cache import get_cache
@@ -287,10 +287,11 @@ class BehaviorService:
         self._embedding_model = None
 
     def _get_embedding_model(self):
-        """Lazy load the embedding model."""
-        if self._embedding_model is None and SentenceTransformer is not None:
+        """Lazy-load the embedding model — import deferred to first call."""
+        if self._embedding_model is None and _ST_AVAILABLE:
+            from sentence_transformers import SentenceTransformer as _ST  # type: ignore  # noqa: PLC0415
             model_name = os.environ.get("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
-            self._embedding_model = SentenceTransformer(model_name)
+            self._embedding_model = _ST(model_name)
         return self._embedding_model
 
     def _generate_embedding(self, text: str) -> Optional[List[float]]:

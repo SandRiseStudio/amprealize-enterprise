@@ -1,0 +1,95 @@
+# syntax=docker/dockerfile:1.7
+#
+# amprealize.api — FastAPI image for Fly.io deployment.
+# Ships the read-only wiki/ directory so /api/v1/wiki/* works without a
+# network-attached filesystem.
+#
+# Extras installed per milestone:
+#   M1/M2: postgres, telemetry, redis  — no ML/semantic libs (~150 MB image delta)
+#   M3+:   add semantic extra once embedding features are needed behind a flag
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    AMPREALIZE_REPO_ROOT=/app \
+    EMBEDDING_MODEL_LAZY_LOAD=true
+
+WORKDIR /app
+
+# System deps: libpq5 for psycopg2, curl for healthchecks.
+# build-essential / libpq-dev only needed when compiling native extensions;
+# we remove them after pip install to keep the image slim.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libpq5 \
+        build-essential \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Dependency layer — copy manifests only for docker layer caching.
+# [semantic] is intentionally omitted: torch/transformers/sentence-transformers
+# are ~2 GB and only needed for the BCI embedding pipeline (M3+). The API
+# degrades gracefully to keyword-only retrieval when they are absent.
+#
+# Local workspace packages (packages/*) are required by the amprealize package
+# at import time. They are lightweight (pydantic, pyyaml, etc.) and not on PyPI.
+# ---------------------------------------------------------------------------
+COPY pyproject.toml README.md ./
+COPY amprealize/__init__.py amprealize/__init__.py
+# Copy local packages so pip can install them as editable deps
+COPY packages/breakeramp packages/breakeramp
+COPY packages/raze        packages/raze
+COPY packages/notify      packages/notify
+COPY packages/midnighter  packages/midnighter
+COPY packages/execution-queue packages/execution-queue
+COPY packages/billing     packages/billing
+RUN pip install --upgrade pip \
+    && pip install ".[postgres,telemetry,redis]" \
+    && pip install \
+        -e packages/breakeramp \
+        -e packages/raze \
+        -e packages/notify \
+        -e packages/midnighter \
+        -e "packages/execution-queue" \
+        -e packages/billing
+
+# ---------------------------------------------------------------------------
+# App layer — source + wiki content + alembic configs.
+# ---------------------------------------------------------------------------
+COPY amprealize ./amprealize
+COPY wiki ./wiki
+COPY alembic.ini ./alembic.ini
+COPY alembic.telemetry.ini ./alembic.telemetry.ini
+COPY migrations ./migrations
+COPY migrations_telemetry ./migrations_telemetry
+COPY config ./config
+COPY scripts ./scripts
+
+# Strip build-time deps to slim the final image.
+RUN apt-get purge -y --auto-remove build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Runtime.
+# ---------------------------------------------------------------------------
+RUN useradd --system --uid 1001 --home /app --shell /usr/sbin/nologin amprealize \
+    && chown -R amprealize:amprealize /app
+USER amprealize
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
+    CMD curl -fsS http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "amprealize.api:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*"]

@@ -74,17 +74,20 @@ class AuthMiddleware:
         app.add_middleware(AuthMiddleware, config=config)
     """
 
-    def __init__(self, app, config: Optional[AuthConfig] = None, device_flow_manager=None):
+    def __init__(self, app, config: Optional[AuthConfig] = None, device_flow_manager=None, postgres_device_store=None):
         """Initialize auth middleware.
 
         Args:
             app: FastAPI application instance.
             config: AuthConfig instance. Uses defaults if not provided.
-            device_flow_manager: Optional DeviceFlowManager for ga_* token validation.
+            device_flow_manager: Optional DeviceFlowManager for ga_* token validation (in-memory).
+            postgres_device_store: Optional PostgresDeviceFlowStore for ga_* token validation (persistent).
+                                   Takes priority over device_flow_manager when present.
         """
         self.app = app
         self.config = config or AuthConfig()
         self.device_flow_manager = device_flow_manager
+        self.postgres_device_store = postgres_device_store
         self.jwt_service = JWTService(
             secret_key=self.config.jwt_secret,
             algorithm=self.config.jwt_algorithm,
@@ -117,11 +120,20 @@ class AuthMiddleware:
             token = auth_header.split(" ", 1)[1]
             logger.info(f"AuthMiddleware: Processing token prefix: {token[:20]}...")
 
-            # Check for Amprealize device flow tokens (ga_* prefix) first
-            if token.startswith("ga_") and self.device_flow_manager:
-                logger.info(f"AuthMiddleware: Validating ga_* token via device_flow_manager")
-                df_user_info = self.device_flow_manager.get_user_info_from_access_token(token)
-                logger.info(f"AuthMiddleware: device_flow_manager returned: {df_user_info}")
+            # Check for Amprealize device flow tokens (ga_* prefix) first.
+            # Prefer postgres_device_store (persistent) over in-memory device_flow_manager.
+            if token.startswith("ga_"):
+                df_user_info = None
+                if self.postgres_device_store:
+                    logger.info("AuthMiddleware: Validating ga_* token via postgres_device_store")
+                    try:
+                        df_user_info = self.postgres_device_store.get_user_info_from_access_token(token)
+                    except Exception as _exc:
+                        logger.warning(f"AuthMiddleware: postgres_device_store lookup failed: {_exc}")
+                if df_user_info is None and self.device_flow_manager:
+                    logger.info("AuthMiddleware: Validating ga_* token via in-memory device_flow_manager")
+                    df_user_info = self.device_flow_manager.get_user_info_from_access_token(token)
+                logger.info(f"AuthMiddleware: device flow lookup returned: {df_user_info}")
                 if df_user_info:
                     user_info = {
                         "user_id": df_user_info.get("sub"),

@@ -1,0 +1,109 @@
+# Fly.io config for amprealize.api (M2 — authenticated product shell)
+# App: amprealize-api-prod    Dockerfile: infra/Dockerfile.api
+# Docs: https://fly.io/docs/reference/configuration/
+#
+# Secrets (set via `flyctl secrets set -a amprealize-api-prod ...`):
+#   - AMPREALIZE_JWT_SECRET          (random 48+ bytes — set)
+#   - AMPREALIZE_MAIN_DSN            (Neon production branch — set)
+#   - AMPREALIZE_AUTH_PG_DSN         (same as MAIN_DSN — set)
+#   - AMPREALIZE_TELEMETRY_DSN       (Neon telemetry branch — set)
+#   - REDIS_URL                      (Fly Upstash Redis — set)
+#   - BYOK_ENCRYPTION_KEY            (32-byte base64 for credential encryption — set)
+#   - SENTRY_DSN                     (optional)
+
+app = "amprealize-api-prod"
+primary_region = "iad"
+kill_signal = "SIGINT"
+kill_timeout = 30
+
+[build]
+  dockerfile = "infra/Dockerfile.api"
+
+[env]
+  PORT = "8000"
+
+  # ---------------------------------------------------------------------------
+  # Auth + feature flags
+  # ---------------------------------------------------------------------------
+  AMPREALIZE_AUTH_ENABLED = "true"
+  AMPREALIZE_PUBLIC_PREVIEW = "0"
+  AMPREALIZE_TIER = "starter"
+
+  # Embedding model — defer to first BCI request (not at startup)
+  EMBEDDING_MODEL_LAZY_LOAD = "true"
+
+  # Execution mode — use direct (queue requires Redis Streams workers; add in M3)
+  EXECUTION_MODE = "direct"
+
+  # ---------------------------------------------------------------------------
+  # Device-flow auth URLs (used in the email/browser verification step)
+  # ---------------------------------------------------------------------------
+  AMPREALIZE_DEVICE_VERIFICATION_URI = "https://api.amprealize.ai/api/v1/device/authorize"
+
+  # ---------------------------------------------------------------------------
+  # CORS — apex, www, and authenticated console origin
+  # ---------------------------------------------------------------------------
+  AMPREALIZE_CORS_ORIGINS = "https://amprealize.ai,https://www.amprealize.ai,https://app.amprealize.ai"
+
+  # ---------------------------------------------------------------------------
+  # Per-schema DSNs — all point to the same Neon production branch but with
+  # schema-scoped search_paths for backwards-compatibility with service layer.
+  # The per-schema search_paths are added at runtime by the application via
+  # the AMPREALIZE_MAIN_DSN secret + a ?options= suffix per service call.
+  # We expose a DATABASE_URL alias that the consolidated pool uses.
+  # ---------------------------------------------------------------------------
+  # Note: actual DSN values come from Fly secrets (AMPREALIZE_MAIN_DSN etc.)
+  # The env vars below are non-secret aliases kept here for visibility; the
+  # real DSN is injected at runtime from the secret of the same name.
+
+  PYTHONUNBUFFERED = "1"
+  LOG_LEVEL = "info"
+
+  # UserAuthService reads DATABASE_URL as a consolidated alias.
+  # Set to the same Neon production branch as AMPREALIZE_MAIN_DSN.
+  # The actual value is the AMPREALIZE_MAIN_DSN secret — this alias is set
+  # via `flyctl secrets set DATABASE_URL=...` so it stays secret.
+  # (Documented here for discoverability; do NOT put the real DSN in toml.)
+
+[experimental]
+  auto_rollback = true
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8000
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Port 80: Cloudflare proxy sends HTTP here (Cloudflare handles TLS at edge).
+  # Port 443: Keep TLS handler for direct access / Let's Encrypt challenge.
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[services.http_checks]]
+    interval = "30s"
+    grace_period = "30s"
+    method = "get"
+    path = "/health"
+    protocol = "http"
+    timeout = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"
+  cpus = 1
+  cpu_kind = "shared"
+
+[metrics]
+  port = 9091
+  path = "/metrics"

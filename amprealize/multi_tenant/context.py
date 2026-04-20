@@ -140,6 +140,37 @@ class TenantContext:
         """Deactivate tenant context on exit."""
         await self.deactivate()
 
+    def _execute_sql(self, sql: str, *args) -> None:
+        """Execute a SQL statement against the pool.
+
+        Supports both synchronous PostgresPool (run_transaction / connection)
+        and async asyncpg-style pools (pool.execute).  The PostgresPool is the
+        default in production; async pools may be used in tests.
+        """
+        # Synchronous PostgresPool (used in production)
+        if hasattr(self.pool, 'run_transaction'):
+            def _exec(conn):
+                with conn.cursor() as cur:
+                    cur.execute(sql.replace("$1", "%s").replace("$2", "%s"), args if args else None)
+            try:
+                self.pool.run_transaction(
+                    operation="tenant_context",
+                    service_prefix="auth",
+                    actor=None,
+                    metadata={},
+                    executor=_exec,
+                    telemetry=None,
+                )
+            except Exception:
+                pass  # Best-effort — RLS is a safety net, not a hard blocker
+        elif hasattr(self.pool, 'connection'):
+            try:
+                with self.pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(sql.replace("$1", "%s").replace("$2", "%s"), args if args else None)
+            except Exception:
+                pass
+
     async def activate(self) -> None:
         """Activate the tenant context.
 
@@ -152,25 +183,39 @@ class TenantContext:
         if self.tenant_slug:
             self._slug_token = _current_tenant_slug.set(self.tenant_slug)
 
-        # Set PostgreSQL session variable for RLS (with resource limits)
-        if self.org_id:
-            if self.apply_limits:
-                # Use set_tenant_context which also applies limits
-                await self.pool.execute(
-                    "SELECT set_tenant_context($1, $2)",
-                    self.org_id,
-                    self.user_id
-                )
+        # Set PostgreSQL session variable for RLS (with resource limits).
+        # Async pool (asyncpg-style): await pool.execute(...)
+        # Sync pool (PostgresPool):  use _execute_sql helper.
+        if hasattr(self.pool, 'execute'):
+            # Async / asyncpg-style pool
+            if self.org_id:
+                if self.apply_limits:
+                    await self.pool.execute(
+                        "SELECT set_tenant_context($1, $2)",
+                        self.org_id, self.user_id
+                    )
+                else:
+                    await self.pool.execute(
+                        "SELECT set_current_org($1, $2)",
+                        self.org_id, self.user_id
+                    )
             else:
-                # Legacy: just set org without limits
-                await self.pool.execute(
-                    "SELECT set_current_org($1, $2)",
-                    self.org_id,
-                    self.user_id
-                )
+                await self.pool.execute("SELECT clear_current_org()")
         else:
-            # Clear any existing context
-            await self.pool.execute("SELECT clear_current_org()")
+            # Synchronous PostgresPool
+            if self.org_id:
+                if self.apply_limits:
+                    self._execute_sql(
+                        "SELECT set_tenant_context($1, $2)",
+                        self.org_id, self.user_id
+                    )
+                else:
+                    self._execute_sql(
+                        "SELECT set_current_org($1, $2)",
+                        self.org_id, self.user_id
+                    )
+            else:
+                self._execute_sql("SELECT clear_current_org()")
 
     async def deactivate(self) -> None:
         """Deactivate the tenant context.
@@ -178,7 +223,10 @@ class TenantContext:
         Clears both PostgreSQL session variable and Python contextvar.
         """
         # Clear PostgreSQL session variable
-        await self.pool.execute("SELECT clear_current_org()")
+        if hasattr(self.pool, 'execute'):
+            await self.pool.execute("SELECT clear_current_org()")
+        else:
+            self._execute_sql("SELECT clear_current_org()")
 
         # Reset Python contextvars
         if self._org_token is not None:

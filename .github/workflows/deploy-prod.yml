@@ -1,0 +1,57 @@
+name: Deploy prod (amprealize.ai — marketing apex)
+
+# Entry point for production deploys of the **marketing / apex** surface at
+# `amprealize.ai`. The authenticated console at `app.amprealize.ai` has its
+# own workflow (`deploy-prod-console.yml`) so the two origins can deploy
+# independently and one deploy never blocks the other.
+#
+# Pushes to `main` trigger an automatic rollout of both origins (this file
+# and `deploy-prod-console.yml` run in parallel). Manual dispatches let us
+# re-deploy without a code change (e.g. after rotating secrets or flipping
+# `VITE_PUBLIC_PREVIEW`).
+#
+# Pipeline lives in `_reusable-release.yml` so self-hosted and preview lanes
+# share the same plumbing.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
+  workflow_dispatch:
+    inputs:
+      public_preview:
+        description: "Ship public-preview (wiki-only) shell?"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-prod-saas-marketing
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: ./.github/workflows/_reusable-release.yml
+    with:
+      environment: prod-saas
+      fly_app: amprealize-api-prod
+      fly_config: fly.api.toml
+      pages_project: amprealize-web
+      pages_branch: main
+      ghcr_image: amprealize/amprealize-api
+      vite_api_base_url: https://api.amprealize.ai
+      # Marketing apex is always wiki-only (public preview) in M2. The condition
+      # below allows a manual dispatch with public_preview=false to expose a real
+      # marketing site (M3+), but on every push it defaults to '1' (wiki-only).
+      # TODO(M3): flip this default to '0' when the real marketing site is ready.
+      vite_public_preview: ${{ (github.event_name == 'workflow_dispatch' && inputs.public_preview == false) && '0' || '1' }}
+      vite_app_origin: marketing
+      smoke_base_url: https://amprealize.ai
+      run_smoke: true
+    secrets:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

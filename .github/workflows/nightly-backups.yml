@@ -1,0 +1,89 @@
+name: Nightly backups
+
+# Nightly pg_dump of the prod Neon main + telemetry branches and the Raze
+# JSONL sink, archived to the Cloudflare R2 bucket `amprealize-backups`.
+# Lane D of GUIDEAI-5.
+#
+# The job SSHes into the prod Fly API machine (which has the DSN in env
+# and network-level access to Neon) so we do not expose DSNs to GitHub
+# Actions. Dumps are gzipped, streamed via sftp to the runner, then pushed
+# to R2 via wrangler.
+#
+# Retention: 30 days on R2 (enforced via lifecycle rule on the bucket).
+# Restoration drill: quarterly (see DISASTER_RECOVERY_POLICY.md).
+
+on:
+  schedule:
+    - cron: "15 7 * * *"   # 07:15 UTC daily (after Neon daily snapshot)
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-backups
+  cancel-in-progress: false
+
+env:
+  FLY_APP: amprealize-api-prod
+  R2_BUCKET: amprealize-backups
+
+jobs:
+  pg-dump:
+    name: pg_dump → R2
+    runs-on: ubuntu-latest
+    environment: prod-saas
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: Export dump (main branch)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          flyctl ssh console -a "$FLY_APP" --command "bash -lc '\
+            pg_dump --format=custom --no-acl --no-owner \"$AMPREALIZE_MAIN_DSN\" \
+              | gzip > /tmp/pg-main-${DATE}.dump.gz && \
+            pg_dump --format=custom --no-acl --no-owner \"$AMPREALIZE_TELEMETRY_DSN\" \
+              | gzip > /tmp/pg-telemetry-${DATE}.dump.gz'"
+          mkdir -p out
+          flyctl ssh sftp get -a "$FLY_APP" /tmp/pg-main-${DATE}.dump.gz out/pg-main-${DATE}.dump.gz
+          flyctl ssh sftp get -a "$FLY_APP" /tmp/pg-telemetry-${DATE}.dump.gz out/pg-telemetry-${DATE}.dump.gz
+      - name: Rotate raze sink
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          DATE=$(date -u +%Y%m%d)
+          mkdir -p out
+          flyctl ssh console -a "$FLY_APP" --command "bash -lc '\
+            if [ -f /app/logs/raze.jsonl ]; then \
+              gzip -c /app/logs/raze.jsonl > /tmp/raze-${DATE}.jsonl.gz && \
+              : > /app/logs/raze.jsonl; \
+            fi'" || echo "raze sink not present yet"
+          flyctl ssh sftp get -a "$FLY_APP" /tmp/raze-${DATE}.jsonl.gz out/raze-${DATE}.jsonl.gz || true
+      - name: Upload to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            r2 object put ${{ env.R2_BUCKET }}/pg/pg-main-$(date -u +%Y%m%d).dump.gz
+            --file out/pg-main-$(date -u +%Y%m%d).dump.gz
+      - name: Upload telemetry dump to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            r2 object put ${{ env.R2_BUCKET }}/pg/pg-telemetry-$(date -u +%Y%m%d).dump.gz
+            --file out/pg-telemetry-$(date -u +%Y%m%d).dump.gz
+      - name: Upload raze rotation to R2
+        if: hashFiles('out/raze-*.jsonl.gz') != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            r2 object put ${{ env.R2_BUCKET }}/raze/raze-$(date -u +%Y%m%d).jsonl.gz
+            --file out/raze-$(date -u +%Y%m%d).jsonl.gz
+      - name: Cleanup runner
+        if: always()
+        run: rm -rf out

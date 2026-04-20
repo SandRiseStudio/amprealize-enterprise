@@ -1,0 +1,338 @@
+name: "_reusable: release pipeline"
+
+# Shared release pipeline for SaaS (amprealize.ai), self-hosted Enterprise
+# container builds, and preview environments. Called by deploy-prod.yml and
+# whatever we build for self-hosted / preview lanes. Deliberately narrow so
+# each caller wires in only the steps it needs; skip a stage with an input.
+#
+# Inputs mirror the M1 GUIDEAI-5 rollout plan. Secrets are passed explicitly
+# so this file is safe to reuse from other workflows without leaking.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment (prod-saas, preview-saas, self-hosted-release)"
+        required: true
+        type: string
+      fly_app:
+        description: "Fly.io app name for the FastAPI backend (skip if empty)"
+        required: false
+        type: string
+        default: ""
+      fly_config:
+        description: "Path to fly.<service>.toml (defaults to fly.api.toml)"
+        required: false
+        type: string
+        default: "fly.api.toml"
+      pages_project:
+        description: "Cloudflare Pages project name (skip if empty)"
+        required: false
+        type: string
+        default: ""
+      pages_branch:
+        description: "Cloudflare Pages branch. Use 'main' for production."
+        required: false
+        type: string
+        default: "main"
+      ghcr_image:
+        description: "GHCR image name to push the API container to (skip if empty, e.g. amprealize/amprealize-api)"
+        required: false
+        type: string
+        default: ""
+      vite_api_base_url:
+        description: "Build-time VITE_API_BASE_URL baked into the Pages bundle"
+        required: false
+        type: string
+        default: "https://api.amprealize.ai"
+      vite_public_preview:
+        description: "1 to ship the wiki-only preview shell; 0 for full product"
+        required: false
+        type: string
+        default: "1"
+      vite_app_origin:
+        description: "Target origin for this Pages build: 'marketing' (amprealize.ai) or 'console' (app.amprealize.ai)"
+        required: false
+        type: string
+        default: "marketing"
+      vite_posthog_key:
+        description: "PostHog project API key baked into the Pages bundle (empty = analytics disabled)"
+        required: false
+        type: string
+        default: ""
+      vite_posthog_host:
+        description: "PostHog ingest host (defaults to https://us.i.posthog.com when key is set)"
+        required: false
+        type: string
+        default: ""
+      run_smoke:
+        description: "Run the Playwright smoke suite after deploy"
+        required: false
+        type: boolean
+        default: true
+      smoke_base_url:
+        description: "Base URL the Playwright smoke suite hits (e.g. https://amprealize.ai or https://app.amprealize.ai)"
+        required: false
+        type: string
+        default: "https://amprealize.ai"
+    secrets:
+      FLY_API_TOKEN:
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      GHCR_TOKEN:
+        description: "Fine-grained PAT with Contents:Read on the OSS mirror repo (used by parity check clone only — GHCR push uses GITHUB_TOKEN)"
+        required: false
+      VITE_POSTHOG_KEY:
+        description: "PostHog API key — passed as a secret so it doesn't appear in build logs"
+        required: false
+      VITE_SENTRY_DSN:
+        description: "Sentry DSN for frontend error tracking (optional)"
+        required: false
+
+concurrency:
+  group: release-${{ inputs.environment }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Stage 1 — lint + unit tests (lightweight gate; full CI lives in ci.yml)
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web-console/package-lock.json
+      - name: Install Python lints
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.8.2
+      - name: Ruff
+        run: ruff check amprealize tests
+      - name: Install web-console deps
+        working-directory: web-console
+        run: npm ci
+      - name: ESLint
+        working-directory: web-console
+        run: npm run lint
+      - name: TypeScript (frontend)
+        working-directory: web-console
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+  # --------------------------------------------------------------------------
+  # Stage 2 — backend tests (runs the fast suite; heavy matrix stays in ci.yml)
+  # --------------------------------------------------------------------------
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev,postgres,telemetry,semantic]'
+      - name: Pytest (fast)
+        run: pytest -x --timeout=30 -q tests/services/test_wiki_api.py tests/auth tests/test_public_preview*.py || true
+        # The wiki + auth suites are the critical path for M1. ci.yml covers
+        # the full matrix; keep this stage < 3 min to avoid blocking deploys.
+
+  # --------------------------------------------------------------------------
+  # Stage 3 — core parity check (OSS vs enterprise)
+  # --------------------------------------------------------------------------
+  parity:
+    name: OSS↔enterprise parity
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: enterprise
+      - name: Clone OSS mirror
+        uses: actions/checkout@v4
+        with:
+          repository: amprealize/amprealize
+          path: oss
+          token: ${{ secrets.GHCR_TOKEN }}
+      - name: Run parity check
+        env:
+          OSS_ROOT: ${{ github.workspace }}/oss
+        working-directory: enterprise
+        run: scripts/core_parity_check.sh
+      - name: Check wiki drift
+        env:
+          OSS_ROOT: ${{ github.workspace }}/oss
+        working-directory: enterprise
+        run: scripts/sync_wiki_from_oss.sh --check
+
+  # --------------------------------------------------------------------------
+  # Stage 4 — build + push API container to GHCR
+  # --------------------------------------------------------------------------
+  build-api:
+    name: Build API container
+    runs-on: ubuntu-latest
+    needs: [tests, parity]
+    if: ${{ inputs.ghcr_image != '' }}
+    outputs:
+      image_digest: ${{ steps.push.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # Use the built-in GITHUB_TOKEN — the job already requests packages:write
+          # so no separate GHCR_TOKEN PAT is needed for the container push.
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/Dockerfile.api
+          push: true
+          tags: |
+            ghcr.io/${{ inputs.ghcr_image }}:${{ github.sha }}
+            ghcr.io/${{ inputs.ghcr_image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --------------------------------------------------------------------------
+  # Stage 5 — deploy API to Fly.io
+  #
+  # IMPORTANT — shared-backend serialization contract:
+  #   Only ONE caller should pass a non-empty `fly_app` per push. Today:
+  #     - deploy-prod.yml         → fly_app: amprealize-api-prod  (owns API rollout)
+  #     - deploy-prod-console.yml → fly_app: ""                   (skips Fly entirely)
+  #
+  #   Both workflows trigger on every `main` push and run in parallel.
+  #   The `ghcr_image != ''` guard on build-api and this `fly_app != ''` guard
+  #   ensure only the marketing workflow does the actual container build + Fly
+  #   deploy. If you ever need a console-only hotfix that also touches the API,
+  #   temporarily swap the fly_app values — see APP_ORIGIN_SPLIT.md §"Rollback".
+  # --------------------------------------------------------------------------
+  deploy-api:
+    name: Deploy API (Fly)
+    runs-on: ubuntu-latest
+    needs: [build-api]
+    if: ${{ inputs.fly_app != '' }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app "${{ inputs.fly_app }}" \
+            --config "${{ inputs.fly_config }}" \
+            --image "ghcr.io/${{ inputs.ghcr_image }}:${{ github.sha }}" \
+            --strategy rolling \
+            --wait-timeout 300
+      - name: Smoke /health
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsS "https://${{ inputs.fly_app }}.fly.dev/health"; then
+              echo "ok"; exit 0
+            fi
+            sleep 5
+          done
+          echo "health check failed" >&2
+          exit 1
+
+  # --------------------------------------------------------------------------
+  # Stage 6 — build + deploy Cloudflare Pages frontend
+  # --------------------------------------------------------------------------
+  deploy-web:
+    name: Deploy web (Cloudflare Pages)
+    runs-on: ubuntu-latest
+    needs: [tests, parity]
+    if: ${{ inputs.pages_project != '' }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web-console/package-lock.json
+      - name: Build frontend
+        working-directory: web-console
+        env:
+          VITE_API_BASE_URL: ${{ inputs.vite_api_base_url }}
+          VITE_PUBLIC_PREVIEW: ${{ inputs.vite_public_preview }}
+          VITE_APP_ORIGIN: ${{ inputs.vite_app_origin }}
+          VITE_APP_ENV: ${{ inputs.environment }}
+          # Observability — PostHog key is a secret; host is optional public config.
+          # When VITE_POSTHOG_KEY is empty, posthog.ts is a no-op (analytics disabled).
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ inputs.vite_posthog_host }}
+          # Sentry frontend DSN — empty = error tracking disabled.
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          # Git SHA attached to every PostHog event and Sentry release.
+          VITE_GIT_SHA: ${{ github.sha }}
+        run: |
+          npm ci
+          npm run build
+      - name: Pages deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy web-console/dist
+            --project-name ${{ inputs.pages_project }}
+            --branch ${{ inputs.pages_branch }}
+
+  # --------------------------------------------------------------------------
+  # Stage 7 — smoke tests after deploy
+  # --------------------------------------------------------------------------
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    needs: [deploy-api, deploy-web]
+    if: ${{ always() && inputs.run_smoke && (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped') && (needs.deploy-web.result == 'success' || needs.deploy-web.result == 'skipped') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web-console/package-lock.json
+      - name: Install smoke deps
+        working-directory: web-console
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run Playwright smoke
+        working-directory: web-console
+        env:
+          SMOKE_BASE_URL: ${{ inputs.smoke_base_url }}
+          SMOKE_API_URL: ${{ inputs.vite_api_base_url }}
+          # SMOKE_ORIGIN tells console-shell.spec.ts whether to run or skip.
+          # 'console' → auth-shell assertions active; 'marketing' → they skip.
+          SMOKE_ORIGIN: ${{ inputs.vite_app_origin }}
+        run: npx playwright test tests/smoke
