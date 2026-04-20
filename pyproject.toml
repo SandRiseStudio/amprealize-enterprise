@@ -79,14 +79,14 @@ postgres = [
   "alembic>=1.13,<2.0",
 ]
 semantic = [
-  "sentence-transformers>=2.2.0,<3.0",
+  "sentence-transformers>=2.2.0,<6.0",
   "faiss-cpu>=1.7.0,<2.0",
 ]
 
 # Heavy ML stack (Torch/SciPy) is intentionally opt-in to keep default installs
 # lightweight (e.g., for container builds with small VM disks).
 ml = [
-  "sentence-transformers>=2.2.0,<3.0",
+  "sentence-transformers>=2.2.0,<6.0",
   "faiss-cpu>=1.7.0,<2.0",
   "torch>=2.0,<3.0",
   "scipy>=1.10,<2.0",
