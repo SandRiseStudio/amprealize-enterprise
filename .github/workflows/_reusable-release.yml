@@ -168,9 +168,10 @@ jobs:
       - name: Clone OSS mirror
         uses: actions/checkout@v4
         with:
-          repository: amprealize/amprealize
+          repository: SandRiseStudio/amprealize
           path: oss
-          token: ${{ secrets.GHCR_TOKEN }}
+          # Public repo — no token required; GHCR_TOKEN is retained as an
+          # optional secret for private forks or future private-mirroring.
       - name: Run parity check
         env:
           OSS_ROOT: ${{ github.workspace }}/oss
