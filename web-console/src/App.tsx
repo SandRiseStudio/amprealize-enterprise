@@ -19,11 +19,13 @@
 
 import { lazy, Suspense, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/workspace/AppLayout';
 import { useModules } from './api/modules';
+import { isPublicPreview, PREVIEW_REDIRECT_PATH } from './lib/publicPreview';
+import { usePageviewTracking } from './hooks/usePageviewTracking';
 import type { ReflectionCandidate } from './api/reflection';
 import './styles/design-system.css';
 import './App.css';
@@ -35,6 +37,7 @@ const BCIResponsePanel = lazy(() => import('./components/BCIResponsePanel').then
 const ExtractionCandidates = lazy(() => import('./components/ExtractionCandidates').then((module) => ({ default: module.ExtractionCandidates })));
 const NotFoundPage = lazy(() => import('./components/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const SecuritySettings = lazy(() => import('./components/SecuritySettings').then((module) => ({ default: module.SecuritySettings })));
+const FeatureFlagsPage = lazy(() => import('./components/FeatureFlagsPage').then((module) => ({ default: module.FeatureFlagsPage })));
 const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })));
 const NewProjectPage = lazy(() => import('./components/projects/NewProjectPage').then((module) => ({ default: module.NewProjectPage })));
 const ProjectPage = lazy(() => import('./components/projects/ProjectPage').then((module) => ({ default: module.ProjectPage })));
@@ -43,6 +46,7 @@ const BoardPage = lazy(() => import('./components/boards/BoardPage').then((modul
 const OrganizationsPage = lazy(() => import('./components/orgs/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
 const AgentsPage = lazy(() => import('./components/agents/AgentsPage').then((module) => ({ default: module.AgentsPage })));
 const GitHubAppCallbackPage = lazy(() => import('./pages/GitHubAppCallbackPage').then((module) => ({ default: module.GitHubAppCallbackPage })));
+const WikiPage = lazy(() => import('./components/wiki/WikiPage').then((module) => ({ default: module.WikiPage })));
 
 function RouteFallback() {
   return <div className="app-route-fallback animate-fade-in-up">Loading…</div>;
@@ -124,6 +128,27 @@ function App() {
 function AnimatedRoutes() {
   const location = useLocation();
   const { isModuleEnabled } = useModules();
+  const previewMode = isPublicPreview();
+  usePageviewTracking();
+
+  // Public-preview mode (M1 of amprealize.ai): render the wiki surface only,
+  // with WikiPage's built-in left sidebar. We intentionally skip AppLayout /
+  // WorkspaceShell here — they depend on auth + org context, neither of which
+  // exists for anonymous visitors. Unknown paths (including /) redirect to
+  // the default wiki domain so accidental deep links never 404.
+  if (previewMode) {
+    return (
+      <div className="app-route-stage">
+        <Routes location={location}>
+          <Route index element={<Navigate to={PREVIEW_REDIRECT_PATH} replace />} />
+          <Route path="/wiki" element={<WikiPage />} />
+          <Route path="/wiki/:domain" element={<WikiPage />} />
+          <Route path="/wiki/:domain/*" element={<WikiPage />} />
+          <Route path="*" element={<Navigate to={PREVIEW_REDIRECT_PATH} replace />} />
+        </Routes>
+      </div>
+    );
+  }
 
   return (
     <div className="app-route-stage">
@@ -140,6 +165,7 @@ function AnimatedRoutes() {
                   <Route path="/bci/*" element={<BCILayout />} />
                 )}
                 <Route path="/settings" element={<SecuritySettings />} />
+                <Route path="/settings/feature-flags" element={<FeatureFlagsPage />} />
                 <Route path="/orgs" element={<OrganizationsPage />} />
                 {isModuleEnabled('agents') && (
                   <Route path="/agents" element={<AgentsPage />}>
@@ -153,6 +179,9 @@ function AnimatedRoutes() {
                 <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
                 <Route path="/projects/:projectId/boards/:boardId" element={<BoardPage />} />
                 <Route path="/projects/:projectId/boards/:boardId/items/:itemId" element={<BoardPage />} />
+                <Route path="/wiki" element={<WikiPage />} />
+                <Route path="/wiki/:domain" element={<WikiPage />} />
+                <Route path="/wiki/:domain/*" element={<WikiPage />} />
               </Route>
 
               {/* Catch-all */}

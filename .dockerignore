@@ -52,6 +52,13 @@ docs
 !README.md
 !docs/README.md
 !docs/analytics/prd_metrics_schema_duckdb.sql
+# Wiki markdown is served at runtime by amprealize.services.wiki_api and must
+# stay in the image even though the global *.md exclude exists.
+!wiki/
+!wiki/**/*.md
+!wiki/**/*.json
+!wiki/**/*.yml
+!wiki/**/*.yaml
 
 # CI/CD
 .github

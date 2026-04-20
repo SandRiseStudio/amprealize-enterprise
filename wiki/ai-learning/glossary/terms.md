@@ -1,14 +1,15 @@
 ---
-title: "AI/ML Glossary"
+title: AI/ML Glossary
 type: glossary
 difficulty: beginner
 prerequisites: []
 tags:
-  - reference
-  - terminology
-last_updated: "2026-04-09"
+- reference
+- terminology
+last_updated: '2026-04-15'
 sources: []
-amprealize_relevance: "Quick reference for AI/ML terminology used across Amprealize's codebase and documentation."
+amprealize_relevance: Quick reference for AI/ML terminology used across Amprealize's
+  codebase and documentation.
 visibility: public
 ---
 
@@ -59,3 +60,13 @@ Quick reference for core terminology. Each entry links to a deeper concept page 
 **Transformer** — Neural network architecture based on self-attention. Foundation of all modern LLMs. See [Transformers](../concepts/transformers.md).
 
 **Vector Database** — Storage system optimized for similarity search over embedding vectors. See [FAISS](../technologies/faiss.md).
+
+**Bitter Lesson** — Richard Sutton's 2019 observation that general methods leveraging computation consistently outperform approaches leveraging hand-crafted human knowledge. Implies that search and learning are the only strategies that scale indefinitely. See [The Bitter Lesson & Search at Scale](../concepts/bitter-lesson.md).
+
+**Context Fragment** — A discrete unit of information explicitly loaded into an agent's context window by the harness. Each fragment represents a deliberate design decision about what the model needs to see. See [Agent Harnesses & Context Fragments](../concepts/agent-harness.md).
+
+**Experiential Memory** — Agent memory accumulated over interactions, analogous to human episodic memory. Includes both raw traces and distilled higher-level patterns derived from those traces. See [Experiential Memory for AI Agents](../concepts/experiential-memory.md).
+
+**Harness** — The orchestration layer that wraps an LLM: populating the context window, routing outputs, managing state between calls, and enforcing boundaries. Frameworks like LangChain and Anthropic's Agent SDK are harness implementations. See [Agent Harnesses & Context Fragments](../concepts/agent-harness.md).
+
+**Memory Distillation** — The process of converting raw agent experience traces into compact, generalizable, retrievable higher-level primitives. Analogous to how humans consolidate episodic memories into general knowledge. See [Experiential Memory for AI Agents](../concepts/experiential-memory.md).

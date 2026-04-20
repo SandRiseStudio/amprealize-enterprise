@@ -1,5 +1,9 @@
 name: Publish to npm
 
+# SAFETY: npm publishing must only happen from the OSS repository. See the
+# guard in publish-pypi.yml for the rationale; Lane B tracks OSS release
+# automation.
+
 on:
   release:
     types: [published]
@@ -11,14 +15,32 @@ on:
         default: true
         type: boolean
 
+env:
+  OSS_REPO: "amprealize/amprealize"
+
 defaults:
   run:
     working-directory: packages/npm
 
 jobs:
+  guard:
+    name: Enterprise repo guard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Abort if not OSS repo
+        run: |
+          if [ "${GITHUB_REPOSITORY}" != "${OSS_REPO}" ]; then
+            echo "::error::publish-npm.yml must only run from ${OSS_REPO} — running on ${GITHUB_REPOSITORY}. Refusing."
+            exit 1
+          fi
+
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
+    needs: guard
     permissions:
       contents: read
       id-token: write  # npm provenance

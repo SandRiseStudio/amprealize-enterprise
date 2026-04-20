@@ -13,6 +13,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   useLinkedProviders,
@@ -405,6 +406,7 @@ function PasswordModal({
 // ---------------------------------------------------------------------------
 
 export function SecuritySettings() {
+  const navigate = useNavigate();
   const { actor } = useAuth();
   const userId = actor?.id;
 
@@ -526,6 +528,23 @@ export function SecuritySettings() {
         <h1>Security Settings</h1>
         <p>Manage your account security and connected services</p>
       </header>
+
+      {actor?.role === 'ADMIN' && (
+        <section className="settings-section">
+          <h2>Feature flags</h2>
+          <p className="section-description">
+            View and toggle server-side boolean flags (Postgres), similar in spirit to Firebase Remote Config.
+          </p>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => navigate('/settings/feature-flags')}
+            data-haptic="light"
+          >
+            Open feature flags
+          </button>
+        </section>
+      )}
 
       {/* Email Verification Section */}
       <section className="settings-section">

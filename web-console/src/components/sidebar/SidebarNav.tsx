@@ -7,6 +7,7 @@ import { useApiCapabilities } from '../../api/capabilities';
 import { useModules } from '../../api/modules';
 import { loadProjectSortPreference, sortProjects } from '../../utils/projectSort';
 import { STORAGE_KEYS } from '../../config/storageKeys';
+import { type WikiDomain } from '../wiki/wikiData';
 import './SidebarNav.css';
 
 const STORAGE_KEY_SECTIONS = STORAGE_KEYS.sidebarSections;
@@ -106,6 +107,14 @@ const SearchIcon = () => (
 const SparkIcon = () => (
   <svg className="sidebar-nav-icon" viewBox="0 0 16 16" fill="none">
     <path d="M8 2.5l1.2 3.3L12.5 7 9.2 8.2 8 11.5 6.8 8.2 3.5 7l3.3-1.2L8 2.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+  </svg>
+);
+
+const WikiIcon = () => (
+  <svg className="sidebar-nav-icon" viewBox="0 0 16 16" fill="none">
+    <path d="M3 3.5h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M8 4.5h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H8" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M4.5 6.5h2M4.5 8.5h2M10 7h2.5M10 9h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5" />
   </svg>
 );
 
@@ -716,6 +725,8 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
           </div>
         )}
 
+        <WikiSidebarSection pathname={pathname} onNavigate={onNavigate} moveFocus={moveFocus} />
+
         {hasBehaviors && (
         <div className="sidebar-section">
           <button
@@ -792,6 +803,56 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
           </div>
         </div>
         )}
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Wiki sidebar section — launcher, not full tree (mirrors OSS)
+// ---------------------------------------------------------------------------
+
+const WikiSidebarSection = memo(function WikiSidebarSection({
+  pathname,
+  onNavigate,
+  moveFocus,
+}: {
+  pathname: string;
+  onNavigate: (path: string) => void;
+  moveFocus: (current: HTMLElement, delta: number) => void;
+}) {
+  const isWikiActive = pathname.startsWith('/wiki');
+  const activeDomain = useMemo((): WikiDomain | null => {
+    const match = pathname.match(/^\/wiki\/([^/]+)/);
+    if (!match) return null;
+    return match[1] as WikiDomain;
+  }, [pathname]);
+  const defaultDomain = activeDomain ?? 'infra';
+
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-section-body">
+        <div className="sidebar-section-body-inner">
+          <NavItem
+            label="Wiki"
+            icon={<WikiIcon />}
+            ariaLabel="Open wiki"
+            active={isWikiActive}
+            onClick={() => onNavigate(`/wiki/${defaultDomain}`)}
+            secondaryAction={{
+              icon: <SearchIcon />,
+              label: 'Open wiki search',
+              title: 'Open wiki search',
+              onClick: () => onNavigate(`/wiki/${defaultDomain}?search=1`),
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(event.currentTarget, 1); }
+              else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(event.currentTarget, -1); }
+            }}
+            role="treeitem"
+            level={1}
+          />
+        </div>
       </div>
     </div>
   );

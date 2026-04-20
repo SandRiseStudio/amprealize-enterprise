@@ -1,5 +1,12 @@
 name: Publish to PyPI
 
+# SAFETY: PyPI publishing must only happen from the OSS repository
+# (amprealize/amprealize). If this workflow is ever triggered on the
+# enterprise repo it would leak enterprise-only sources. The guard below
+# no-ops the build on any non-OSS repo. The canonical workflow lives at
+# https://github.com/amprealize/amprealize/blob/main/.github/workflows/publish-pypi.yml
+# and Lane B (GUIDEAI-5) tracks its continued maintenance.
+
 on:
   release:
     types: [published]
@@ -16,11 +23,24 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
+  OSS_REPO: "amprealize/amprealize"
 
 jobs:
+  guard:
+    name: Enterprise repo guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Abort if not OSS repo
+        run: |
+          if [ "${GITHUB_REPOSITORY}" != "${OSS_REPO}" ]; then
+            echo "::error::publish-pypi.yml must only run from ${OSS_REPO} — running on ${GITHUB_REPOSITORY}. Refusing."
+            exit 1
+          fi
+
   build:
     name: Build Distribution
     runs-on: ubuntu-latest
+    needs: guard
 
     steps:
       - name: Checkout repository

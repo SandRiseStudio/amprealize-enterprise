@@ -169,7 +169,32 @@ body {
   line-height: var(--leading-normal);
   color: var(--color-text-primary);
   background: var(--gradient-page);
-  overflow: hidden; /* Prevent body scroll, handle in containers */
+  /*
+   * Desktop uses a fixed-frame layout where every page manages its own
+   * scroll in an inner container (boards, dashboard, wiki article pane,
+   * etc.). Locking the body avoids double-scrollbars there.
+   */
+  overflow: hidden;
+}
+
+/*
+ * On mobile we switch to a body-scroll model. iOS Safari/Chrome will not
+ * initiate vertical touch-scroll when the body is `overflow: hidden` and the
+ * content is taller than the visual viewport — you end up needing to
+ * pinch-zoom to unlock a second "visual viewport" that does scroll. Letting
+ * the body own scroll below 768px fixes that and keeps nested scroll
+ * containers from fighting with the page on small devices.
+ */
+@media (max-width: 768px) {
+  html,
+  body {
+    overflow-x: clip;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  body {
+    overscroll-behavior-y: contain;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

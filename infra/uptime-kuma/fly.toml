@@ -1,0 +1,59 @@
+# Fly.io config for the Uptime Kuma health-check dashboard.
+#
+# Minimal 256 MB VM running the official louislam/uptime-kuma image with a
+# 1 GB persistent volume (kuma_data). Health probes for amprealize.ai,
+# api.amprealize.ai, and mcp.amprealize.ai are configured after the first
+# deploy via the Kuma web UI (see docs/runbooks/OBSERVABILITY.md).
+
+app = "amprealize-uptime"
+primary_region = "iad"
+kill_timeout = 30
+
+[build]
+  image = "louislam/uptime-kuma:1"
+
+[env]
+  UPTIME_KUMA_PORT = "3001"
+  # Disable the default database auto-setup prompt in favor of a scripted
+  # first-run in the runbook.
+  UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN = "0"
+
+[experimental]
+  auto_rollback = true
+
+[[mounts]]
+  source = "kuma_data"
+  destination = "/app/data"
+  initial_size = "1gb"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3001
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 10
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
+  cpu_kind = "shared"

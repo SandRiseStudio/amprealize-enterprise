@@ -31,6 +31,8 @@ import { OAUTH_WEB_CLIENT_ID } from '../config/branding';
 import { authStore, useAuthStore, AUTH_STORE_INSTANCE_ID } from '../stores/authStore';
 import { apiClient, ApiError } from '../api/client';
 import { orgContextStore } from '../store/orgContextStore';
+import { identifyUser, resetUser } from '../lib/posthog';
+import { trackUserSignedIn, trackUserSignedOut } from '../lib/analyticsEvents';
 import type {
   AuthSession,
   AuthTokens,
@@ -378,6 +380,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
           authStore.setSession(session);
           apiClient.setToken(tokenResponse.access_token);
           apiClient.setRefreshToken(tokenResponse.refresh_token ?? null);
+          identifyUser({ id: actor.id, email: actor.email, displayName: actor.displayName });
+          trackUserSignedIn({ method: 'device_flow', userId: actor.id });
           emitAuthTelemetry('auth_login_completed', {
             actorId: actor.id,
             actorType: actor.type,
@@ -569,6 +573,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
       // will use stale tokens and trigger a refresh/logout loop.
       apiClient.setToken(tokenResponse.access_token);
       apiClient.setRefreshToken(tokenResponse.refresh_token ?? null);
+      identifyUser({ id: actor.id, displayName: actor.displayName });
+      trackUserSignedIn({ method: 'oauth_github', userId: actor.id });
       emitAuthTelemetry('auth_login_completed', {
         actorId: actor.id,
         actorType: actor.type,
@@ -608,6 +614,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
       }
+      if (actorId) trackUserSignedOut({ userId: actorId });
+      resetUser();
       emitAuthTelemetry('auth_logout', { actorId });
     }
   }, [stopPolling]);

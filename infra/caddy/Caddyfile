@@ -1,0 +1,30 @@
+{
+	# Global options
+	email {env.CADDY_EMAIL}
+	auto_https off_if_local
+}
+
+# Default site for self-hosted Enterprise installs. Replace
+# AMPREALIZE_DOMAIN in your .env.enterprise to something like
+# amprealize.example.com for automatic Let's Encrypt.
+{env.AMPREALIZE_DOMAIN} {
+	encode zstd gzip
+
+	# API + wiki
+	reverse_proxy /api/* api:8000
+	reverse_proxy /health api:8000
+
+	# Static frontend shipped inside the API image (future). For now the
+	# single-node stack points at the API and the customer hosts the SPA
+	# themselves. Uncomment once the enterprise image bundles the SPA.
+	# handle /* {
+	# 	root * /srv/web
+	# 	try_files {path} /index.html
+	# 	file_server
+	# }
+
+	log {
+		output stdout
+		format json
+	}
+}

@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useBCIRetrieve, useBCIStatus, type BehaviorMatch } from '../api/bci';
 import { CitationHighlighter } from './CitationHighlighter';
+import { trackBehaviorRetrieved } from '../lib/analyticsEvents';
 import './BCIResponsePanel.css';
 
 interface BCIResponsePanelProps {
@@ -22,10 +23,19 @@ export function BCIResponsePanel({ onBehaviorSelect }: BCIResponsePanelProps) {
     e.preventDefault();
     if (!query.trim()) return;
 
-    retrieveMutation.mutate({
-      query: query.trim(),
-      top_k: topK,
-    });
+    retrieveMutation.mutate(
+      { query: query.trim(), top_k: topK },
+      {
+        onSuccess: (data) => {
+          const matches = (data as { behaviors?: { slug?: string }[] })?.behaviors ?? [];
+          trackBehaviorRetrieved({
+            behaviorSlug: matches[0]?.slug ?? '(none)',
+            source: 'web',
+            topK,
+          });
+        },
+      },
+    );
   };
 
   return (

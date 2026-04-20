@@ -11,7 +11,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ExecutionStatusBadge, type ExecutionListItem } from '../../lib/collab-client';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useShellTitle, useShellMode } from '../workspace/useShell';
 import { useApiCapabilities } from '../../api/capabilities';
 import { type Agent, type AgentStatus, useProject } from '../../api/dashboard';
@@ -43,7 +43,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
-import { WorkItemDrawer, type AssigneeProfile, type WorkItemPresentationMode } from './WorkItemDrawer';
+import { WorkItemDrawer, type AssigneeProfile } from './WorkItemDrawer';
 import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import { filtersToQueryParams, useBoardFilters, useFilteredItems, sortItems } from './useBoardFilters';
 import { BoardFilterBar } from './BoardFilterBar';
@@ -61,6 +61,7 @@ import {
 } from '../conversations/UnifiedConversationWindow';
 import { useGetOrCreateDirectConversation } from '../../api/conversations';
 import { razeLog } from '../../telemetry/raze';
+import { trackBoardOpened, trackBoardItemCreated } from '../../lib/analyticsEvents';
 import './BoardPage.css';
 
 function getColumnAccentIndex(index: number): number {
@@ -2806,7 +2807,6 @@ const OutlineView = memo(function OutlineView({
 });
 
 export function BoardPage(): React.JSX.Element {
-  const location = useLocation();
   const navigate = useNavigate();
   const { projectId, boardId, itemId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2828,13 +2828,6 @@ export function BoardPage(): React.JSX.Element {
   const filterState = useBoardFilters();
   const { filters, sort, hasActiveFilters } = filterState;
   const workItemQuery = useMemo(() => filtersToQueryParams(filters, sort), [filters, sort]);
-
-  const presentationMode: WorkItemPresentationMode =
-    itemId && location.state && typeof location.state === 'object' && 'workItemPresentation' in location.state
-      ? ((location.state as { workItemPresentation?: WorkItemPresentationMode }).workItemPresentation === 'peek'
-        ? 'peek'
-        : 'studio')
-      : 'studio';
 
   // Collapse header chrome after scrolling past threshold
   useEffect(() => {
@@ -3446,11 +3439,9 @@ export function BoardPage(): React.JSX.Element {
   );
 
   const onOpen = useCallback(
-    (openItemId: string, nextPresentationMode: WorkItemPresentationMode = 'peek') => {
+    (openItemId: string) => {
       if (!projectId || !boardId) return;
-      navigate(`/projects/${projectId}/boards/${boardId}/items/${openItemId}`, {
-        state: { workItemPresentation: nextPresentationMode },
-      });
+      navigate(`/projects/${projectId}/boards/${boardId}/items/${openItemId}`);
     },
     [boardId, navigate, projectId]
   );
@@ -3460,17 +3451,6 @@ export function BoardPage(): React.JSX.Element {
     pendingFocusItemIdRef.current = itemId ?? null;
     navigate(`/projects/${projectId}/boards/${boardId}`);
   }, [boardId, itemId, navigate, projectId]);
-
-  const onPresentationModeChange = useCallback(
-    (nextPresentationMode: WorkItemPresentationMode) => {
-      if (!projectId || !boardId || !itemId) return;
-      navigate(`/projects/${projectId}/boards/${boardId}/items/${itemId}`, {
-        replace: true,
-        state: { workItemPresentation: nextPresentationMode },
-      });
-    },
-    [boardId, itemId, navigate, projectId]
-  );
 
   const showCopyToast = useCallback((message: string, variant: 'success' | 'error' = 'success') => {
     if (copyToastTimerRef.current != null) {
@@ -3634,6 +3614,7 @@ export function BoardPage(): React.JSX.Element {
         },
         {
           onSuccess: (created) => {
+            trackBoardItemCreated({ projectId, boardId, itemType });
             onCreated?.(created.item_id);
           },
         }
@@ -3666,6 +3647,7 @@ export function BoardPage(): React.JSX.Element {
       elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
       filters_active: hasActiveFilters,
     });
+    trackBoardOpened({ projectId: projectId ?? '', boardId, view: 'board' });
   }, [board, boardId, boardLoading, hasActiveFilters, projectId]);
 
   useEffect(() => {
@@ -4025,7 +4007,6 @@ export function BoardPage(): React.JSX.Element {
             orgId={project?.org_id ?? null}
             boardId={boardId}
             itemId={itemId}
-            presentationMode={presentationMode}
             projectSlug={project?.slug}
             columns={columns}
             targetPositions={targetPositions}
@@ -4038,7 +4019,6 @@ export function BoardPage(): React.JSX.Element {
             onCopyWorkItemId={handleCopyWorkItemId}
             onNotify={showCopyToast}
             onRequestClose={onCloseDrawer}
-            onPresentationModeChange={onPresentationModeChange}
           />
         )}
 

@@ -14,6 +14,9 @@
 - [Hybrid Retrieval](concepts/hybrid-retrieval.md) — intermediate
 - [Multi-Agent Orchestration](concepts/multi-agent.md) — advanced
 - [Managed Agent Platforms — Comparative Overview](concepts/agent-platforms.md)
+- [Agent Harnesses & Context Fragments](concepts/agent-harness.md)
+- [Experiential Memory for AI Agents](concepts/experiential-memory.md)
+- [The Bitter Lesson & Search at Scale](concepts/bitter-lesson.md)
 
 
 ## Technologies
