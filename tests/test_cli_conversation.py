@@ -4,7 +4,6 @@ Tests the argparse parsing, dispatch, and output formatting
 without requiring a PostgreSQL backend by mocking the adapter.
 """
 import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest

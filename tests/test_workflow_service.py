@@ -8,7 +8,6 @@ Validates:
 - Role-specific execution paths
 """
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest

@@ -14,8 +14,7 @@ import json
 import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

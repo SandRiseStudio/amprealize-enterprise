@@ -23,7 +23,6 @@ Each test follows the pattern:
 import json
 import pytest
 import os
-import psycopg2
 from datetime import datetime, timedelta
 from amprealize.action_contracts import utc_now_iso
 from amprealize.mcp_server import MCPServer

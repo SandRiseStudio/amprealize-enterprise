@@ -362,7 +362,7 @@ class PostgresDeviceFlowStore:
             return None
 
         if session.is_expired:
-            logger.warning(f"Cannot approve expired session")
+            logger.warning("Cannot approve expired session")
             return None
 
         now = datetime.now(timezone.utc)
@@ -639,7 +639,7 @@ class PostgresDeviceFlowStore:
         """
         session = self.get_by_refresh_token(refresh_token)
         if not session:
-            logger.warning(f"Refresh token not found in database")
+            logger.warning("Refresh token not found in database")
             return None
 
         if session.status != "APPROVED":
@@ -650,7 +650,7 @@ class PostgresDeviceFlowStore:
 
         # Check refresh token expiry
         if session.refresh_token_expires_at and now > session.refresh_token_expires_at:
-            logger.warning(f"Refresh token expired")
+            logger.warning("Refresh token expired")
             return None
 
         # Generate new access token

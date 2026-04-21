@@ -101,7 +101,7 @@ def main() -> None:
     if "result" in response:
         content_text = response["result"]["content"][0]["text"]
         auth_status = json.loads(content_text)
-        print(f"   ✅ Tool executed successfully")
+        print("   ✅ Tool executed successfully")
         print(f"   Authenticated: {auth_status['is_authenticated']}")
         print(f"   Needs login: {auth_status['needs_login']}")
     else:

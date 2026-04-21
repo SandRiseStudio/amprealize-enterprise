@@ -20,7 +20,6 @@ from amprealize.knowledge_pack.extractor import (
     DoctrineFragment,
     ExtractionResult,
     PlaybookFragment,
-    SourceExtractor,
 )
 from amprealize.knowledge_pack.schema import (
     KnowledgePackManifest,
@@ -29,7 +28,6 @@ from amprealize.knowledge_pack.schema import (
 )
 from amprealize.knowledge_pack.source_registry import (
     SourceRecord,
-    SourceRegistryService,
 )
 
 pytestmark = [pytest.mark.unit]

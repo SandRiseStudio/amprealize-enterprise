@@ -166,3 +166,11 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.ruff]
+# _archive/ is explicitly documented as deprecated code kept only for reference
+# (see amprealize/_archive/README.md). Exclude it from linting so its stale
+# imports/references don't block CI.
+extend-exclude = [
+    "amprealize/_archive/",
+]

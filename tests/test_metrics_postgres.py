@@ -10,12 +10,9 @@ to SQLite+DuckDB reference implementation across all operations:
 - Subscription management
 """
 
-import json
 import os
 import pytest
-import time
 import uuid
-from datetime import datetime, timezone
 
 from amprealize.metrics_service import MetricsService
 from amprealize.metrics_service_postgres import PostgresMetricsService

@@ -5,10 +5,14 @@ Reads ``config.storage.backend`` and returns the appropriate pool instance.
 
 from __future__ import annotations
 
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from amprealize.config.loader import load_config
 from amprealize.config.schema import AmprealizeConfig
+
+if TYPE_CHECKING:
+    from amprealize.storage.postgres_pool import PostgresPool
+    from amprealize.storage.sqlite_pool import SQLitePool
 
 
 def create_storage_pool(

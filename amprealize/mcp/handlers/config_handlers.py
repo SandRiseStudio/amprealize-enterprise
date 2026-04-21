@@ -10,10 +10,10 @@ See WORK_ITEM_EXECUTION_PLAN.md Section 11.6 for specification.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, Callable
 
 from ...work_item_execution_service import CredentialStore
-from ...work_item_execution_contracts import AvailableModel, MODEL_CATALOG, LLMProvider
+from ...work_item_execution_contracts import AvailableModel, LLMProvider
 
 
 # ==============================================================================

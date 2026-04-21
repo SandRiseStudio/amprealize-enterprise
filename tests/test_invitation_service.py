@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import pytest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch, call
-from typing import List, Dict, Any, Optional
+from unittest.mock import MagicMock
 
 from amprealize.multi_tenant.invitation_service import InvitationService
 
@@ -25,14 +24,9 @@ pytestmark = [
 
 # Import contracts
 from amprealize.multi_tenant.contracts import (
-    Invitation,
     InvitationStatus,
     InvitationChannel,
-    InvitationEvent,
-    InvitationWithOrg,
-    InvitationListResponse,
     CreateInvitationRequest,
-    OrgMembership,
     MemberRole,
 )
 

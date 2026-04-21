@@ -5,7 +5,6 @@ Supports audit trail in assignment_history and agent suggestion helper.
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional

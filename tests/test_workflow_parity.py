@@ -16,7 +16,6 @@ except ImportError:  # pragma: no cover - psycopg2 optional for lint envs
 
 import pytest
 
-from amprealize.action_contracts import Actor
 from amprealize.adapters import (
     CLIWorkflowServiceAdapter,
     RestWorkflowServiceAdapter,

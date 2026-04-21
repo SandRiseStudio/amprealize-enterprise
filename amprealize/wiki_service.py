@@ -12,7 +12,6 @@ Wiki pages are markdown files with YAML frontmatter, stored in git.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import subprocess
 from datetime import datetime, timezone

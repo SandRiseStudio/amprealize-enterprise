@@ -6,7 +6,6 @@ Tests conditional PostgreSQL backend usage across API, CLI, and MCP surfaces.
 
 import os
 import pytest
-from pathlib import Path
 from unittest.mock import patch
 
 # Test that services can be instantiated with PostgreSQL DSNs

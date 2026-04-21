@@ -18,15 +18,14 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from typing import Any, Dict, Optional
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from amprealize.conversation_contracts import (
     ActorType,
-    ConversationScope,
     ExternalBinding,
     ExternalProvider,
     Message,
@@ -638,7 +637,6 @@ class TestFastAPIRouteIntegration:
         assert resp.status_code == 401
 
     async def test_event_dispatch_returns_200(self, app, config, mock_conv):
-        from httpx import AsyncClient
 
         mock_conv.get_external_binding.return_value = None
         body = json.dumps(_slack_event_payload())
@@ -659,7 +657,6 @@ class TestFastAPIRouteIntegration:
         assert resp.status_code == 200
 
     async def test_slash_command_returns_json(self, app, config, mock_conv):
-        from httpx import AsyncClient
 
         mock_conv.get_external_binding.return_value = None
         body = "command=%2Famprealize&text=help&channel_id=C123&user_id=U1&team_id=T1"

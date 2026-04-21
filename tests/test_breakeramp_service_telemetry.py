@@ -6,12 +6,11 @@ emission is triggered by the standalone breakeramp package via hooks.
 """
 
 import pytest
-from unittest.mock import MagicMock, ANY
+from unittest.mock import MagicMock
 from amprealize.breakeramp import (
     BreakerAmpService,
     PlanRequest,
     ApplyRequest,
-    DestroyRequest,
 )
 from amprealize.action_contracts import Actor
 

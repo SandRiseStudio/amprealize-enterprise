@@ -14,6 +14,7 @@ Following:
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import re
@@ -25,13 +26,12 @@ if TYPE_CHECKING:
     from amprealize.multi_tenant.organization_service import OrganizationService
 
 from amprealize.multi_tenant.contracts import (
-    Agent,
     AgentType,
     AgentPresenceResponse,
-    PresenceStatus,
     ProjectAgentAssignmentResponse,
     ProjectAgentPresenceListResponse,
     ProjectAgentRole,
+    ProjectAgentStatus,
     UpdateAgentPresenceRequest,
 )
 

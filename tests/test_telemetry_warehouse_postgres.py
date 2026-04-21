@@ -12,7 +12,7 @@ Behaviors referenced:
 
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Generator
 
 import pytest
@@ -21,7 +21,6 @@ import pytest
 pytest.importorskip("psycopg2")
 
 from amprealize.storage.postgres_telemetry import (
-    ExecutionSpan,
     PostgresTelemetryWarehouse,
     PostgresTelemetrySink,
 )

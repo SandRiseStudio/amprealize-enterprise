@@ -436,7 +436,7 @@ class TestGoogleProviderIntegration:
         assert "google.com" in result.verification_uri
         assert result.expires_in > 0
 
-        print(f"\n\nTo complete authorization:")
+        print("\n\nTo complete authorization:")
         print(f"1. Go to: {result.verification_uri}")
         print(f"2. Enter code: {result.user_code}")
         print(f"Device code expires in {result.expires_in} seconds\n")

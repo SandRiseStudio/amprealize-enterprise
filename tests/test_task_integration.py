@@ -2,7 +2,6 @@
 """Quick integration test for TaskService and MCP handler."""
 
 import asyncio
-import json
 import sys
 from datetime import datetime, timezone
 
@@ -44,7 +43,7 @@ try:
 
     # Get stats
     stats = task_service.get_task_stats(agent_id="test-agent-01")
-    print(f"✅ Task stats:")
+    print("✅ Task stats:")
     print(f"   - Total: {stats.total}")
     print(f"   - Pending: {stats.pending}")
     print(f"   - Completed: {stats.completed}")

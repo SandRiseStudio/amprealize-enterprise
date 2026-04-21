@@ -18,8 +18,7 @@ Test coverage:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, Generator, Optional
+from typing import Generator
 
 try:
     import psycopg2  # type: ignore[import-not-found]
@@ -29,8 +28,6 @@ import pytest
 
 from amprealize.agent_orchestrator_service import (
     AgentOrchestratorService,
-    AgentPersona,
-    AgentAssignment,
 )
 from amprealize.agent_orchestrator_service_postgres import PostgresAgentOrchestratorService
 

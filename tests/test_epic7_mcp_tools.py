@@ -7,7 +7,6 @@ proper routing in the MCP server, and working adapters.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -47,7 +46,6 @@ def test_mcp_server_loading():
     print("\n🔍 Testing MCP server loading...")
 
     try:
-        from amprealize.mcp_server import MCPServer
         print("  ✅ MCP server imports successfully")
 
         # Test that services can be instantiated

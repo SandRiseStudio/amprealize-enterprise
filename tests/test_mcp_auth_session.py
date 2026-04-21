@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Test MCP auth session context implementation."""
-import asyncio
 from datetime import datetime, timedelta
 
-from amprealize.mcp_server import MCPServer, MCPSessionContext, PUBLIC_TOOLS
+from amprealize.mcp_server import MCPSessionContext, PUBLIC_TOOLS
 
 
 def test_session_context():

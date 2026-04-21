@@ -14,7 +14,6 @@ This follows MCP best practices:
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -26,9 +25,7 @@ from .mcp_tool_groups import (
     CORE_TOOLS,
     OUTCOME_TOOLS,
     TOOL_GROUPS,
-    ToolGroup,
     ToolGroupId,
-    calculate_tool_allocation,
     get_max_tools_budget,
     match_tool_to_group,
     suggest_groups_for_query,

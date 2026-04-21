@@ -46,8 +46,8 @@ def demo_notifications():
     stdout, stderr = proc.communicate(input=request + "\n", timeout=5)
 
     print("📤 Sent JSON-RPC request:")
-    print(f"   Method: tools/call")
-    print(f"   Tool: patterns.detectPatterns")
+    print("   Method: tools/call")
+    print("   Tool: patterns.detectPatterns")
     print()
     print("📨 Received messages (in order):")
     print()
@@ -70,13 +70,13 @@ def demo_notifications():
             if "error" in msg:
                 print(f"   Error: {msg['error'].get('message', 'Unknown error')}")
             else:
-                print(f"   Type: JSON-RPC Response (has 'id' field)")
-                print(f"   Status: Success")
+                print("   Type: JSON-RPC Response (has 'id' field)")
+                print("   Status: Success")
         elif "method" in msg:
             # This is a notification
             params = msg.get("params", {})
             print(f"{i}. 📢 NOTIFICATION (method={msg['method']})")
-            print(f"   No 'id' field = no response expected")
+            print("   No 'id' field = no response expected")
             print(f"   Status: {params.get('status', 'unknown')}")
             print(f"   Message: {params.get('message', 'N/A')}")
         print()

@@ -8,12 +8,8 @@ Part of E3 — Agent Execution Loop Rearchitecture (Phase 4 / S3.8).
 
 from __future__ import annotations
 
-import asyncio
 import os
 import tempfile
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -378,7 +374,6 @@ class TestGitLabMRHandler:
         ctx.summary = "Fixed issues"
 
         # Mock all three API calls
-        import httpx
 
         branch_response = MagicMock(status_code=201)
         commit_response = MagicMock(status_code=201)

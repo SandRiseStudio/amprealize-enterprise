@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from amprealize.multi_tenant.board_contracts import (
     AssigneeType,
@@ -182,7 +182,7 @@ def auto_assign_work_item(
             )
             board_service.assign_work_item(work_item.item_id, request, actor, org_id=org_id)
             logger.info(f"Auto-assigned work item {work_item.item_id} to project owner {project_owner_id}")
-            return True, f"Assigned to project owner (no matching agent found)"
+            return True, "Assigned to project owner (no matching agent found)"
         except Exception as e:
             logger.warning(f"Failed to auto-assign to project owner: {e}")
             return False, f"Failed to assign: {e}"

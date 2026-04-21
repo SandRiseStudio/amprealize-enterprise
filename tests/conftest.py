@@ -14,7 +14,7 @@ import time
 import urllib.parse
 from pathlib import Path
 from typing import Generator, List, Optional
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Block BreakerAmp from loading ~/amprealize/.env during test collection.
@@ -408,7 +408,6 @@ def check_test_environment(request):
         return
 
     # Skip for any tests in tests/load/ or tests/smoke/ directory (they have their own infrastructure requirements)
-    import pathlib
     for arg in request.config.args:
         if "tests/load/" in str(arg) or "/load/" in str(arg):
             return
@@ -426,7 +425,7 @@ def check_test_environment(request):
     redis_port = int(os.getenv("REDIS_PORT", "6479"))
 
     if mode == "breakeramp":
-        print(f"\n[Fixture] Mode: breakeramp. Verifying connectivity...")
+        print("\n[Fixture] Mode: breakeramp. Verifying connectivity...")
 
         # We check one Postgres service as a proxy for all
         if not wait_for_port(pg_host, pg_port, timeout=15):

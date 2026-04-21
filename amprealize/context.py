@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import os
 import socket
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -38,17 +37,7 @@ import yaml
 
 from amprealize.config.schema import (
     AmprealizeConfig,
-    AmprealizeConfigV2,
     ContextConfig,
-    StorageConfig,
-    PostgresStorageConfig,
-    SqliteStorageConfig,
-    ServerConfig,
-    AuthConfig,
-    McpConfig,
-    InfraConfig,
-    LoggingConfig,
-    expand_env_vars,
 )
 
 # Type alias for config objects (both v1 and v2 context configs)
@@ -555,7 +544,7 @@ def remove_context(name: str) -> Tuple[bool, str]:
         return False, f"Context '{name}' not found"
 
     if name == current:
-        return False, f"Cannot remove current context. Switch to another context first."
+        return False, "Cannot remove current context. Switch to another context first."
 
     if len(contexts) <= 1:
         return False, "Cannot remove the last context"

@@ -9,7 +9,6 @@ Tests following behavior_design_test_strategy:
 Note: These tests don't require database infrastructure.
 """
 
-from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

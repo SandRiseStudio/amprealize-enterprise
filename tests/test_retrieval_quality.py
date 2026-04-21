@@ -33,7 +33,6 @@ from unittest.mock import patch
 import pytest
 
 from amprealize.behavior_retriever import BehaviorRetriever
-from amprealize.bci_contracts import RetrieveRequest, RetrievalStrategy
 
 pytestmark = pytest.mark.unit
 

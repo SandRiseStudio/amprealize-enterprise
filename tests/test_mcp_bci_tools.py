@@ -9,7 +9,6 @@ Following patterns from test_mcp_behavior_tools.py to ensure:
 """
 
 import json
-import os
 import pytest
 from datetime import datetime, timedelta
 from amprealize.mcp_server import MCPServer

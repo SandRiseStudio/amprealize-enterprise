@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

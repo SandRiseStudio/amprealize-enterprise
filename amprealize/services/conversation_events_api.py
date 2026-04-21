@@ -17,21 +17,16 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from amprealize.conversation_contracts import ActorType, MessageType
+from amprealize.conversation_contracts import MessageType
 from amprealize.conversation_event_hub import (
     EVENT_COMPLETE,
     EVENT_ERROR,
-    EVENT_MESSAGE_DELETED,
-    EVENT_MESSAGE_NEW,
-    EVENT_MESSAGE_UPDATED,
-    EVENT_REACTION_ADDED,
-    EVENT_REACTION_REMOVED,
     ConversationEventHub,
 )
 

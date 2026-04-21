@@ -19,8 +19,11 @@ import webbrowser
 import yaml
 from pathlib import Path
 from datetime import datetime, timezone, date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from amprealize.action_contracts import Actor
 
 from amprealize.action_service import ActionService
 from amprealize.adapters import (
@@ -67,7 +70,6 @@ from amprealize.agent_orchestrator_service import AgentOrchestratorService
 from amprealize.metrics_service import MetricsService
 from amprealize.reflection_service import ReflectionService
 from amprealize.reflection_service_postgres import PostgresReflectionService
-from amprealize.reflection_contracts import TraceFormat
 from amprealize.run_service import RunService
 from amprealize.task_assignments import TaskAssignmentService
 from amprealize.telemetry import TelemetryClient, create_sink_from_env, FileTelemetrySink, KafkaTelemetrySink
@@ -127,6 +129,30 @@ def _build_cli_actor(actor_id: str, actor_role: str) -> "Actor":
     from amprealize.action_contracts import Actor
 
     return Actor(id=actor_id, role=actor_role, surface="cli")
+
+
+def _print_table(headers: List[str], rows: List[List[Any]]) -> None:
+    """Render a simple aligned ASCII table to stdout.
+
+    Used by CLI report commands (plan/audit/etc.). Kept intentionally
+    dependency-free so we don't pull a heavy tabulate/rich stack into the CLI.
+    """
+    if not rows:
+        print("(no rows)")
+        return
+    cols = len(headers)
+    str_rows = [[str(c) if c is not None else "" for c in row] for row in rows]
+    widths = [len(h) for h in headers]
+    for row in str_rows:
+        for i in range(cols):
+            if i < len(row):
+                widths[i] = max(widths[i], len(row[i]))
+    sep = "  "
+    print(sep.join(h.ljust(widths[i]) for i, h in enumerate(headers)))
+    print(sep.join("-" * widths[i] for i in range(cols)))
+    for row in str_rows:
+        padded = row + [""] * (cols - len(row))
+        print(sep.join(padded[i].ljust(widths[i]) for i in range(cols)))
 
 
 def _find_local_agents_md(start: Optional[Path] = None) -> Path:
@@ -5344,11 +5370,11 @@ def _command_behaviors_propose(args: argparse.Namespace) -> int:
         if result.get("auto_approved"):
             print(f"✅ Behavior auto-approved: {result['behavior_id']}")
             print(f"   Confidence: {result['confidence_score']:.2f}")
-            print(f"   Status: APPROVED")
+            print("   Status: APPROVED")
         else:
             print(f"📋 Behavior proposed for Teacher review: {result['behavior_id']}")
             print(f"   Confidence: {result['confidence_score']:.2f}")
-            print(f"   Status: DRAFT (needs Teacher validation)")
+            print("   Status: DRAFT (needs Teacher validation)")
             print(f"   Message: {result['message']}")
     return 0
 
@@ -6388,7 +6414,7 @@ def _render_agent_assignment_table(assignment: Dict[str, Any]) -> None:
     print(f"  Timestamp:      {assignment.get('timestamp', 'N/A')}")
 
     active_agent = assignment.get("active_agent", {})
-    print(f"\n🤖 Active Agent")
+    print("\n🤖 Active Agent")
     print("-" * 60)
     print(f"  Agent ID:       {active_agent.get('agent_id', 'N/A')}")
     print(f"  Display Name:   {active_agent.get('display_name', 'N/A')}")
@@ -6396,7 +6422,7 @@ def _render_agent_assignment_table(assignment: Dict[str, Any]) -> None:
 
     heuristics = assignment.get("heuristics_applied", {})
     if heuristics:
-        print(f"\n📊 Heuristics Applied")
+        print("\n📊 Heuristics Applied")
         print("-" * 60)
         print(f"  Selected Agent: {heuristics.get('selected_agent_id', 'N/A')}")
         print(f"  Requested:      {heuristics.get('requested_agent_id', 'N/A')}")
@@ -6988,12 +7014,12 @@ def _command_auth_ensure_grant(args: argparse.Namespace) -> int:
         if "reason" in result:
             print(f"Reason            : {result['reason']}")
         if "consent_url" in result:
-            print(f"\nConsent Required:")
+            print("\nConsent Required:")
             print(f"  URL             : {result['consent_url']}")
             print(f"  Request ID      : {result['consent_request_id']}")
         if "grant" in result:
             grant = result["grant"]
-            print(f"\nGrant Details:")
+            print("\nGrant Details:")
             print(f"  Grant ID        : {grant['grant_id']}")
             print(f"  Agent ID        : {grant['agent_id']}")
             print(f"  Tool Name       : {grant['tool_name']}")
@@ -8257,7 +8283,7 @@ def _render_policies_table(policies: List[Dict]) -> None:
 def _render_audit_trail_table(report: Dict) -> None:
     """Render audit trail report as a formatted table."""
     summary = report.get("summary", {})
-    print(f"\n=== Audit Trail Report ===")
+    print("\n=== Audit Trail Report ===")
     print(f"Run ID: {report.get('run_id', 'N/A')}")
     print(f"Checklists: {summary.get('checklist_count', 0)}")
     print(f"Total Entries: {summary.get('total_entries', 0)}")
@@ -8265,7 +8291,7 @@ def _render_audit_trail_table(report: Dict) -> None:
 
     status_breakdown = summary.get("status_breakdown", {})
     if status_breakdown:
-        print(f"\nStatus Breakdown:")
+        print("\nStatus Breakdown:")
         for status, count in status_breakdown.items():
             print(f"  {status}: {count}")
 
@@ -9875,7 +9901,6 @@ def _command_upgrade(args: argparse.Namespace) -> int:
         TierTransition,
         _VALID_TRANSITIONS,
         detect_edition,
-        get_caps,
     )
 
     target_str: str = args.to
@@ -10373,12 +10398,12 @@ def _command_migrate_apply(args: argparse.Namespace) -> int:
         print(f"  📊 Tables: {existing}/{total} exist")
 
         if dry_run:
-            print(f"  🔍 Would apply migration (dry-run)")
+            print("  🔍 Would apply migration (dry-run)")
             results.append((service, "pending", f"{total - existing} tables to create"))
         else:
-            print(f"  ⏳ Applying migration...")
+            print("  ⏳ Applying migration...")
             if _apply_migration(dsn, migration_path):
-                print(f"  ✅ Migration applied successfully")
+                print("  ✅ Migration applied successfully")
                 results.append((service, "applied", f"{total} tables created"))
             else:
                 results.append((service, "failed", "See error above"))
@@ -10544,19 +10569,19 @@ def _command_research_evaluate(args: argparse.Namespace) -> int:
             elif phase == "evaluate":
                 print(f"🧠 [Comprehend] Analyzing with {service.llm_model}...", file=sys.stderr)
                 comprehension = service.comprehend_paper(paper)
-                print(f"✓ [Comprehend] Complete.", file=sys.stderr)
-                print(f"📊 [Evaluate] Scoring for Amprealize fit...", file=sys.stderr)
+                print("✓ [Comprehend] Complete.", file=sys.stderr)
+                print("📊 [Evaluate] Scoring for Amprealize fit...", file=sys.stderr)
                 result = service.evaluate_paper(comprehension)
                 print(f"✓ [Evaluate] Overall score: {result.overall_score:.1f}/10", file=sys.stderr)
                 _print_json(dataclasses.asdict(result) if hasattr(result, '__dataclass_fields__') else result)
             elif phase == "recommend":
                 print(f"🧠 [Comprehend] Analyzing with {service.llm_model}...", file=sys.stderr)
                 comprehension = service.comprehend_paper(paper)
-                print(f"✓ [Comprehend] Complete.", file=sys.stderr)
-                print(f"📊 [Evaluate] Scoring for Amprealize fit...", file=sys.stderr)
+                print("✓ [Comprehend] Complete.", file=sys.stderr)
+                print("📊 [Evaluate] Scoring for Amprealize fit...", file=sys.stderr)
                 evaluation = service.evaluate_paper(comprehension)
                 print(f"✓ [Evaluate] Overall score: {evaluation.overall_score:.1f}/10", file=sys.stderr)
-                print(f"🎯 [Recommend] Generating verdict...", file=sys.stderr)
+                print("🎯 [Recommend] Generating verdict...", file=sys.stderr)
                 result = service.recommend(paper, comprehension, evaluation)
                 print(f"✓ [Recommend] Verdict: {result.verdict.value}", file=sys.stderr)
                 _print_json(dataclasses.asdict(result) if hasattr(result, '__dataclass_fields__') else result)
@@ -10852,7 +10877,6 @@ def _command_research_handoff(args: argparse.Namespace) -> int:
 def _command_architect_list(args: argparse.Namespace) -> int:
     """List pending work items for the architect agent."""
     from amprealize.services.board_service import BoardService
-    from amprealize.boards.contracts import WorkItemStatus
 
     project_id = args.project_id
     output_format = args.format
@@ -10906,7 +10930,7 @@ def _command_architect_list(args: argparse.Namespace) -> int:
 def _command_architect_pickup(args: argparse.Namespace) -> int:
     """Pick up and process a work item for the architect agent using LLM."""
     from amprealize.services.board_service import BoardService
-    from amprealize.services.work_item_assignment import auto_assign_work_item, find_best_agent_for_work_item
+    from amprealize.services.work_item_assignment import auto_assign_work_item
     from amprealize.research_service import ResearchService
     from amprealize.research.codebase_analyzer import CodebaseAnalyzer
     from amprealize.boards.contracts import WorkItemStatus, UpdateWorkItemRequest
@@ -10946,7 +10970,7 @@ def _command_architect_pickup(args: argparse.Namespace) -> int:
     else:
         try:
             work_item = board_service.get_work_item(work_item_id)
-        except Exception as e:
+        except Exception:
             print(f"❌ Work item not found: {work_item_id}", file=sys.stderr)
             return 1
 
@@ -10955,7 +10979,7 @@ def _command_architect_pickup(args: argparse.Namespace) -> int:
 
     # Extract paper_id from metadata
     if not work_item.metadata or "paper_id" not in work_item.metadata:
-        print(f"❌ Work item missing paper_id in metadata", file=sys.stderr)
+        print("❌ Work item missing paper_id in metadata", file=sys.stderr)
         return 1
 
     paper_id = work_item.metadata["paper_id"]
@@ -10976,11 +11000,11 @@ def _command_architect_pickup(args: argparse.Namespace) -> int:
     if dry_run:
         print("\n🔍 DRY RUN - would process:")
         print(f"  • Load research evaluation from {paper_id}")
-        print(f"  • Analyze codebase with CodebaseAnalyzer")
-        print(f"  • Load AGENT_ARCHITECT.md playbook")
-        print(f"  • Call LLM for deep architectural analysis")
+        print("  • Analyze codebase with CodebaseAnalyzer")
+        print("  • Load AGENT_ARCHITECT.md playbook")
+        print("  • Call LLM for deep architectural analysis")
         print(f"  • Generate ADR in {output_dir}/")
-        print(f"  • Create implementation work items")
+        print("  • Create implementation work items")
         return 0
 
     # Update work item status to IN_PROGRESS
@@ -11108,7 +11132,7 @@ def _command_architect_pickup(args: argparse.Namespace) -> int:
     # Add implementation roadmap if available
     if rec.implementation_roadmap:
         roadmap = rec.implementation_roadmap
-        research_context += f"""
+        research_context += """
 ### Implementation Roadmap from Research Agent
 
 **Affected Components:**
@@ -11485,10 +11509,10 @@ See ADR for full technical design and implementation details.
     print("\n" + "="*70)
     print("✅ ARCHITECT AGENT COMPLETE (LLM-Powered)")
     print("="*70)
-    print(f"\nArtifacts created:")
+    print("\nArtifacts created:")
     print(f"  • ADR: {adr_path}")
-    print(f"  • Implementation work items in board")
-    print(f"\nNext: Engineering Agent should pick up implementation story")
+    print("  • Implementation work items in board")
+    print("\nNext: Engineering Agent should pick up implementation story")
 
     return 0
 
@@ -11930,7 +11954,7 @@ def _command_knowledge_pack_build(args: argparse.Namespace) -> int:
 
 def _command_knowledge_pack_validate(args: argparse.Namespace) -> int:
     """Validate a knowledge pack manifest file."""
-    from amprealize.knowledge_pack.validator import ManifestValidator, ValidationIssue, ValidationSeverity
+    from amprealize.knowledge_pack.validator import ManifestValidator, ValidationSeverity
     from amprealize.knowledge_pack.schema import KnowledgePackManifest
 
     try:
@@ -12289,7 +12313,7 @@ def _command_config_set(args: argparse.Namespace) -> int:
     try:
         cfg = set_config_value(args.key, args.value)
         print(f"✅ Set {args.key} = {args.value}")
-        print(f"   Config saved to ~/.amprealize/config.yaml")
+        print("   Config saved to ~/.amprealize/config.yaml")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -12392,7 +12416,7 @@ def _command_context_list(args: argparse.Namespace) -> int:
     print("\n" + "=" * 70)
     current = next((c.name for c in contexts if c.is_current), None)
     print(f"Current: {current or '(none)'}")
-    print(f"Use 'amprealize context use <name>' to switch contexts.")
+    print("Use 'amprealize context use <name>' to switch contexts.")
 
     return 0
 
@@ -12470,7 +12494,7 @@ def _command_context_status(args: argparse.Namespace) -> int:
     # Main DB check
     ok, msg = validate_context_connection(cfg)
     if ok:
-        print(f"  Main DB: ✅ connected")
+        print("  Main DB: ✅ connected")
     else:
         print(f"  Main DB: ❌ {msg}")
 
@@ -12482,19 +12506,19 @@ def _command_context_status(args: argparse.Namespace) -> int:
             eng = create_engine(tel_dsn, connect_args={"connect_timeout": 5})
             with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print(f"  Telemetry DB: ✅ connected")
+            print("  Telemetry DB: ✅ connected")
             eng.dispose()
         except Exception as exc:
             print(f"  Telemetry DB: ❌ {exc}")
     elif tel_dsn:
-        print(f"  Telemetry DB: (same as main)")
+        print("  Telemetry DB: (same as main)")
     else:
-        print(f"  Telemetry DB: (not configured)")
+        print("  Telemetry DB: (not configured)")
 
     # Cloud endpoint detection
     cloud_hosts = ["neon.tech", "supabase.co", "amazonaws.com", "azure.com"]
     if dsn and any(h in dsn for h in cloud_hosts):
-        print(f"  ☁️  Cloud endpoint detected")
+        print("  ☁️  Cloud endpoint detected")
 
     return 0
 
@@ -12756,7 +12780,7 @@ def _seed_data_from_source(source_dsn: str, target_dsn: str, project_root: str) 
     tgt_conn.close()
 
     # --- Step 5: Report results ---
-    print(f"\n  Migration summary:")
+    print("\n  Migration summary:")
     print(f"    Total rows migrated: {total_rows}")
     tables_with_data = [(t, c) for t, c in migrated if c > 0]
     if tables_with_data:
@@ -12848,7 +12872,7 @@ def _seed_data_from_source(source_dsn: str, target_dsn: str, project_root: str) 
     tgt_conn.close()
 
     # --- Step 5: Report results ---
-    print(f"\n  Migration summary:")
+    print("\n  Migration summary:")
     print(f"    Total rows migrated: {total_rows}")
     tables_with_data = [(t, c) for t, c in migrated if c > 0]
     if tables_with_data:
@@ -12888,7 +12912,6 @@ def _command_items_migrate(args: argparse.Namespace) -> int:
         default_progress,
         quiet_progress,
     )
-    from amprealize.boards.contracts import WorkItemType, WorkItemStatus
 
     # Build filter expression from args
     filter_parts = []
@@ -12934,7 +12957,7 @@ def _command_items_migrate(args: argparse.Namespace) -> int:
 
     # Preview items to migrate
     if not args.quiet:
-        print(f"\n📋 Migration Preview")
+        print("\n📋 Migration Preview")
         print(f"   Source: {args.source}")
         print(f"   Target: {args.target}")
         if filter_expr_str:
@@ -12960,7 +12983,7 @@ def _command_items_migrate(args: argparse.Namespace) -> int:
     # Confirm unless --yes
     if not args.yes and not args.dry_run:
         try:
-            confirm = input(f"Proceed with migration? [y/N] ").strip().lower()
+            confirm = input("Proceed with migration? [y/N] ").strip().lower()
             if confirm not in ("y", "yes"):
                 print("Migration cancelled.")
                 return 0
@@ -13048,7 +13071,7 @@ def _command_db_status(args: argparse.Namespace) -> int:
         all_migrations = discover_migrations()
 
         print(f"Database: {pool.db_path}")
-        print(f"Backend:  sqlite\n")
+        print("Backend:  sqlite\n")
 
         if not all_migrations:
             print("No migrations found.")
@@ -13121,7 +13144,7 @@ def _resolve_modules_flag(value: str) -> tuple[str, ...]:
 
 def _prompt_modules() -> tuple[str, ...]:
     """Interactive module picker — show available modules and presets."""
-    from amprealize.module_registry import MODULE_REGISTRY, PRESETS
+    from amprealize.module_registry import MODULE_REGISTRY
 
     print("\n  📦 Module Selection")
     print("     Presets: goals (minimal), goals-agents, goals-behaviors, full (all)")
@@ -13350,7 +13373,7 @@ def _command_init(args: argparse.Namespace) -> int:
         deployment_mode=deployment_mode,
     )
     config_path.write_text(config_content, encoding="utf-8")
-    print(f"  ✅ Created .amprealize/config.yaml")
+    print("  ✅ Created .amprealize/config.yaml")
 
     # .amprealize/data/ directory (and empty db placeholder for sqlite)
     data_dir = amprealize_dir / "data"
@@ -13360,15 +13383,15 @@ def _command_init(args: argparse.Namespace) -> int:
         if not db_path.exists():
             # Create an empty file; actual schema applied by `amprealize db migrate`
             db_path.touch()
-            print(f"  ✅ Created .amprealize/data/amprealize.db (run `amprealize db migrate` to apply schema)")
+            print("  ✅ Created .amprealize/data/amprealize.db (run `amprealize db migrate` to apply schema)")
         else:
-            print(f"  ⏭️  .amprealize/data/amprealize.db already exists, skipping")
+            print("  ⏭️  .amprealize/data/amprealize.db already exists, skipping")
 
     # AGENTS.md (profile-scoped primer)
     if gen_agents:
         agents_path = Path("AGENTS.md")
         if agents_path.exists():
-            print(f"  ⏭️  AGENTS.md already exists, skipping")
+            print("  ⏭️  AGENTS.md already exists, skipping")
         else:
             # Use BootstrapService for profile-scoped primer
             bootstrap_svc = BootstrapService()
@@ -13389,12 +13412,12 @@ def _command_init(args: argparse.Namespace) -> int:
     print(f"  Modules:           {', '.join(enabled_modules)}")
     print(f"  Deployment:        {deployment_mode}")
     print("\nNext steps:")
-    print(f"  1. Review .amprealize/config.yaml")
+    print("  1. Review .amprealize/config.yaml")
     if storage_backend == "sqlite":
-        print(f"  2. Run `amprealize db migrate` to create database tables")
-    print(f"  3. Run `amprealize mcp-server` to start the MCP server")
+        print("  2. Run `amprealize db migrate` to create database tables")
+    print("  3. Run `amprealize mcp-server` to start the MCP server")
     if gen_agents:
-        print(f"  4. Customize AGENTS.md with project-specific behaviors")
+        print("  4. Customize AGENTS.md with project-specific behaviors")
     print()
     return 0
 
@@ -13648,7 +13671,7 @@ def _command_bootstrap_init(args: argparse.Namespace) -> int:
         print(json.dumps(output, indent=2))
     else:
         # Table format
-        print(f"\n✅ Bootstrap Complete\n")
+        print("\n✅ Bootstrap Complete\n")
         print(f"  Profile:  {result.profile.value}")
         print(f"  Pack ID:  {result.pack_id or 'none'}")
         if result.files_written:
@@ -13967,7 +13990,7 @@ def _command_infra_configure() -> int:
     set_config_value("infra.managed_by", provider)
     print(f"\n  ✅ Infrastructure provider set to: {provider}")
     print(f"     ({desc})")
-    print(f"     Saved to ~/.amprealize/config.yaml\n")
+    print("     Saved to ~/.amprealize/config.yaml\n")
     return 0
 
 
@@ -14466,7 +14489,7 @@ def _command_module(args: argparse.Namespace) -> int:
                 print(f"\n{icon} {r['display_name']} ({r['name']})")
                 print(f"   Enabled:        {r['enabled']}")
                 if r["always_enabled"]:
-                    print(f"   Always enabled: yes")
+                    print("   Always enabled: yes")
                 if r["enterprise_only"]:
                     print(f"   Enterprise:     {r['min_edition'] or 'starter+'}")
                     print(f"   Edition OK:     {r['edition_allowed']}")
@@ -14531,7 +14554,7 @@ def _command_module(args: argparse.Namespace) -> int:
         ]
         if dependents:
             print(f"Error: Cannot disable {name!r} — depended on by: {', '.join(dependents)}", file=sys.stderr)
-            print(f"Disable those modules first.", file=sys.stderr)
+            print("Disable those modules first.", file=sys.stderr)
             return 1
 
         data = cfg.model_dump()
@@ -14571,10 +14594,10 @@ def _command_deploy(args: argparse.Namespace) -> int:
         print(f"  Mode:      {dep.mode}")
         print(f"  Cloud URL: {dep.cloud_url}")
         if dep.mode == "hybrid":
-            print(f"  Services:")
+            print("  Services:")
             print(f"    storage: {dep.services.storage}")
             print(f"    compute: {dep.services.compute}")
-        print(f"\n  Resolved Endpoints:")
+        print("\n  Resolved Endpoints:")
         print(f"    storage: {endpoints.storage}")
         print(f"    compute: {endpoints.compute}")
         print(f"    auth:    {endpoints.auth}")
@@ -14582,11 +14605,11 @@ def _command_deploy(args: argparse.Namespace) -> int:
         # Validate
         errors = validate_deployment(cfg)
         if errors:
-            print(f"\n  ⚠️  Validation issues:")
+            print("\n  ⚠️  Validation issues:")
             for e in errors:
                 print(f"    - {e}")
         else:
-            print(f"\n  ✅ Deployment configuration is valid.")
+            print("\n  ✅ Deployment configuration is valid.")
         print()
         return 0
 
@@ -14614,7 +14637,7 @@ def _command_deploy(args: argparse.Namespace) -> int:
         # Re-validate before saving
         errors = validate_deployment(new_cfg)
         if errors:
-            print(f"Error: Invalid deployment configuration:", file=sys.stderr)
+            print("Error: Invalid deployment configuration:", file=sys.stderr)
             for e in errors:
                 print(f"  - {e}", file=sys.stderr)
             return 1
@@ -14796,7 +14819,7 @@ def _command_doctor(args: argparse.Namespace) -> int:
                         with conn.cursor() as cur:
                             cur.execute("SELECT 1")
                     storage_ok = True
-                    add_check("Storage backend", True, f"PostgreSQL connected")
+                    add_check("Storage backend", True, "PostgreSQL connected")
                 except ImportError:
                     add_check(
                         "Storage backend",
@@ -14911,7 +14934,7 @@ def _command_doctor(args: argparse.Namespace) -> int:
 
     # ── Check 10: Edition detection ────────────────────────────────────────
     try:
-        from amprealize.edition import detect_edition, Edition
+        from amprealize.edition import detect_edition
         edition = detect_edition()
         add_check("Edition", True, f"{edition.name} ({edition.value})")
     except Exception as e:
@@ -15181,7 +15204,7 @@ def _command_open(args: argparse.Namespace) -> int:
     # 3. Open browser or print URL
     if no_browser:
         print(f"\n🔗 {target_url}")
-        print(f"   (use --stop to shut down the server)")
+        print("   (use --stop to shut down the server)")
     else:
         print(f"🌐 Opening {target_url}")
         webbrowser.open(target_url)
@@ -15213,7 +15236,7 @@ def _command_mcp_server(args: argparse.Namespace) -> int:
         os.environ["MCP_TRANSPORT"] = "sse"
         os.environ["MCP_SSE_PORT"] = str(port)
 
-    print(f"Amprealize MCP Server", file=sys.stderr)
+    print("Amprealize MCP Server", file=sys.stderr)
     print(f"  Transport : {transport}", file=sys.stderr)
     if transport == "sse":
         print(f"  Port      : {port}", file=sys.stderr)
@@ -15297,7 +15320,6 @@ def _wi_api_call(
 
 def _command_wi_execute(args: argparse.Namespace) -> int:
     """Execute a work item."""
-    import json as _json
 
     body: Dict[str, Any] = {}
     if args.model:
@@ -15321,7 +15343,7 @@ def _command_wi_execute(args: argparse.Namespace) -> int:
         _print_json(result)
     else:
         if result.get("success"):
-            print(f"✅ Execution started")
+            print("✅ Execution started")
             print(f"   Run ID:     {result.get('run_id', 'N/A')}")
             print(f"   Cycle ID:   {result.get('task_cycle_id', 'N/A')}")
             print(f"   Status:     {result.get('status', 'N/A')}")
@@ -15333,7 +15355,7 @@ def _command_wi_execute(args: argparse.Namespace) -> int:
     # --watch mode: connect to SSE stream
     if getattr(args, "watch", False) and result.get("run_id"):
         run_id = result["run_id"]
-        print(f"\n📡 Watching execution events (Ctrl+C to stop)...\n")
+        print("\n📡 Watching execution events (Ctrl+C to stop)...\n")
         return _wi_watch_sse(run_id, args)
 
     return 0
@@ -15439,7 +15461,7 @@ def _command_wi_status(args: argparse.Namespace) -> int:
             print(f"No active execution for work item {args.item_id}")
             return 0
 
-        print(f"📊 Execution Status")
+        print("📊 Execution Status")
         print(f"   Run ID:      {result.get('run_id', 'N/A')}")
         print(f"   Cycle ID:    {result.get('task_cycle_id', 'N/A')}")
         print(f"   State:       {result.get('state', 'N/A')}")
@@ -15449,7 +15471,7 @@ def _command_wi_status(args: argparse.Namespace) -> int:
 
         clarifications = result.get("pending_clarifications", [])
         if clarifications:
-            print(f"\n   ❓ Pending Clarifications:")
+            print("\n   ❓ Pending Clarifications:")
             for c in clarifications:
                 c_id = c.get("id", c.get("clarification_id", "N/A"))
                 q_text = c.get("question", c.get("text", str(c)))
@@ -15474,7 +15496,7 @@ def _command_wi_clarify(args: argparse.Namespace) -> int:
     )
 
     if result.get("success"):
-        print(f"✅ Clarification provided")
+        print("✅ Clarification provided")
     else:
         print(f"❌ Failed: {result.get('message', result)}", file=sys.stderr)
         return 1
@@ -15501,7 +15523,7 @@ def _command_wi_approve_gate(args: argparse.Namespace) -> int:
     )
 
     if result.get("success"):
-        print(f"✅ Gate approved")
+        print("✅ Gate approved")
         print(f"   Run ID:   {result.get('run_id', 'N/A')}")
         print(f"   Resumed:  {result.get('resumed', False)}")
         print(f"   Message:  {result.get('message', '')}")

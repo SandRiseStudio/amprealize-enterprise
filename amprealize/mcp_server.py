@@ -45,7 +45,7 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, TYPE_CHECKING, Union
@@ -70,8 +70,6 @@ if TYPE_CHECKING:
     from .behavior_service import BehaviorService
     from .workflow_service import WorkflowService
     from .storage.postgres_pool import PostgresPool
-    from .utils.dsn import apply_host_overrides
-    from .knowledge_pack.activation_service import ActivationService
 
 
 def _ensure_dsn_param(dsn: str, key: str, value: str) -> str:
@@ -4876,7 +4874,7 @@ class MCPServer:
 
             auth_dsn = os.environ.get("AMPREALIZE_ORG_PG_DSN") or os.environ.get("AMPREALIZE_MULTI_TENANT_PG_DSN") or os.environ.get("AMPREALIZE_PG_DSN")
             if auth_dsn:
-                self._logger.debug(f"Found auth DSN, attempting PostgreSQL session restore...")
+                self._logger.debug("Found auth DSN, attempting PostgreSQL session restore...")
                 # Ensure auth schema
                 if "search_path" not in auth_dsn:
                     if "?" in auth_dsn:
@@ -4928,8 +4926,7 @@ class MCPServer:
 
         # Fallback: try local token store (keychain or file)
         try:
-            from .mcp_device_flow import MCPDeviceFlowService
-            from .device_flow.token_store import KeychainTokenStore, FileTokenStore, TokenStoreError
+            from .device_flow.token_store import KeychainTokenStore, FileTokenStore
 
             store = None
             try:
@@ -5826,7 +5823,7 @@ class MCPServer:
                 }
 
         # If no permission service (dev mode), allow switching
-        self._logger.warning(f"No permission service - allowing org switch without verification")
+        self._logger.warning("No permission service - allowing org switch without verification")
         self._session_context.org_id = org_id
         self._session_context.project_id = None
 
@@ -5893,7 +5890,7 @@ class MCPServer:
                         if role is None:
                             return {
                                 "success": False,
-                                "error": f"Access denied to project's organization",
+                                "error": "Access denied to project's organization",
                                 "error_code": "ACCESS_DENIED",
                             }
                 else:

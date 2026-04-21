@@ -352,7 +352,6 @@ class PostgresActionService:
     def get_action(self, action_id: str) -> Action:
         """Fetch a single action by identifier."""
 
-        import psycopg2  # type: ignore[import-not-found]
 
         # Try cache first
         cache = get_cache()

@@ -121,8 +121,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ruff==0.8.2
-      - name: Ruff
-        run: ruff check amprealize tests
+      - name: Ruff (deploy gate — correctness only)
+        # Lightweight deploy gate per comment above: block only on correctness bugs
+        #   E9   = syntax errors (E999) — code must parse
+        #   F821 = undefined names      — code must be importable
+        #   F811 = redefinition         — catches duplicate-import shadowing
+        # Style / unused-code rules (F401, F541, F841, E4xx, E7xx, …) are enforced
+        # on every PR by ci.yml, not here. The deploy gate exists to block releases
+        # that are outright broken, not to enforce style. If you want to raise the
+        # bar here, update ci.yml first and land the cleanup before tightening this.
+        run: ruff check --select E9,F821,F811 amprealize tests
       - name: Install web-console deps
         working-directory: web-console
         run: npm ci

@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -49,8 +47,6 @@ from amprealize.services.board_service import BoardService, Actor
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.storage.sqlite_pool import SQLitePool
 from amprealize.context import (
-    get_current_context,
-    list_contexts,
     validate_context_connection,
     _context_to_config,
     _load_raw_config,
@@ -1122,7 +1118,7 @@ def format_migration_summary(report: MigrationReport) -> str:
         "═" * 60,
         "MIGRATION SUMMARY",
         "═" * 60,
-        f"",
+        "",
         f"  Source:     {report.source_context}",
         f"  Target:     {report.target_context}",
         f"  Dry Run:    {'Yes' if report.dry_run else 'No'}",

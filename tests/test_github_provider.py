@@ -72,7 +72,7 @@ async def test_github_provider_device_flow():
     # Validate token and get user info
     user_info = await provider.validate_token(token_response.access_token)
 
-    print(f"\n✅ Token validated!")
+    print("\n✅ Token validated!")
     print(f"Provider: {user_info.provider}")
     print(f"Username: {user_info.username}")
     print(f"User ID: {user_info.user_id}")

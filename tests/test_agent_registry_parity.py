@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, Generator, List, Optional
+from datetime import datetime
+from typing import Generator
 
 try:
     import psycopg2  # type: ignore[import-not-found]
@@ -33,7 +33,6 @@ except ImportError:
 from amprealize.agent_registry_service import (
     AgentRegistryService,
     AgentNotFoundError,
-    AgentVersionNotFoundError,
 )
 
 

@@ -37,16 +37,15 @@ import os
 import statistics
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 import psycopg2
 import psycopg2.extras
 import pytest
-from kafka import KafkaProducer, KafkaConsumer
-from kafka.errors import KafkaError
+from kafka import KafkaProducer
 
-from tests.load.conftest import is_kafka_available, requires_kafka
+from tests.load.conftest import requires_kafka
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -415,7 +414,7 @@ class StreamingPipelineValidator:
         sent_count = len(sent_event_ids)
         duplicate_count = len(duplicates)
 
-        logger.info(f"Exactly-once validation:")
+        logger.info("Exactly-once validation:")
         logger.info(f"  Events sent: {sent_count}")
         logger.info(f"  Events received: {received_count}")
         logger.info(f"  Duplicates: {duplicate_count}")

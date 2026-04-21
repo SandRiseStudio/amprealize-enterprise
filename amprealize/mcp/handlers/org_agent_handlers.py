@@ -11,7 +11,7 @@ Migrated from orgAgents.* namespace (archived 2026-01-07).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 # NOTE: Agent is a Pydantic model - use .model_dump() not asdict()
 
 from amprealize.multi_tenant.contracts import (

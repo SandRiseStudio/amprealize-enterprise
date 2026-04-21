@@ -28,7 +28,7 @@ Usage:
 import json
 import hashlib
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 from uuid import UUID
 from datetime import datetime, date
 import redis

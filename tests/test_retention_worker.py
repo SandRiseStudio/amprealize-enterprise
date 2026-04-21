@@ -13,11 +13,9 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
 import gzip
 import json
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import httpx
 import pytest

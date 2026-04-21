@@ -287,7 +287,7 @@ def test_retriever_load_p95_target(
     print(f"Duration:            {results['duration_seconds']:.2f}s")
     print(f"Throughput:          {results['throughput_rps']:.2f} req/s")
     print(f"Errors:              {results['errors']} ({results['error_rate']:.1%})")
-    print(f"\nLatency Distribution:")
+    print("\nLatency Distribution:")
     print(f"  P50:  {results['p50_ms']:.2f}ms")
     print(f"  P95:  {results['p95_ms']:.2f}ms")
     print(f"  P99:  {results['p99_ms']:.2f}ms")
@@ -320,7 +320,7 @@ def test_retriever_load_p95_target(
         print(f"✓ P95 latency {results['p95_ms']:.2f}ms meets <100ms target")
     else:
         print(f"ⓘ P95 latency {results['p95_ms']:.2f}ms (concurrent model contention)")
-        print(f"  Recommendation: Scale horizontally or implement request queuing")
+        print("  Recommendation: Scale horizontally or implement request queuing")
 
 
 def test_retriever_batch_performance(seeded_retriever):

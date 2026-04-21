@@ -6,9 +6,7 @@ OutputContext (accumulates file changes) and OutputResult (delivery outcome).
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 

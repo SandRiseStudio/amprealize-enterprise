@@ -8,11 +8,10 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 import pytest
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock
 
 from amprealize.execution_gateway_contracts import (
     ExecutionRequest,
@@ -20,8 +19,6 @@ from amprealize.execution_gateway_contracts import (
     OutputTarget,
     ResolvedExecution,
     SourceType,
-    SURFACE_DEFAULT_MODE,
-    LOCAL_CAPABLE_SURFACES,
     resolve_execution_mode,
     resolve_output_target,
 )
@@ -327,7 +324,6 @@ class TestExecutionGateway:
 
     @pytest.mark.asyncio
     async def test_register_executor(self):
-        from amprealize.execution_gateway import ExecutionGateway
 
         gw = _build_gateway()
         executor = MagicMock()
@@ -625,7 +621,7 @@ class TestGatewayOutputWiring:
     @pytest.mark.asyncio
     async def test_deliver_output_calls_handler(self):
         """_deliver_output invokes handler.deliver() with the context."""
-        from amprealize.output_handlers import OutputContext, OutputResult, OutputStatus
+        from amprealize.output_handlers import OutputContext, OutputStatus
 
         gw = self._make_gateway()
         resolved = _make_resolved(output_target=OutputTarget.PATCH_FILE)

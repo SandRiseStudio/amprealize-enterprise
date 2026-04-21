@@ -35,7 +35,6 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Set, Tuple
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from amprealize.storage.postgres_pool import PostgresPool

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from amprealize import HAS_ENTERPRISE
 
 if TYPE_CHECKING:
-    from amprealize.config.schema import ModulesConfig
+    pass
 
 F = TypeVar("F", bound=Callable[..., Any])
 

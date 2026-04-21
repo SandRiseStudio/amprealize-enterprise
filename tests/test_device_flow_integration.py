@@ -39,7 +39,7 @@ async def test_device_flow_with_github():
         metadata={"test": "integration"}
     )
 
-    print(f"✅ Device flow started!")
+    print("✅ Device flow started!")
     print(f"   Verification URI: {session.verification_uri}")
     print(f"   User Code: {session.user_code}")
     print(f"   Device Code: {session.device_code[:20]}...")
@@ -52,7 +52,7 @@ async def test_device_flow_with_github():
     print("=" * 70)
     print(f"1. Visit: {session.verification_uri}")
     print(f"2. Enter code: {session.user_code}")
-    print(f"3. Authorize the application")
+    print("3. Authorize the application")
     print()
 
     input("Press Enter after authorizing...")
@@ -70,7 +70,7 @@ async def test_device_flow_with_github():
         if result.status.value == "APPROVED":
             approved_result = result
             assert result.tokens is not None
-            print(f"✅ Authorization approved!")
+            print("✅ Authorization approved!")
             print(f"   Access token: {result.tokens.access_token[:20]}...")
             print(f"   Token type: {result.tokens.token_type}")
             print(f"   Expires in: {result.tokens.access_expires_in()} seconds")
@@ -82,7 +82,7 @@ async def test_device_flow_with_github():
             return
 
         elif result.status.value == "EXPIRED":
-            print(f"❌ Device code expired")
+            print("❌ Device code expired")
             return
 
         elif result.status.value == "PENDING":
@@ -102,7 +102,7 @@ async def test_device_flow_with_github():
     assert approved_result.tokens is not None
     user_info = await provider.validate_token(approved_result.tokens.access_token)
 
-    print(f"✅ Token validated!")
+    print("✅ Token validated!")
     print(f"   Provider: {user_info.provider}")
     print(f"   Username: {user_info.username}")
     print(f"   User ID: {user_info.user_id}")

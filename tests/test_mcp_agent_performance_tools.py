@@ -26,9 +26,8 @@ Behavior: behavior_validate_cross_surface_parity
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
-import psycopg2
 import pytest
 
 # Mark all tests in this module as unit tests to skip global fixtures

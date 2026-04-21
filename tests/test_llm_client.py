@@ -6,9 +6,8 @@ model catalog, config, metrics tracking.
 
 from __future__ import annotations
 
-import asyncio
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,7 +29,6 @@ from amprealize.llm.types import (
     get_model,
     list_models,
 )
-from amprealize.llm.providers.base import Provider
 from amprealize.llm.providers import get_provider, PROVIDER_REGISTRY, _register_providers
 from amprealize.llm.providers.test import TestProvider
 from amprealize.llm.client import LLMClient
@@ -456,23 +454,7 @@ class TestPackageExports:
     def test_all_exports(self):
         from amprealize.llm import (
             LLMClient,
-            LLMConfig,
-            LLMResponse,
-            LLMCallMetrics,
-            StreamChunk,
-            StreamChunkType,
-            Provider,
-            ProviderType,
-            get_provider,
             PROVIDER_REGISTRY,
-            ModelDefinition,
-            MODEL_CATALOG,
-            get_model,
-            list_models,
-            LLMError,
-            RateLimitError,
-            AuthenticationError,
-            TokenBudgetError,
         )
         assert LLMClient is not None
         assert len(PROVIDER_REGISTRY) >= 5

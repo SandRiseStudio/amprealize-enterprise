@@ -16,19 +16,14 @@ import pytest
 from amprealize.auth.github_credential_repository import (
     GitHubCredentialRepository,
     GitHubCredential,
-    CreateGitHubCredentialRequest,
-    GitHubCredentialAction,
     GitHubTokenType,
     CredentialScopeType,
-    ActorType,
     detect_token_type,
     get_token_prefix,
     validate_github_token,
-    GitHubTokenValidationResult,
 )
 from amprealize.services.github_service import (
     GitHubCredentialStore,
-    ResolvedGitHubToken,
 )
 
 

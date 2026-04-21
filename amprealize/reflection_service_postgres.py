@@ -46,14 +46,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from psycopg2 import extras
 
-from .reflection_service import ReflectionService, _slugify
+from .reflection_service import ReflectionService
 from .reflection_contracts import (
     ReflectRequest,
     ReflectResponse,

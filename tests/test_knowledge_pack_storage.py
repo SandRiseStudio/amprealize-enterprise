@@ -21,9 +21,7 @@ Run with: pytest tests/test_knowledge_pack_storage.py -v
 from __future__ import annotations
 
 import json
-import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +29,6 @@ import pytest
 from amprealize.knowledge_pack.storage import (
     KnowledgePackStorage,
     PackNotFoundError,
-    PackStorageError,
     PackVersionExistsError,
 )
 from amprealize.knowledge_pack.schema import (
@@ -40,9 +37,6 @@ from amprealize.knowledge_pack.schema import (
     OverlayKind,
     PackConstraints,
     PackScope,
-    PackSource,
-    PackSourceType,
-    SourceScope,
 )
 from amprealize.knowledge_pack.builder import KnowledgePackArtifact
 

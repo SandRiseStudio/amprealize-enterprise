@@ -12,8 +12,7 @@ Tests all 4 task tools via MCP JSON-RPC protocol:
 import json
 import subprocess
 import sys
-import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 def send_mcp_request(method: str, params: Dict[str, Any], request_id: int = 1) -> Dict[str, Any]:
@@ -161,7 +160,7 @@ def test_task_tools():
 
     content = response["result"]["content"][0]["text"]
     stats = json.loads(content)
-    print(f"   ✅ Task stats for agent-test-mcp:")
+    print("   ✅ Task stats for agent-test-mcp:")
     print(f"      Total: {stats['total']}, Pending: {stats['pending']}, In Progress: {stats['in_progress']}")
     print(f"      Completed: {stats['completed']}, Failed: {stats['failed']}, Blocked: {stats['blocked']}")
 

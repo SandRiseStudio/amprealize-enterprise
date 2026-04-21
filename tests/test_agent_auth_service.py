@@ -14,23 +14,16 @@ from __future__ import annotations
 import json
 import pytest
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from amprealize.services.agent_auth_service import (
     AgentAuthService,
     EnsureGrantRequest,
-    EnsureGrantResponse,
     RevokeGrantRequest,
-    RevokeGrantResponse,
     ListGrantsRequest,
     PolicyPreviewRequest,
-    PolicyPreviewResponse,
     GrantDecision,
     DecisionReason,
-    GrantMetadata,
-    Obligation,
-    AgentAuthServiceError,
     GrantNotFoundError,
     ConsentRequestNotFoundError,
 )

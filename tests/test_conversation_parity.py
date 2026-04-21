@@ -6,7 +6,6 @@ operations with consistent field naming and parameter constraints.
 AMPREALIZE-601: Write parity tests for all conversation surfaces.
 """
 import json
-import os
 from pathlib import Path
 
 import pytest

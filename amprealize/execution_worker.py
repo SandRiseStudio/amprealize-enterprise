@@ -17,11 +17,9 @@ import asyncio
 import logging
 import os
 import signal
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from uuid import uuid4
 
 if TYPE_CHECKING:
     from amprealize.agent_registry_contracts import Agent, AgentVersion
@@ -33,12 +31,10 @@ from execution_queue import (
     ExecutionQueueConsumer,
     ExecutionResult,
     ExecutionStatus,
-    Priority,
 )
 
 # BreakerAmp orchestrator imports
 from breakeramp import (
-    AmpOrchestrator,
     WorkspaceConfig,
     WorkspaceInfo,
     get_orchestrator,
@@ -610,7 +606,6 @@ class ExecutionWorker:
             ValueError: If work item or agent cannot be loaded
         """
         from amprealize.agent_registry_contracts import Agent, AgentVersion
-        from amprealize.work_item_execution_contracts import ExecutionPolicy
         from amprealize.task_cycle_contracts import CreateCycleRequest
 
         # Load work item

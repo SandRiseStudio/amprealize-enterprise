@@ -1,6 +1,5 @@
 
 import os
-import sys
 from amprealize.auth.providers.google import GoogleOAuthProvider
 
 # Mock env vars

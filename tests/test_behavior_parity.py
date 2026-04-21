@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Generator
+from typing import Generator
 
 try:
     import psycopg2  # type: ignore[import-not-found]
@@ -20,7 +20,6 @@ except ImportError:  # pragma: no cover - psycopg2 is optional for lint environm
     psycopg2 = None
 import pytest
 
-from amprealize.action_contracts import Actor
 from amprealize.adapters import (
     CLIBehaviorServiceAdapter,
     RestBehaviorServiceAdapter,
@@ -436,7 +435,6 @@ class TestLifecycleParity:
         mcp_adapter: MCPBehaviorServiceAdapter,
     ):
         """Verify approve operation consistency."""
-        from datetime import datetime, timezone
 
         effective_from = datetime.now(timezone.utc).isoformat()
 

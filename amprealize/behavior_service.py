@@ -259,6 +259,10 @@ class BehaviorVersionError(BehaviorServiceError):
     """Raised when version transitions are invalid."""
 
 
+class BehaviorValidationError(BehaviorServiceError):
+    """Raised when a behavior proposal fails validation (name pattern, etc.)."""
+
+
 class PersistenceError(BehaviorServiceError):
     """Raised when the underlying store fails."""
 

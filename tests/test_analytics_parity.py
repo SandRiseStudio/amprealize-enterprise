@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import Any, Dict
 
 import pytest
 
@@ -165,7 +164,6 @@ class TestAnalyticsParity:
 
     def test_mcp_tool_manifests_exist(self) -> None:
         """Verify analytics MCP tool manifests are present."""
-        import os
         from pathlib import Path
 
         repo_root = Path(__file__).parent.parent

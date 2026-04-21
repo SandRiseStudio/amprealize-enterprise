@@ -16,14 +16,12 @@ Environment Variables:
 
 from __future__ import annotations
 
-import json
 import os
 import statistics
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-import uuid
+from typing import Any, Dict, List, Tuple
 
 import pytest
 
@@ -535,18 +533,18 @@ class TestTokenSavings:
         print("BC-SFT Token Savings Benchmark Results")
         print("=" * 60)
         print(f"Samples: {result.sample_count}")
-        print(f"\nToken Metrics:")
+        print("\nToken Metrics:")
         print(f"  Mean Baseline Tokens: {result.mean_baseline_tokens:.1f}")
         print(f"  Mean BCI Tokens:      {result.mean_bci_tokens:.1f}")
         print(f"  Mean Savings:         {result.mean_savings_percent:.1f}%")
         print(f"  Median Savings:       {result.median_savings_percent:.1f}%")
         print(f"  Range:                {result.min_savings_percent:.1f}% - {result.max_savings_percent:.1f}%")
-        print(f"\nLatency Metrics:")
+        print("\nLatency Metrics:")
         print(f"  P50:  {result.p50_latency_ms:.1f}ms")
         print(f"  P95:  {result.p95_latency_ms:.1f}ms")
         print(f"  P99:  {result.p99_latency_ms:.1f}ms")
         print(f"  Mean: {result.mean_latency_ms:.1f}ms")
-        print(f"\nBehavior Coverage:")
+        print("\nBehavior Coverage:")
         print(f"  Unique Behaviors: {result.unique_behaviors_used}")
         print(f"  Mean per Query:   {result.mean_behaviors_per_query:.2f}")
         print("=" * 60)

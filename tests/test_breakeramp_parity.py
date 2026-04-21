@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 from amprealize.adapters import MCPBreakerAmpAdapter
 from amprealize.breakeramp import (
     BreakerAmpService,
-    PlanRequest,
     PlanResponse,
     EnvironmentEstimates,
     ApplyRequest,
@@ -13,7 +12,6 @@ from amprealize.breakeramp import (
     DestroyRequest,
     DestroyResponse,
 )
-from amprealize.action_contracts import Actor
 from datetime import datetime
 
 @pytest.mark.unit

@@ -35,7 +35,7 @@ def test_progress_notifications():
     })
 
     print("=== Testing MCP Progress Notifications ===\n")
-    print(f"Sending request: patterns.detectPatterns")
+    print("Sending request: patterns.detectPatterns")
     print(f"Run IDs: {len(run_ids)} runs")
 
     proc = subprocess.Popen(
@@ -111,10 +111,10 @@ def test_progress_notifications():
             print(f"  {i}. {params.get('status')}: {params.get('message')}")
 
     if response and "result" in response:
-        print(f"\n✅ Pattern detection completed successfully")
+        print("\n✅ Pattern detection completed successfully")
         return True
     else:
-        print(f"\n❌ No valid response received")
+        print("\n❌ No valid response received")
         if response:
             print(f"Response: {json.dumps(response, indent=2)}")
         return False

@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 pytestmark = pytest.mark.unit
@@ -522,7 +522,6 @@ class TestCLIReflectionSubcommands:
 
     def test_reflection_list_default_values(self) -> None:
         """Should use default values for list subcommand."""
-        from amprealize.cli import _get_reflection_adapter
         import argparse
 
         with patch("amprealize.cli._get_reflection_adapter") as mock_get_adapter:

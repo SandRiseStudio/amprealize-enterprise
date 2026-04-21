@@ -1,7 +1,5 @@
 """Parity tests for AgentAuth across CLI, REST, and MCP surfaces."""
 
-import json
-from typing import Any, Dict, List
 
 import pytest
 

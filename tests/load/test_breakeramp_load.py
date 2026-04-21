@@ -1,7 +1,6 @@
 import pytest
 import threading
 import time
-import uuid
 from unittest.mock import MagicMock
 from amprealize.breakeramp import BreakerAmpService, DestroyRequest
 from amprealize.action_contracts import Actor

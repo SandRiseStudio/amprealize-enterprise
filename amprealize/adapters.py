@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Type, TypeVar, Union, cast
 import json
 from pathlib import Path
 
@@ -45,7 +45,7 @@ from .task_assignments import TaskAssignmentService
 from .compliance_service import ComplianceService
 from .reflection_contracts import ReflectRequest
 from .run_contracts import Run, RunCompletion, RunCreateRequest, RunProgressUpdate
-from .run_service import RunService, RunStatus
+from .run_service import RunService
 
 if TYPE_CHECKING:
     from .bci_service import BCIService
@@ -56,11 +56,6 @@ try:
 except ImportError:
     PostgresRunService = None  # type: ignore[assignment, misc]
 
-from .device_flow import (
-    DeviceFlowManager,
-    DeviceAuthorizationSession,
-    DevicePollResult,
-)
 
 
 _PARITY_SURFACE_OVERRIDES = {
@@ -3984,7 +3979,6 @@ class MCPReflectionServiceAdapter:
 
     def list_candidates(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP tool: reflection.listCandidates - List behavior candidates with filtering."""
-        from .reflection_service_postgres import PostgresReflectionService
 
         # Check if service supports candidate listing (PostgreSQL backend)
         if not hasattr(self._service, "list_candidates"):

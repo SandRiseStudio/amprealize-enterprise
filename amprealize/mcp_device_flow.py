@@ -47,13 +47,9 @@ import platform
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
-from pathlib import Path
 
 from .device_flow import (
     DeviceFlowManager,
-    DeviceAuthorizationSession,
-    DevicePollResult,
-    DeviceAuthorizationStatus,
 )
 from .auth_tokens import (
     AuthTokenBundle,

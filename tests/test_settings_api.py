@@ -25,8 +25,7 @@ pytestmark = [
     pytest.mark.skipif(SettingsService is None, reason="SettingsService requires amprealize-enterprise"),
 ]
 from datetime import datetime
-from unittest.mock import MagicMock, patch
-from typing import Dict, Any
+from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

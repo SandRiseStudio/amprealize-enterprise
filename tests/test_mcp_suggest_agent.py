@@ -2,12 +2,11 @@
 
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from amprealize.adapters import MCPTaskAssignmentAdapter
 from amprealize.services.assignment_service import AssignmentService
 from amprealize.multi_tenant.board_contracts import (
-    SuggestAgentRequest,
     SuggestAgentResponse,
     AgentSuggestion,
     AgentWorkload,

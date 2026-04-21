@@ -21,7 +21,7 @@ import pytest
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 # Mark all tests in this file as unit tests (no infrastructure required)
@@ -34,9 +34,6 @@ from amprealize.mcp_device_flow import (
 from amprealize.mcp_server import MCPServer
 from amprealize.device_flow import (
     DeviceFlowManager,
-    DeviceAuthorizationSession,
-    DevicePollResult,
-    DeviceAuthorizationStatus,
     DeviceTokens,
 )
 from amprealize.auth_tokens import (

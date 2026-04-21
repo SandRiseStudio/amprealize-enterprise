@@ -35,7 +35,7 @@ from __future__ import annotations
 import functools
 import logging
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, TypeVar, Union
 
 from .contracts import MemberRole, ProjectRole

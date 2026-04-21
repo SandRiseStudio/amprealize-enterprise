@@ -11,10 +11,7 @@ Following behavior_design_test_strategy (Student).
 """
 
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-from dataclasses import dataclass, field
-from typing import Optional, Set
+from unittest.mock import AsyncMock, MagicMock
 
 
 # ============================================================================

@@ -14,18 +14,14 @@ Following behavior_design_test_strategy (Student):
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import pytest
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # FastAPI testing
 from fastapi import FastAPI, Depends
 from fastapi.testclient import TestClient
-from httpx import AsyncClient, ASGITransport
 
 # Auth components
 from amprealize.auth.middleware import (
@@ -33,12 +29,6 @@ from amprealize.auth.middleware import (
     AuthMiddleware,
     get_current_user,
     get_current_user_optional,
-    get_org_context,
-    get_project_context,
-    require_org_context,
-    require_project_context,
-    require_org_permission_dep,
-    require_project_permission_dep,
     get_permission_service,
 )
 from amprealize.auth.jwt_service import JWTService
@@ -47,7 +37,6 @@ from amprealize.multi_tenant.permissions import (
     OrgPermission,
     ProjectPermission,
     PermissionDenied,
-    NotAMember,
     UserOrgContext,
     UserProjectContext,
 )
@@ -320,7 +309,7 @@ class TestCLITenantContext:
 
     def test_org_id_from_arg(self):
         """CLI --org-id flag should set environment variable."""
-        from amprealize.cli import _parse_args, main
+        from amprealize.cli import _parse_args
 
         # Parse args with org-id
         args = _parse_args(["--org-id", "test-org-123", "scan-secrets"])

@@ -12,9 +12,7 @@ Tests cover:
 These are unit tests that don't require database infrastructure.
 """
 
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
 
 import pytest
 
@@ -23,7 +21,6 @@ pytestmark = pytest.mark.unit
 
 from amprealize.services.agent_loader import (
     AgentPlaybookLoader,
-    ParsedPlaybook,
     load_agent_personas,
 )
 

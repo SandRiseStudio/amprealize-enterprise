@@ -3,14 +3,8 @@
 import os
 import pytest
 
-from amprealize.action_contracts import Actor
-import os
-import pytest
-import psycopg2
 from amprealize.adapters import CLIComplianceServiceAdapter, RestComplianceServiceAdapter, MCPComplianceServiceAdapter
 from amprealize.compliance_service import ComplianceService
-from amprealize.compliance_service import ComplianceService
-from amprealize.storage.postgres_pool import PostgresPool
 
 
 @pytest.fixture(autouse=True)

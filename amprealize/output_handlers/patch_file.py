@@ -12,14 +12,11 @@ from __future__ import annotations
 import difflib
 import logging
 import os
-import uuid
-from pathlib import Path
 from typing import List, Optional
 
 from .base import (
     FileChange,
     OutputContext,
-    OutputHandler,
     OutputResult,
     OutputStatus,
 )
@@ -157,7 +154,7 @@ class PatchFileHandler:
             old_lines,
             [],
             fromfile=f"a/{change.path}",
-            tofile=f"/dev/null",
+            tofile="/dev/null",
             lineterm="",
         )
         return "\n".join(diff)

@@ -11,10 +11,7 @@ Requires Redis to be running (uses testcontainers or local Redis).
 
 import asyncio
 import os
-import time
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

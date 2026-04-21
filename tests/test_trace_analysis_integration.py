@@ -7,16 +7,11 @@ Validates parity across:
 Per docs/contracts/ACTION_SERVICE_CONTRACT.md parity requirements and behavior_wire_cli_to_orchestrator.
 """
 
-import json
 import pytest
 from uuid import uuid4
 
 from amprealize.trace_analysis_service import TraceAnalysisService
 from amprealize.trace_analysis_contracts import (
-    DetectPatternsRequest,
-    DetectPatternsResponse,
-    ScoreReusabilityRequest,
-    ScoreReusabilityResponse,
     TracePattern,
 )
 from amprealize.adapters import (

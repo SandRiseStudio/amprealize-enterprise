@@ -13,20 +13,17 @@ Tests:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
-import json
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from amprealize.conversation_contracts import (
     ActorType,
-    ConversationScope,
     ExternalBinding,
     ExternalProvider,
     Message,

@@ -54,16 +54,12 @@ from amprealize.config.schema import (
     ModulesConfig,
 )
 from amprealize.deployment import (
-    ServiceEndpoints,
     resolve_service_endpoints,
     validate_deployment,
 )
 from amprealize.edition import (
     Edition,
-    EditionCapabilities,
     EditionGateError,
-    TierTransition,
-    _EDITION_RANK,
     _VALID_TRANSITIONS,
     detect_edition,
     edition_at_least,
@@ -934,7 +930,6 @@ class TestAPIModuleGating:
         """Goals-only config still lists all modules in all_modules."""
         from amprealize.module_registry import (
             get_enabled_modules,
-            get_enabled_capability_flags,
             get_enabled_api_routers,
             get_all_module_api_routers,
             MODULE_REGISTRY,

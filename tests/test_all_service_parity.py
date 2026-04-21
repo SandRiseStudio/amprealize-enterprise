@@ -16,7 +16,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import List
 
 
 @dataclass

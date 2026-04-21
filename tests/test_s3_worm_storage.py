@@ -15,10 +15,7 @@ Behaviors referenced:
 
 import json
 import hashlib
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 import pytest
 
@@ -501,7 +498,6 @@ class TestHashChain:
 
     def test_hash_chain_computation(self):
         """Test hash chain is correctly computed."""
-        from amprealize.storage.s3_worm_storage import S3WORMStorage
 
         events = [
             {"id": "1", "event_type": "test"},

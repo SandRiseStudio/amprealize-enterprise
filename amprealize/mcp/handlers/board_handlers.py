@@ -7,12 +7,11 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from ...services.board_service import BoardService, Actor, BoardNotFoundError, WorkItemNotFoundError, WorkItemValidationError, ColumnNotFoundError, AuthorNotFoundError
+from ...services.board_service import BoardService, Actor, BoardNotFoundError, WorkItemNotFoundError, ColumnNotFoundError, AuthorNotFoundError
 from ...multi_tenant.board_contracts import (
     Board,
-    BoardTemplate,
     BoardWithColumns,
     BoardColumn,
     WorkItem,

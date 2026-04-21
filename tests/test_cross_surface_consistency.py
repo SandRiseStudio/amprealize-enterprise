@@ -21,7 +21,6 @@ Follows behavior_sanitize_action_registry and behavior_instrument_metrics_pipeli
 
 import pytest
 import uuid
-from typing import Any, Dict, List
 from fastapi.testclient import TestClient
 
 from amprealize.api import create_app

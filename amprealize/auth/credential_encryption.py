@@ -8,7 +8,6 @@ Behavior: behavior_lock_down_security_surface
 
 from __future__ import annotations
 
-import abc
 import base64
 import logging
 import os

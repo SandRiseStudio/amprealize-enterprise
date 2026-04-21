@@ -18,7 +18,6 @@ from ...agent_performance_contracts import (
     AgentPerformanceThresholds,
     PerformanceAlertSeverity,
     PerformanceAlert,
-    RecordStatusChangeRequest,
     RecordTaskCompletionRequest,
 )
 

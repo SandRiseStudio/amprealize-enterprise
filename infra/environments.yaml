@@ -1,0 +1,671 @@
+environments:
+  development:
+    name: "development"
+    description: "Local developer sandbox"
+    default_compliance_tier: "dev"
+    default_lifetime: "infinite"
+    active_modules: ["core", "console"]  # Default: core services + local API/web console
+    # Define exact health checks for BreakerAmp development profile.
+    # This prevents fallback to legacy test endpoints (e.g., metrics on 5439)
+    # that are not part of the local-test-suite development module set.
+    required_endpoints:
+      - host: "localhost"
+        port: 5432
+        label: "PostgreSQL Amprealize (schema-routed services)"
+      - host: "localhost"
+        port: 5433
+        label: "TimescaleDB Telemetry"
+      - host: "localhost"
+        port: 6379
+        label: "Redis"
+    runtime:
+      provider: "podman"
+      podman_machine: "amprealize-dev"
+      auto_start: true
+      auto_init: true
+      memory_limit_mb: 2048
+      cpu_limit: 2
+      disk_size_gb: 15  # 15GB is sufficient for dev; prevents disk bloat
+      network_mbps: 100
+      auto_scaling_strategy: "serialize"
+    infrastructure:
+      blueprint_id: "local-dev"
+      teardown_on_exit: false
+    # ==========================================================================
+    # Database Migrations (auto-run on breakeramp apply)
+    # ==========================================================================
+    # behavior_migrate_postgres_schema: Runs Alembic migrations from host after containers healthy
+    migrations:
+      auto_run: true
+      migrations:
+        - name: "amprealize-main"
+          alembic_config: "alembic.ini"
+          database_url_env: "AMPREALIZE_PG_DSN"
+          target_revision: "head"
+          enabled: true
+        - name: "amprealize-telemetry"
+          alembic_config: "alembic.telemetry.ini"
+          database_url_env: "AMPREALIZE_PG_DSN_TELEMETRY"
+          target_revision: "head"
+          enabled: true
+    # Embedding optimization for resource-constrained environments (MacBook Air, etc.)
+    # behavior_curate_behavior_handbook: Use lightweight model + lazy loading to conserve memory
+    embedding:
+      model_name: "sentence-transformers/all-MiniLM-L6-v2"  # 80MB vs 2.3GB BGE-M3
+      lazy_load: true  # Defer model load until first query
+      cache_size: 500  # Smaller cache for limited RAM
+      rollout_percentage: 100  # Always use new model in dev (saves ~3GB RAM)
+    variables:
+      AMPREALIZE_ENV: "development"
+      AMPREALIZE_API_PORT: "8000"
+      AMPREALIZE_WEB_CONSOLE_PORT: "5173"
+      AMPREALIZE_API_WORKERS: "1"
+      AMPREALIZE_API_REBUILD_IMAGE: "false"
+      # Enable app-level modules for local API surfaces.
+      # BreakerAmp active_modules filters infrastructure services, while
+      # Amprealize's modular install uses modules.agents / modules.behaviors.
+      AMPREALIZE_MODULES_AGENTS: "true"
+      AMPREALIZE_MODULES_BEHAVIORS: "true"
+      # ==========================================================================
+      # OAuth Credentials (pass-through from host .env)
+      # ==========================================================================
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+      # ==========================================================================
+      # GitHub App Configuration (pass-through from host .env)
+      # ==========================================================================
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
+      GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"
+      GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
+      GITHUB_APP_PRIVATE_KEY_PATH: "${GITHUB_APP_PRIVATE_KEY_PATH:-}"
+      GITHUB_APP_CALLBACK_URL: "${GITHUB_APP_CALLBACK_URL:-http://localhost:5173/auth/github-app/callback}"
+      # Embedding Configuration (behavior_instrument_metrics_pipeline)
+      EMBEDDING_MODEL_NAME: "sentence-transformers/all-MiniLM-L6-v2"
+      EMBEDDING_MODEL_LAZY_LOAD: "true"
+      EMBEDDING_CACHE_SIZE: "500"
+      EMBEDDING_ROLLOUT_PERCENTAGE: "100"
+      # ==========================================================================
+      # CONSOLIDATED DATABASE ARCHITECTURE (per DATABASE_CONSOLIDATION_PLAN.md)
+      # ==========================================================================
+      # Main Amprealize Database - Single PostgreSQL with schema-based routing
+      # Contains schemas: auth, board, behavior, execution, workflow, consent, audit
+      AMPREALIZE_PG_HOST: "localhost"
+      AMPREALIZE_PG_PORT: "5432"
+      AMPREALIZE_PG_USER: "amprealize"
+      AMPREALIZE_PG_PASS: "amprealize_dev"
+      AMPREALIZE_PG_DB: "amprealize"
+      AMPREALIZE_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize"
+      # Telemetry Database (TimescaleDB) - Separate for hypertables
+      AMPREALIZE_PG_HOST_TELEMETRY: "localhost"
+      AMPREALIZE_PG_PORT_TELEMETRY: "5433"
+      AMPREALIZE_PG_USER_TELEMETRY: "telemetry"
+      AMPREALIZE_PG_PASS_TELEMETRY: "telemetry_dev"
+      AMPREALIZE_PG_DB_TELEMETRY: "telemetry"
+      AMPREALIZE_PG_DSN_TELEMETRY: "postgresql://telemetry:telemetry_dev@localhost:5433/telemetry"
+      # ==========================================================================
+      # SCHEMA-BASED SERVICE ROUTING (all point to amprealize-db on 5432)
+      # Services use PostgresPool with schema parameter for isolation
+      # ==========================================================================
+      # Auth Service -> amprealize-db.auth schema
+      AMPREALIZE_PG_HOST_AUTH: "localhost"
+      AMPREALIZE_PG_PORT_AUTH: "5432"
+      AMPREALIZE_PG_USER_AUTH: "amprealize"
+      AMPREALIZE_PG_PASS_AUTH: "amprealize_dev"
+      AMPREALIZE_PG_DB_AUTH: "amprealize"
+      AMPREALIZE_PG_SCHEMA_AUTH: "auth"
+      AMPREALIZE_AUTH_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+      # Org Service -> amprealize-db.auth schema (shares schema with auth)
+      AMPREALIZE_ORG_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+      # Board Service -> amprealize-db.board schema
+      AMPREALIZE_PG_HOST_BOARD: "localhost"
+      AMPREALIZE_PG_PORT_BOARD: "5432"
+      AMPREALIZE_PG_USER_BOARD: "amprealize"
+      AMPREALIZE_PG_PASS_BOARD: "amprealize_dev"
+      AMPREALIZE_PG_DB_BOARD: "amprealize"
+      AMPREALIZE_PG_SCHEMA_BOARD: "board"
+      AMPREALIZE_BOARD_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dboard"
+      # Behavior Service -> amprealize-db.behavior schema
+      AMPREALIZE_PG_HOST_BEHAVIOR: "localhost"
+      AMPREALIZE_PG_PORT_BEHAVIOR: "5432"
+      AMPREALIZE_PG_USER_BEHAVIOR: "amprealize"
+      AMPREALIZE_PG_PASS_BEHAVIOR: "amprealize_dev"
+      AMPREALIZE_PG_DB_BEHAVIOR: "amprealize"
+      AMPREALIZE_PG_SCHEMA_BEHAVIOR: "behavior"
+      # Workflow Service -> amprealize-db.workflow schema
+      AMPREALIZE_PG_HOST_WORKFLOW: "localhost"
+      AMPREALIZE_PG_PORT_WORKFLOW: "5432"
+      AMPREALIZE_PG_USER_WORKFLOW: "amprealize"
+      AMPREALIZE_PG_PASS_WORKFLOW: "amprealize_dev"
+      AMPREALIZE_PG_DB_WORKFLOW: "amprealize"
+      AMPREALIZE_PG_SCHEMA_WORKFLOW: "workflow"
+      # Action Service -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_ACTION: "localhost"
+      AMPREALIZE_PG_PORT_ACTION: "5432"
+      AMPREALIZE_PG_USER_ACTION: "amprealize"
+      AMPREALIZE_PG_PASS_ACTION: "amprealize_dev"
+      AMPREALIZE_PG_DB_ACTION: "amprealize"
+      AMPREALIZE_PG_SCHEMA_ACTION: "execution"
+      # Run Service -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_RUN: "localhost"
+      AMPREALIZE_PG_PORT_RUN: "5432"
+      AMPREALIZE_PG_USER_RUN: "amprealize"
+      AMPREALIZE_PG_PASS_RUN: "amprealize_dev"
+      AMPREALIZE_PG_DB_RUN: "amprealize"
+      AMPREALIZE_PG_SCHEMA_RUN: "execution"
+      # Execution Service (WorkItemExecutionService) -> amprealize-db.execution schema
+      AMPREALIZE_EXECUTION_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dexecution"
+      # Compliance Service -> amprealize-db.audit schema
+      AMPREALIZE_PG_HOST_COMPLIANCE: "localhost"
+      AMPREALIZE_PG_PORT_COMPLIANCE: "5432"
+      AMPREALIZE_PG_USER_COMPLIANCE: "amprealize"
+      AMPREALIZE_PG_PASS_COMPLIANCE: "amprealize_dev"
+      AMPREALIZE_PG_DB_COMPLIANCE: "amprealize"
+      AMPREALIZE_PG_SCHEMA_COMPLIANCE: "audit"
+      # Agent Orchestrator -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_AGENT_ORCHESTRATOR: "localhost"
+      AMPREALIZE_PG_PORT_AGENT_ORCHESTRATOR: "5432"
+      AMPREALIZE_PG_USER_AGENT_ORCHESTRATOR: "amprealize"
+      AMPREALIZE_PG_PASS_AGENT_ORCHESTRATOR: "amprealize_dev"
+      AMPREALIZE_PG_DB_AGENT_ORCHESTRATOR: "amprealize"
+      AMPREALIZE_PG_SCHEMA_AGENT_ORCHESTRATOR: "execution"
+      # ==========================================================================
+      # OTHER INFRASTRUCTURE
+      # ==========================================================================
+      # Redis
+      REDIS_HOST: "localhost"
+      REDIS_PORT: "6379"
+      REDIS_URL: "redis://localhost:6379/0"
+      # Kafka (optional - streaming tests skip gracefully if unavailable)
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:10092"
+      KAFKA_EXTERNAL_PORT: "10092"
+      # ==========================================================================
+      # BYOK (Bring Your Own Key) CREDENTIAL ENCRYPTION
+      # Required for persistent LLM credential storage across restarts
+      # ==========================================================================
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+
+  test:
+    name: "test"
+    description: "Local test environment (BreakerAmp-managed)"
+    default_compliance_tier: "dev"
+    default_lifetime: "90m"
+    active_modules: ["core"]  # Default: only core services. Use --module streaming for Kafka
+    required_endpoints:
+      - host: "localhost"
+        port: 5432
+        label: "PostgreSQL Amprealize (schema-routed services)"
+      - host: "localhost"
+        port: 5433
+        label: "TimescaleDB Telemetry"
+      - host: "localhost"
+        port: 6379
+        label: "Redis"
+    runtime:
+      provider: "podman"
+      podman_machine: "amprealize-test"
+      auto_init: true
+      auto_start: true
+      memory_limit_mb: 4096
+      cpu_limit: 4
+      disk_size_gb: 10
+      network_mbps: 500
+    infrastructure:
+      blueprint_id: "local-test-suite"
+      teardown_on_exit: true
+    # ==========================================================================
+    # Database Migrations (auto-run on breakeramp apply)
+    # ==========================================================================
+    migrations:
+      auto_run: true
+      migrations:
+        - name: "amprealize-main"
+          alembic_config: "alembic.ini"
+          database_url_env: "AMPREALIZE_PG_DSN"
+          target_revision: "head"
+          enabled: true
+        - name: "amprealize-telemetry"
+          alembic_config: "alembic.telemetry.ini"
+          database_url_env: "AMPREALIZE_PG_DSN_TELEMETRY"
+          target_revision: "head"
+          enabled: true
+    embedding:
+      model_name: "sentence-transformers/all-MiniLM-L6-v2"
+      lazy_load: true
+      cache_size: 1000
+      rollout_percentage: 100
+    variables:
+      AMPREALIZE_ENV: "test"
+      EMBEDDING_MODEL_NAME: "sentence-transformers/all-MiniLM-L6-v2"
+      EMBEDDING_MODEL_LAZY_LOAD: "true"
+      EMBEDDING_CACHE_SIZE: "1000"
+      EMBEDDING_ROLLOUT_PERCENTAGE: "100"
+      # Enable app-level modules for the host-started BreakerAmp API.
+      # Without these flags, /v1/runs is gated off even though the execution
+      # data plane is provisioned for smoke and parity tests.
+      AMPREALIZE_MODULES_AGENTS: "true"
+      AMPREALIZE_MODULES_BEHAVIORS: "true"
+      # ==========================================================================
+      # CONSOLIDATED DATABASE ARCHITECTURE (same topology as development)
+      # ==========================================================================
+      # Main Amprealize Database - Single PostgreSQL with schema-based routing
+      AMPREALIZE_PG_HOST: "localhost"
+      AMPREALIZE_PG_PORT: "5432"
+      AMPREALIZE_PG_USER: "amprealize"
+      AMPREALIZE_PG_PASS: "amprealize_dev"
+      AMPREALIZE_PG_DB: "amprealize"
+      AMPREALIZE_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize"
+      # Telemetry Database (TimescaleDB)
+      AMPREALIZE_PG_HOST_TELEMETRY: "localhost"
+      AMPREALIZE_PG_PORT_TELEMETRY: "5433"
+      AMPREALIZE_PG_USER_TELEMETRY: "telemetry"
+      AMPREALIZE_PG_PASS_TELEMETRY: "telemetry_dev"
+      AMPREALIZE_PG_DB_TELEMETRY: "telemetry"
+      AMPREALIZE_PG_DSN_TELEMETRY: "postgresql://telemetry:telemetry_dev@localhost:5433/telemetry"
+      # ==========================================================================
+      # SCHEMA-BASED SERVICE ROUTING (all point to amprealize-db on 5432)
+      # ==========================================================================
+      # Auth Service -> amprealize-db.auth schema
+      AMPREALIZE_PG_HOST_AUTH: "localhost"
+      AMPREALIZE_PG_PORT_AUTH: "5432"
+      AMPREALIZE_PG_USER_AUTH: "amprealize"
+      AMPREALIZE_PG_PASS_AUTH: "amprealize_dev"
+      AMPREALIZE_PG_DB_AUTH: "amprealize"
+      AMPREALIZE_PG_SCHEMA_AUTH: "auth"
+      AMPREALIZE_AUTH_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+      # Org Service -> amprealize-db.auth schema
+      AMPREALIZE_ORG_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+      # Board Service -> amprealize-db.board schema
+      AMPREALIZE_PG_HOST_BOARD: "localhost"
+      AMPREALIZE_PG_PORT_BOARD: "5432"
+      AMPREALIZE_PG_USER_BOARD: "amprealize"
+      AMPREALIZE_PG_PASS_BOARD: "amprealize_dev"
+      AMPREALIZE_PG_DB_BOARD: "amprealize"
+      AMPREALIZE_PG_SCHEMA_BOARD: "board"
+      AMPREALIZE_BOARD_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dboard"
+      # Behavior Service -> amprealize-db.behavior schema
+      AMPREALIZE_PG_HOST_BEHAVIOR: "localhost"
+      AMPREALIZE_PG_PORT_BEHAVIOR: "5432"
+      AMPREALIZE_PG_USER_BEHAVIOR: "amprealize"
+      AMPREALIZE_PG_PASS_BEHAVIOR: "amprealize_dev"
+      AMPREALIZE_PG_DB_BEHAVIOR: "amprealize"
+      AMPREALIZE_PG_SCHEMA_BEHAVIOR: "behavior"
+      # Workflow Service -> amprealize-db.workflow schema
+      AMPREALIZE_PG_HOST_WORKFLOW: "localhost"
+      AMPREALIZE_PG_PORT_WORKFLOW: "5432"
+      AMPREALIZE_PG_USER_WORKFLOW: "amprealize"
+      AMPREALIZE_PG_PASS_WORKFLOW: "amprealize_dev"
+      AMPREALIZE_PG_DB_WORKFLOW: "amprealize"
+      AMPREALIZE_PG_SCHEMA_WORKFLOW: "workflow"
+      # Action Service -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_ACTION: "localhost"
+      AMPREALIZE_PG_PORT_ACTION: "5432"
+      AMPREALIZE_PG_USER_ACTION: "amprealize"
+      AMPREALIZE_PG_PASS_ACTION: "amprealize_dev"
+      AMPREALIZE_PG_DB_ACTION: "amprealize"
+      AMPREALIZE_PG_SCHEMA_ACTION: "execution"
+      # Run Service -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_RUN: "localhost"
+      AMPREALIZE_PG_PORT_RUN: "5432"
+      AMPREALIZE_PG_USER_RUN: "amprealize"
+      AMPREALIZE_PG_PASS_RUN: "amprealize_dev"
+      AMPREALIZE_PG_DB_RUN: "amprealize"
+      AMPREALIZE_PG_SCHEMA_RUN: "execution"
+      # Execution Service -> amprealize-db.execution schema
+      AMPREALIZE_EXECUTION_PG_DSN: "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dexecution"
+      # Compliance Service -> amprealize-db.audit schema
+      AMPREALIZE_PG_HOST_COMPLIANCE: "localhost"
+      AMPREALIZE_PG_PORT_COMPLIANCE: "5432"
+      AMPREALIZE_PG_USER_COMPLIANCE: "amprealize"
+      AMPREALIZE_PG_PASS_COMPLIANCE: "amprealize_dev"
+      AMPREALIZE_PG_DB_COMPLIANCE: "amprealize"
+      AMPREALIZE_PG_SCHEMA_COMPLIANCE: "audit"
+      # Agent Orchestrator -> amprealize-db.execution schema
+      AMPREALIZE_PG_HOST_AGENT_ORCHESTRATOR: "localhost"
+      AMPREALIZE_PG_PORT_AGENT_ORCHESTRATOR: "5432"
+      AMPREALIZE_PG_USER_AGENT_ORCHESTRATOR: "amprealize"
+      AMPREALIZE_PG_PASS_AGENT_ORCHESTRATOR: "amprealize_dev"
+      AMPREALIZE_PG_DB_AGENT_ORCHESTRATOR: "amprealize"
+      AMPREALIZE_PG_SCHEMA_AGENT_ORCHESTRATOR: "execution"
+      # ==========================================================================
+      # OTHER INFRASTRUCTURE
+      # ==========================================================================
+      # Redis
+      REDIS_HOST: "localhost"
+      REDIS_PORT: "6379"
+      REDIS_URL: "redis://localhost:6379/0"
+      # Kafka (optional - streaming tests skip gracefully if unavailable)
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:10092"
+      KAFKA_EXTERNAL_PORT: "10092"
+      # BYOK Credential Encryption
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+
+  # Minimal streaming test environment - only 3 containers (Kafka, Zookeeper, Telemetry DB)
+  # Uses ~1GB RAM instead of ~4GB for full test suite
+  # Usage: ./scripts/run_tests.sh --breakeramp --env streaming-test -- tests/load/test_streaming_pipeline_load.py
+  streaming-test:
+    name: "streaming-test"
+    description: "Minimal environment for Kafka streaming tests only"
+    default_compliance_tier: "dev"
+    default_lifetime: "30m"
+    active_modules: ["streaming"]
+    runtime:
+      provider: "podman"
+      podman_machine: "amprealize-test"
+      auto_init: true
+      auto_start: true
+      memory_limit_mb: 4096  # Only 4GB needed for minimal stack
+      cpu_limit: 2
+      disk_size_gb: 10  # Smaller disk to save host disk space
+      network_mbps: 500
+    infrastructure:
+      blueprint_id: "streaming-minimal"
+      teardown_on_exit: true
+    # Define exactly which endpoints to wait for (breakeramp-driven health checks)
+    required_endpoints:
+      - host: "localhost"
+        port: 6432
+        label: "TimescaleDB Telemetry"
+      - host: "localhost"
+        port: 10092
+        label: "Kafka"
+    variables:
+      AMPREALIZE_ENV: "streaming-test"
+      # Telemetry DB (the only PostgreSQL needed)
+      AMPREALIZE_PG_HOST_TELEMETRY: "localhost"
+      AMPREALIZE_PG_PORT_TELEMETRY: "6432"
+      AMPREALIZE_PG_USER_TELEMETRY: "amprealize_telemetry"
+      AMPREALIZE_PG_PASS_TELEMETRY: "telemetry_test_pass"
+      AMPREALIZE_PG_DB_TELEMETRY: "amprealize_telemetry"
+      # Kafka
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:10092"
+      KAFKA_EXTERNAL_PORT: "10092"
+
+  staging:
+    name: "staging"
+    description: "Pre-prod validation stack with optional streaming and monitoring"
+    default_compliance_tier: "prod-sim"
+    default_lifetime: "24h"
+    runtime:
+      provider: "podman"
+      podman_machine: "amprealize-staging"
+      auto_init: true
+      auto_start: true
+      memory_limit_mb: 12288
+      cpu_limit: 6
+      disk_size_gb: 20  # Larger for staging workloads
+      network_mbps: 1000
+    infrastructure:
+      blueprint_id: "staging"  # Uses new dedicated staging blueprint
+      teardown_on_exit: false
+      # Module configuration for optional features
+      # Enable via: breakeramp plan --modules core,streaming,monitoring
+      active_modules:
+        - core  # Always enabled: 7 PostgreSQL DBs + Redis
+        # - streaming  # Optional: Kafka + Zookeeper + Schema Registry
+        # - monitoring  # Optional: Prometheus + Grafana
+      module_profiles:
+        # Predefined profiles for common configurations
+        minimal:
+          modules: ["core"]
+          description: "Core datastores only (7 PostgreSQL + Redis)"
+        with-streaming:
+          modules: ["core", "streaming"]
+          description: "Core + Kafka streaming for telemetry events"
+        with-monitoring:
+          modules: ["core", "monitoring"]
+          description: "Core + Prometheus/Grafana observability"
+        full:
+          modules: ["core", "streaming", "monitoring"]
+          description: "Full staging stack with streaming and monitoring"
+    # ==========================================================================
+    # Required Health Checks (breakeramp waits for these before 'ready')
+    # ==========================================================================
+    required_endpoints:
+      # --- Data Plane ---
+      - host: "localhost"
+        port: 6432
+        label: "TimescaleDB Telemetry"
+      - host: "localhost"
+        port: 5433
+        label: "PostgreSQL Behavior (pgvector)"
+      - host: "localhost"
+        port: 5434
+        label: "PostgreSQL Workflow"
+      - host: "localhost"
+        port: 5435
+        label: "PostgreSQL Action"
+      - host: "localhost"
+        port: 5436
+        label: "PostgreSQL Run"
+      - host: "localhost"
+        port: 5437
+        label: "PostgreSQL Compliance"
+      - host: "localhost"
+        port: 5438
+        label: "PostgreSQL Agent Orchestrator"
+      - host: "localhost"
+        port: 6380
+        label: "Redis"
+      # --- App Containers (added via AMPREALIZE-409/410/411) ---
+      - host: "localhost"
+        port: 8000
+        label: "Amprealize API"
+      - host: "localhost"
+        port: 5173
+        label: "Web Console"
+      - host: "localhost"
+        port: 8080
+        label: "Gateway (HTTP)"
+    # Embedding optimization for staging (behavior_instrument_metrics_pipeline)
+    # Gradual rollout: 10% → 50% → 100% with A/B testing
+    embedding:
+      model_name: "sentence-transformers/all-MiniLM-L6-v2"
+      lazy_load: true
+      cache_size: 1000
+      rollout_percentage: 10  # 10% canary phase (Task 8.10.1 Task 8)
+    variables:
+      AMPREALIZE_ENV: "staging"
+      # ==========================================================================
+      # App Container Configuration (AMPREALIZE-409/410/411)
+      # ==========================================================================
+      AMPREALIZE_API_PORT: "8000"
+      AMPREALIZE_WEB_CONSOLE_PORT: "5173"
+      AMPREALIZE_GATEWAY_HTTP_PORT: "8080"
+      AMPREALIZE_GATEWAY_HTTPS_PORT: "8443"
+      AMPREALIZE_LOG_LEVEL: "debug"
+      # Embedding Configuration (behavior_instrument_metrics_pipeline)
+      EMBEDDING_MODEL_NAME: "sentence-transformers/all-MiniLM-L6-v2"
+      EMBEDDING_MODEL_LAZY_LOAD: "true"
+      EMBEDDING_CACHE_SIZE: "1000"
+      EMBEDDING_ROLLOUT_PERCENTAGE: "10"
+      # Telemetry (TimescaleDB)
+      AMPREALIZE_PG_HOST_TELEMETRY: "localhost"
+      AMPREALIZE_PG_PORT_TELEMETRY: "6432"
+      AMPREALIZE_PG_USER_TELEMETRY: "amprealize_telemetry"
+      AMPREALIZE_PG_PASS_TELEMETRY: "telemetry_staging_pass"
+      AMPREALIZE_PG_DB_TELEMETRY: "amprealize_telemetry"
+      # Behavior (pgvector)
+      AMPREALIZE_PG_HOST_BEHAVIOR: "localhost"
+      AMPREALIZE_PG_PORT_BEHAVIOR: "5433"
+      AMPREALIZE_PG_USER_BEHAVIOR: "amprealize_behavior"
+      AMPREALIZE_PG_PASS_BEHAVIOR: "behavior_staging_pass"
+      AMPREALIZE_PG_DB_BEHAVIOR: "amprealize_behavior"
+      # Workflow
+      AMPREALIZE_PG_HOST_WORKFLOW: "localhost"
+      AMPREALIZE_PG_PORT_WORKFLOW: "5434"
+      AMPREALIZE_PG_USER_WORKFLOW: "amprealize_workflow"
+      AMPREALIZE_PG_PASS_WORKFLOW: "workflow_staging_pass"
+      AMPREALIZE_PG_DB_WORKFLOW: "amprealize_workflow"
+      # Action
+      AMPREALIZE_PG_HOST_ACTION: "localhost"
+      AMPREALIZE_PG_PORT_ACTION: "5435"
+      AMPREALIZE_PG_USER_ACTION: "amprealize_action"
+      AMPREALIZE_PG_PASS_ACTION: "action_staging_pass"
+      AMPREALIZE_PG_DB_ACTION: "amprealize_action"
+      # Run
+      AMPREALIZE_PG_HOST_RUN: "localhost"
+      AMPREALIZE_PG_PORT_RUN: "5436"
+      AMPREALIZE_PG_USER_RUN: "amprealize_run"
+      AMPREALIZE_PG_PASS_RUN: "run_staging_pass"
+      AMPREALIZE_PG_DB_RUN: "amprealize_run"
+      # Compliance
+      AMPREALIZE_PG_HOST_COMPLIANCE: "localhost"
+      AMPREALIZE_PG_PORT_COMPLIANCE: "5437"
+      AMPREALIZE_PG_USER_COMPLIANCE: "amprealize_compliance"
+      AMPREALIZE_PG_PASS_COMPLIANCE: "compliance_staging_pass"
+      AMPREALIZE_PG_DB_COMPLIANCE: "amprealize_compliance"
+      # Agent Orchestrator
+      AMPREALIZE_PG_HOST_AGENT_ORCHESTRATOR: "localhost"
+      AMPREALIZE_PG_PORT_AGENT_ORCHESTRATOR: "5438"
+      AMPREALIZE_PG_USER_AGENT_ORCHESTRATOR: "amprealize_agent_orchestrator"
+      AMPREALIZE_PG_PASS_AGENT_ORCHESTRATOR: "agent_orchestrator_staging_pass"
+      AMPREALIZE_PG_DB_AGENT_ORCHESTRATOR: "amprealize_agent_orchestrator"
+      # Redis
+      REDIS_HOST: "localhost"
+      REDIS_PORT: "6380"
+      REDIS_URL: "redis://localhost:6380/0"
+      # Kafka (when streaming module enabled)
+      KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+      KAFKA_SCHEMA_REGISTRY_URL: "http://localhost:8081"
+      # Monitoring (when monitoring module enabled)
+      PROMETHEUS_URL: "http://localhost:9090"
+      GRAFANA_URL: "http://localhost:3001"
+
+  production:
+    name: "production"
+    description: "Long-lived customer workloads"
+    default_compliance_tier: "strict"
+    default_lifetime: "infinite"
+    runtime:
+      provider: "podman"
+      podman_machine: "amprealize-prod"
+      auto_init: false
+      auto_start: false
+      memory_limit_mb: 16384
+      cpu_limit: 8
+      disk_size_gb: 50  # Larger for production data
+      network_mbps: 2000
+    infrastructure:
+      # core-data-plane: data layer only (databases + redis + pgbouncer)
+      # For full-stack deployment (data + API + web-console + gateway),
+      # use blueprint_id: "production" (AMPREALIZE-409/410/411)
+      blueprint_id: "core-data-plane"
+      teardown_on_exit: false
+    # ==========================================================================
+    # Required Health Checks (breakeramp waits for these before 'ready')
+    # ==========================================================================
+    # Note: When blueprint_id is "production" (full-stack), also check app
+    # endpoints: API(:8000), Web Console(:5173), Gateway(:80/:443)
+    required_endpoints:
+      # --- Data Plane ---
+      - host: "localhost"
+        port: 5432
+        label: "TimescaleDB Telemetry"
+      - host: "localhost"
+        port: 5433
+        label: "PostgreSQL Behavior"
+      - host: "localhost"
+        port: 5434
+        label: "PostgreSQL Workflow"
+      - host: "localhost"
+        port: 5435
+        label: "PostgreSQL Action"
+      - host: "localhost"
+        port: 5436
+        label: "PostgreSQL Run"
+      - host: "localhost"
+        port: 5437
+        label: "PostgreSQL Compliance"
+      - host: "localhost"
+        port: 5438
+        label: "PostgreSQL Agent Orchestrator"
+      - host: "localhost"
+        port: 6379
+        label: "Redis"
+    # Embedding optimization for production (behavior_instrument_metrics_pipeline)
+    # Production rollout follows staging validation
+    embedding:
+      model_name: "sentence-transformers/all-MiniLM-L6-v2"
+      lazy_load: true
+      cache_size: 2000  # Larger cache for production traffic
+      rollout_percentage: 0  # Start at 0% until staging validated
+    variables:
+      AMPREALIZE_ENV: "production"
+      # ==========================================================================
+      # App Container Configuration (AMPREALIZE-409/410/411)
+      # Used when blueprint_id is "production" (full-stack deployment)
+      # ==========================================================================
+      AMPREALIZE_API_PORT: "8000"
+      AMPREALIZE_WEB_CONSOLE_PORT: "5173"
+      AMPREALIZE_GATEWAY_HTTP_PORT: "80"
+      AMPREALIZE_GATEWAY_HTTPS_PORT: "443"
+      AMPREALIZE_LOG_LEVEL: "info"
+      # Embedding Configuration (behavior_instrument_metrics_pipeline)
+      EMBEDDING_MODEL_NAME: "sentence-transformers/all-MiniLM-L6-v2"
+      EMBEDDING_MODEL_LAZY_LOAD: "true"
+      EMBEDDING_CACHE_SIZE: "2000"
+      EMBEDDING_ROLLOUT_PERCENTAGE: "0"
+
+# ==========================================================================
+# ==========================================================================
+# Defines resource requirements and configuration for supported embedding models
+# Used by BreakerAmp to provision appropriate resources for BehaviorService
+
+embedding_models:
+  # Lightweight model for resource-constrained environments (default)
+  all-MiniLM-L6-v2:
+    name: "sentence-transformers/all-MiniLM-L6-v2"
+    description: "Lightweight 80MB model, good for development and CI"
+    dimensions: 384
+    max_sequence_length: 256
+    resource_requirements:
+      memory_mb: 500
+      disk_mb: 100
+      gpu_required: false
+    performance:
+      throughput_qps: 500
+      latency_p50_ms: 5
+      latency_p99_ms: 15
+    recommended_for: ["development", "ci", "test"]
+
+  # High-quality model for production (BAAI/bge-m3)
+  bge-m3:
+    name: "BAAI/bge-m3"
+    description: "State-of-the-art 2.3GB multilingual model with superior retrieval quality"
+    dimensions: 1024
+    max_sequence_length: 8192
+    resource_requirements:
+      memory_mb: 6144  # ~6GB RAM needed
+      disk_mb: 2500    # 2.3GB model + cache
+      gpu_required: false  # CPU works, GPU recommended
+      gpu_vram_mb: 4096  # If GPU available
+    performance:
+      throughput_qps: 50   # Lower throughput due to size
+      latency_p50_ms: 50   # Higher latency
+      latency_p99_ms: 150
+    migration:
+      # Migration strategy from all-MiniLM-L6-v2 to bge-m3
+      requires_reindex: true
+      rollout_strategy: "canary"
+      canary_percentage: [10, 25, 50, 100]
+      fallback_model: "sentence-transformers/all-MiniLM-L6-v2"
+    recommended_for: ["staging", "production"]
+
+  # Fast embedding for real-time applications
+  bge-small-en-v1.5:
+    name: "BAAI/bge-small-en-v1.5"
+    description: "Balanced 130MB model with good quality/speed tradeoff"
+    dimensions: 384
+    max_sequence_length: 512
+    resource_requirements:
+      memory_mb: 800
+      disk_mb: 150
+      gpu_required: false
+    performance:
+      throughput_qps: 300
+      latency_p50_ms: 8
+      latency_p99_ms: 25
+    recommended_for: ["staging"]

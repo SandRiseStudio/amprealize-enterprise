@@ -14,8 +14,7 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timezone
 from pydantic import ValidationError
-from unittest.mock import MagicMock, patch, call
-from typing import List, Dict, Any, Optional
+from unittest.mock import MagicMock
 
 from amprealize.multi_tenant.organization_service import OrganizationService
 
@@ -28,12 +27,9 @@ pytestmark = [
 # Import contracts for type checking
 from amprealize.multi_tenant.contracts import (
     Project,
-    ProjectMembership,
     ProjectRole,
     ProjectVisibility,
-    MemberRole,
     UpdateProjectRequest,
-    CreateProjectMembershipRequest,
 )
 
 
@@ -956,7 +952,6 @@ class TestContractValidation:
 
     def test_project_requires_owner_id(self):
         """Project must always have owner_id."""
-        from amprealize.multi_tenant.contracts import Project
 
         with pytest.raises(ValidationError):
             Project(
@@ -967,7 +962,6 @@ class TestContractValidation:
 
     def test_project_allows_both_org_and_owner(self):
         """Project can have both org_id and owner_id (org project with an owner)."""
-        from amprealize.multi_tenant.contracts import Project
 
         project = Project(
             name="Test",
@@ -981,7 +975,6 @@ class TestContractValidation:
 
     def test_project_valid_org_owned(self):
         """Valid org-owned project (still needs owner_id)."""
-        from amprealize.multi_tenant.contracts import Project
 
         project = Project(
             name="Test",
@@ -995,7 +988,6 @@ class TestContractValidation:
 
     def test_project_valid_user_owned(self):
         """Valid user-owned project (no org)."""
-        from amprealize.multi_tenant.contracts import Project
 
         project = Project(
             name="Test",

@@ -9,7 +9,6 @@ Quick validation tests (non-comprehensive):
 Run: pytest tests/test_trace_analysis_postgres_smoke.py -v
 """
 
-import json
 import os
 import uuid
 from datetime import datetime

@@ -15,7 +15,7 @@ import pytest
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 pytestmark = pytest.mark.unit
 

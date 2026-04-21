@@ -31,7 +31,6 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from amprealize.services.board_service import BoardService
-    from amprealize.multi_tenant.board_contracts import CreateWorkItemRequest
 
 from amprealize.research_contracts import (
     AdoptionStrategy,
@@ -48,7 +47,6 @@ from amprealize.research_contracts import (
     ImplementationStep,
     IngestedPaper,
     IngestPaperRequest,
-    IngestPaperResponse,
     PaperSummary,
     Priority,
     StructuredCon,
@@ -63,11 +61,8 @@ from amprealize.research_contracts import (
 from amprealize.storage.research_storage_postgres import ResearchStoragePostgres
 from amprealize.research.prompts import (
     COMPREHENSION_SYSTEM_PROMPT,
-    COMPREHENSION_USER_PROMPT,
     EVALUATION_SYSTEM_PROMPT,
-    EVALUATION_USER_PROMPT,
     RECOMMENDATION_SYSTEM_PROMPT,
-    RECOMMENDATION_USER_PROMPT,
     format_comprehension_prompt,
     format_evaluation_prompt,
     format_recommendation_prompt,
@@ -1318,7 +1313,7 @@ class ResearchService:
             # Add adoption strategy if available
             if recommendation.adoption_strategy:
                 strat = recommendation.adoption_strategy
-                description += f"\n### Adoption Strategy\n"
+                description += "\n### Adoption Strategy\n"
                 description += f"**Approach:** {strat.approach}\n"
                 description += f"**Rationale:** {strat.rationale}\n"
                 if strat.direct_use_candidates:
@@ -1944,8 +1939,8 @@ class ResearchStorage:
                 lines.extend([
                     f"### {title}",
                     "",
-                    f"| Field | Value |",
-                    f"|-------|-------|",
+                    "| Field | Value |",
+                    "|-------|-------|",
                     f"| **Paper ID** | `{paper_id}` |",
                     f"| **Priority** | {priority} |",
                     f"| **Overall Score** | {overall:.1f}/10 |",

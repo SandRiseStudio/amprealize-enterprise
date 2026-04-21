@@ -7,7 +7,6 @@ Tests verify:
 """
 import uuid
 import pytest
-from unittest.mock import MagicMock, patch
 
 from amprealize.services.board_service import parse_display_id
 

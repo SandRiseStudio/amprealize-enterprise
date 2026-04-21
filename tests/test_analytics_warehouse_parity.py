@@ -7,7 +7,7 @@ token savings, and compliance coverage.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from io import StringIO
 
 from amprealize.analytics.warehouse import AnalyticsWarehouse

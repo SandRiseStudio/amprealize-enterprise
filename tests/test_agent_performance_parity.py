@@ -19,7 +19,6 @@ Behavior: behavior_validate_cross_surface_parity
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, Generator, List
 
 import pytest

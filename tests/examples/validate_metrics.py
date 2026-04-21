@@ -49,7 +49,7 @@ def test_metrics_method():
                 print(f"\n❌ Missing latency fields: {missing_lat}")
                 return False
 
-            print(f"\n✅ Latency metrics validated:")
+            print("\n✅ Latency metrics validated:")
             print(f"  - behaviors.list: {lat['count']} calls, p95={lat['p95']:.3f}s")
 
         print("\n✅ Metrics endpoint code validated successfully")

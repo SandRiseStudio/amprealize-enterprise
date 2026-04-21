@@ -149,7 +149,6 @@ from .analytics.warehouse import AnalyticsWarehouse
 from .metrics_service import MetricsService
 from .metrics_service_postgres import PostgresMetricsService
 from .collaboration_contracts import (
-    CollaborationRole,
     CreateDocumentRequest,
     CreateWorkspaceRequest,
     EditOperationType,
@@ -1195,7 +1194,6 @@ def create_app(
     async def cors_exception_handler(request: Request, exc: Exception):
         """Catch-all exception handler that ensures CORS headers on errors."""
         from starlette.responses import JSONResponse
-        import traceback
         import re
 
         origin = request.headers.get("origin", "")
@@ -5106,6 +5104,7 @@ def create_app(
     def get_roi_summary() -> Dict[str, Any]:
         """Query ROI analysis summary from DuckDB warehouse."""
         try:
+            from amprealize.config.settings import get_settings
             record = container.analytics_warehouse.get_roi_summary()
             settings = get_settings()
             return {
@@ -5127,6 +5126,7 @@ def create_app(
     ) -> Dict[str, Any]:
         """Query daily cost summary for budget tracking from DuckDB warehouse."""
         try:
+            from amprealize.config.settings import get_settings
             records = container.analytics_warehouse.get_daily_cost_summary(
                 start_date=start_date,
                 end_date=end_date,
@@ -5474,7 +5474,7 @@ def create_app(
                 if session is None:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"No authorization request found for device code",
+                        detail="No authorization request found for device code",
                     )
 
                 # Per RFC 8628, pending authorization should return 400 with authorization_pending error
@@ -7217,6 +7217,7 @@ def create_app(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="User service not available",
                 )
+            user_service = container.user_auth_service
 
             mfa_key = os.environ.get("MFA_ENCRYPTION_KEY")
             if not mfa_key:
@@ -7324,6 +7325,7 @@ def create_app(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="User service not available",
                 )
+            user_service = container.user_auth_service
 
             mfa_key = os.environ.get("MFA_ENCRYPTION_KEY")
             if not mfa_key:
@@ -8453,7 +8455,6 @@ def create_app(
             - services: List of service health checks
             - pools: Connection pool statistics for PostgreSQL services
         """
-        from amprealize.storage import postgres_metrics
 
         services_health = []
         pools_stats = []

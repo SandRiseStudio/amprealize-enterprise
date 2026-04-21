@@ -16,22 +16,19 @@ See WORK_ITEM_EXECUTION_PLAN.md for full specification.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set
 
-from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .boards.contracts import WorkItem
-from .run_contracts import Run, RunStatus, RunStep
+from .run_contracts import RunStatus
 from .run_service import RunService
 from .task_cycle_contracts import (
     CyclePhase,
-    CycleResponse,
     GateType,
     PHASE_GATES,
     TransitionPhaseRequest,
@@ -60,19 +57,16 @@ from .work_item_execution_contracts import (
     AgentResponse,
     ClarificationQuestion,
     ExecutionPolicy,
-    ExecutionState,
     ExecutionStep,
     ExecutionStepType,
     GatePolicyType,
     InternetAccessPolicy,
-    PendingFileChange,
     PRCommitStrategy,
     PRExecutionContext,
     ToolCall,
     ToolPermissionLevel,
     ToolResult,
     WriteScope,
-    generate_pr_branch_name,
 )
 from .session_audit import EscalationDetector, SessionAuditLogger
 
@@ -2827,11 +2821,6 @@ Run verification checks:
         return None
 
     def _get_return_phase_after_clarification(
-        # Add wiki reflection nudge if present
-        wiki_nudge = previous_outputs.get(CyclePhase.COMPLETING, {}).get("wiki_reflection_nudge")
-        if wiki_nudge:
-            lines.append(wiki_nudge)
-
         self,
         context: PhaseContext,
         previous_outputs: Dict[CyclePhase, Dict[str, Any]],
@@ -2884,18 +2873,18 @@ Run verification checks:
     ) -> str:
         """Generate a completion summary for posting as a comment."""
         lines = [
-            f"## ✅ Work Item Completed",
-            f"",
+            "## ✅ Work Item Completed",
+            "",
             f"**Work Item:** {context.work_item.title}",
             f"**Agent:** {context.agent.name}",
-            f"",
+            "",
         ]
 
         # Add changes summary
         if CyclePhase.EXECUTING in previous_outputs:
             changes = previous_outputs[CyclePhase.EXECUTING].get("changes", [])
             if changes:
-                lines.append(f"### Changes Made")
+                lines.append("### Changes Made")
                 lines.append(f"- Files modified: {len(changes)}")
                 for change in changes[:10]:  # Limit to 10
                     lines.append(f"  - {change.get('file', 'unknown')}")
@@ -2905,8 +2894,8 @@ Run verification checks:
         # Add test summary
         if CyclePhase.TESTING in previous_outputs:
             tests_passed = previous_outputs[CyclePhase.TESTING].get("tests_passed", True)
-            lines.append(f"")
-            lines.append(f"### Tests")
+            lines.append("")
+            lines.append("### Tests")
             lines.append(f"- Status: {'✅ Passed' if tests_passed else '❌ Failed'}")
 
         # Add wiki reflection nudge if present

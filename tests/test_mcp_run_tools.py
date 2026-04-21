@@ -34,7 +34,6 @@ def clean_run_db():
     from conftest import safe_truncate
     safe_truncate(dsn, ["run_steps", "runs"])
     # Seed test actors so FK constraint on runs.user_id passes
-    import psycopg2
     conn = psycopg2.connect(dsn)
     conn.autocommit = True
     with conn.cursor() as cur:

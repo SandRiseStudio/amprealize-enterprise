@@ -24,16 +24,14 @@ Behaviors referenced:
 """
 
 from __future__ import annotations
-import asyncio
 import logging
 import os
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import redis.asyncio as aioredis
@@ -781,7 +779,7 @@ class DistributedRateLimiter:
             # Test connection
             await self._redis_client.ping()
             self._use_redis = True
-            logger.info(f"Distributed rate limiter connected to Redis")
+            logger.info("Distributed rate limiter connected to Redis")
             return True
 
         except ImportError:

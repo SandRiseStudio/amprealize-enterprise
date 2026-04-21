@@ -7,14 +7,13 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ...multi_tenant.organization_service import OrganizationService
 from ...multi_tenant.contracts import (
     Project,
     ProjectVisibility,
     MemberRole,
-    CreateProjectRequest,
     UpdateProjectRequest,
 )
 

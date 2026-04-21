@@ -15,7 +15,6 @@ except ImportError:  # pragma: no cover - psycopg2 is optional for lint environm
     psycopg2 = None
 import pytest
 
-from amprealize.action_contracts import Actor
 from amprealize.adapters import (
     CLIRunServiceAdapter,
     RestRunServiceAdapter,

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator

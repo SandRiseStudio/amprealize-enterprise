@@ -10,12 +10,10 @@ Part of E3 — Agent Execution Loop Rearchitecture (Phase 4 / S3.8).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, List
 
 from .base import (
-    FileChange,
     OutputContext,
-    OutputHandler,
     OutputResult,
     OutputStatus,
 )
@@ -156,8 +154,8 @@ class GitHubPRHandler:
         sections.extend([
             "## Changes",
             "",
-            f"| Action | Count |",
-            f"|--------|-------|",
+            "| Action | Count |",
+            "|--------|-------|",
             f"| Created | {summary.get('create', 0)} |",
             f"| Updated | {summary.get('update', 0)} |",
             f"| Deleted | {summary.get('delete', 0)} |",

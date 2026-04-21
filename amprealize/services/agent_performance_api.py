@@ -18,11 +18,6 @@ from pydantic import BaseModel, Field
 from amprealize.agent_performance_contracts import (
     RecordTaskCompletionRequest as TaskCompletionContract,
     RecordStatusChangeRequest as StatusChangeContract,
-    AgentPerformanceSnapshot,
-    AgentPerformanceSummary,
-    AgentPerformanceDaily,
-    PerformanceAlert,
-    AgentPerformanceThresholds,
 )
 from amprealize.services.agent_performance_service import AgentPerformanceService
 

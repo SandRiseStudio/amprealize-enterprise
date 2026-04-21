@@ -11,11 +11,9 @@ Tests cover:
 Target: >90% code coverage
 """
 
-import json
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import List
 
 import pytest
 
@@ -24,7 +22,6 @@ from amprealize.trace_analysis_contracts import (
     DetectPatternsResponse,
     ExtractionJob,
     ExtractionJobStatus,
-    PatternOccurrence,
     ReusabilityScore,
     ScoreReusabilityRequest,
     ScoreReusabilityResponse,

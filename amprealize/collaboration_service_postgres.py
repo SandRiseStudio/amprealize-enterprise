@@ -46,20 +46,14 @@ from psycopg2 import extras
 from .collaboration_contracts import (
     WorkspaceStatus,
     CollaborationRole,
-    EditOperationType,
     Workspace,
     WorkspaceMember,
     Document,
-    EditOperation,
-    Comment,
     ActivityLog,
     CreateWorkspaceRequest,
     InviteUserRequest,
     CreateDocumentRequest,
-    RealTimeEditRequest,
-    CommentRequest,
     CollaborationMetrics,
-    ConflictResolution,
 )
 from .collaboration_service import CollaborationService
 from .storage.postgres_pool import PostgresPool

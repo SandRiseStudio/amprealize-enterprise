@@ -5,14 +5,12 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import logging
 import uuid
-import json
-from collections import defaultdict, deque
+from collections import defaultdict
 
 from .collaboration_contracts import (
     WorkspaceStatus, CollaborationRole, EditOperationType, Workspace, WorkspaceMember,
     Document, EditOperation, Comment, ActivityLog, CreateWorkspaceRequest, InviteUserRequest,
-    CreateDocumentRequest, RealTimeEditRequest, CommentRequest, WorkspaceSettings,
-    CollaborationMetrics, ConflictResolution, NotificationSettings
+    CreateDocumentRequest, RealTimeEditRequest, CommentRequest, CollaborationMetrics, ConflictResolution, NotificationSettings
 )
 from .telemetry import TelemetryClient
 
@@ -354,7 +352,7 @@ class CollaborationService:
         self._document_locks[document_id] = user_id
 
         self._log_activity(document.workspace_id, user_id, "document_locked",
-                          f"Locked document for editing")
+                          "Locked document for editing")
 
         return True
 
@@ -372,7 +370,7 @@ class CollaborationService:
         self._document_locks.pop(document_id, None)
 
         self._log_activity(document.workspace_id, user_id, "document_unlocked",
-                          f"Unlocked document")
+                          "Unlocked document")
 
         return True
 

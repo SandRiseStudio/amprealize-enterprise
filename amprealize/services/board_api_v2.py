@@ -83,14 +83,10 @@ from amprealize.multi_tenant.board_contracts import (
     DeleteResult,
     # Sprint models
     Sprint,
-    SprintStatus,
     CreateSprintRequest,
     UpdateSprintRequest,
     # Assignment
-    AssigneeType,
-    # Label models
     Label,
-    LabelColor,
     CreateLabelRequest,
     UpdateLabelRequest,
     LabelListResponse,
@@ -103,7 +99,6 @@ from amprealize.services.board_service import (
     ColumnNotFoundError,
     WorkItemNotFoundError,
     WorkItemTransitionError,
-    WorkItemValidationError,
     AssigneeNotFoundError,
     AuthorNotFoundError,
     Actor,

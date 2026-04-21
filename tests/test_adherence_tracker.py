@@ -12,13 +12,12 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from amprealize.adherence_tracker import AdherenceTracker, StrictModeViolation
 from amprealize.bci_contracts import (
-    AdherenceResult,
     Citation,
     CitationType,
     PhaseAdherenceRecord,

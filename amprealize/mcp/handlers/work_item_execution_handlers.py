@@ -23,10 +23,7 @@ from ...work_item_execution_service import (
 )
 from ...work_item_execution_contracts import (
     ExecuteWorkItemRequest,
-    ExecuteWorkItemResponse,
-    ExecutionStatusResponse,
     ExecutionState,
-    GEPPhase,
 )
 from ...services.board_service import Actor, BoardService
 

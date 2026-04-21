@@ -2,10 +2,6 @@ import json
 from pathlib import Path
 from typing import List
 
-import pytest
-import json
-from pathlib import Path
-from typing import List
 
 from amprealize import cli
 

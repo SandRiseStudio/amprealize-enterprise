@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from .execution_gateway_contracts import (
     NewExecutionMode,
@@ -22,7 +22,6 @@ from .execution_gateway_contracts import (
 )
 from .work_item_execution_contracts import AgentExecutionMode
 from .source_providers import (
-    CloneStrategy,
     SourceProvider,
     execute_clone,
     resolve_source_provider,
@@ -271,7 +270,6 @@ class ContainerConnectedExecutor:
                 f"Got: {local_path!r}"
             )
 
-        from breakeramp import WorkspaceConfig
         from breakeramp.runtime.podman import PodmanClient
 
         scope = self._build_scope(resolved)

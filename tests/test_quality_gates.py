@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from mdnt.evaluation import (
-    InjectionStrategy,
     QualityGateReport,
     QualityGateResult,
     QualityGateService,

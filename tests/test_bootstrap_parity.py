@@ -9,11 +9,7 @@ import pytest
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-from amprealize.bootstrap.detector import WorkspaceDetector
-from amprealize.bootstrap.service import BootstrapService
-from amprealize.bootstrap.profile import WorkspaceProfile, ProfileDetectionResult, WorkspaceSignal
 
 
 pytestmark = pytest.mark.unit  # Mark all tests in this module as unit tests

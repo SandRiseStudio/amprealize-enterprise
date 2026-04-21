@@ -11,8 +11,6 @@ This ensures consistent behavior regardless of interaction surface.
 """
 
 import pytest
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock
 
 from billing import (
     BillingPlan,
@@ -54,7 +52,6 @@ class TestSchemaParity:
 
     def test_customer_schema_fields(self):
         """Verify Customer model has required fields for all surfaces."""
-        from billing import Customer
 
         # Required fields that must be present in all surface responses
         required_fields = {
@@ -73,7 +70,6 @@ class TestSchemaParity:
 
     def test_subscription_schema_fields(self):
         """Verify Subscription model has required fields for all surfaces."""
-        from billing import Subscription
 
         required_fields = {
             "id",

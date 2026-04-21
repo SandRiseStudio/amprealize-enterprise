@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List
 from unittest.mock import MagicMock
 
-import pytest
 
 from amprealize.enterprise.auto_reflection import (
     AutoReflectionConfig,
     AutoReflectionHooks,
     AutoReflectionResult,
-    QualityGateResult,
     run_quality_gate,
 )
 

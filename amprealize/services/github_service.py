@@ -18,7 +18,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from urllib.parse import quote
@@ -249,7 +249,6 @@ class GitHubCredentialStore:
             ResolvedGitHubToken with token and metadata, or None if not available
         """
         from ..auth.github_credential_repository import (
-            GitHubCredentialRepository,
             CredentialScopeType,
         )
 

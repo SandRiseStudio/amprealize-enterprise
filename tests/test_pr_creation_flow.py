@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

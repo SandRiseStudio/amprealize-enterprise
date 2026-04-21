@@ -1,0 +1,76 @@
+environments:
+  development:
+    description: Local development environment
+    default_compliance_tier: standard
+    default_lifetime: 90m
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      auto_start: true
+    infrastructure:
+      blueprint_id: local-dev
+      teardown_on_exit: false
+
+  test:
+    description: Local test suite environment
+    default_compliance_tier: dev
+    default_lifetime: 90m
+    runtime:
+      provider: podman
+      podman_machine: amprealize-test
+      auto_start: true
+    infrastructure:
+      blueprint_id: local-test-suite
+      teardown_on_exit: true
+    variables:
+      # Blueprint-level vars (used by container POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB)
+      AMPREALIZE_PG_USER: amprealize_test
+      AMPREALIZE_PG_PASS: amprealize_dev
+      AMPREALIZE_PG_DB: amprealize_test
+      AMPREALIZE_PG_PORT: 5432
+      AMPREALIZE_PG_USER_TELEMETRY: telemetry_test
+      AMPREALIZE_PG_PASS_TELEMETRY: telemetry_dev
+      AMPREALIZE_PG_DB_TELEMETRY: telemetry_test
+      AMPREALIZE_PG_PORT_TELEMETRY: 5433
+      # run_tests.sh per-service vars (modular monolith - all point to main DB)
+      AMPREALIZE_PG_HOST_BEHAVIOR: localhost
+      AMPREALIZE_PG_PORT_BEHAVIOR: 5432
+      AMPREALIZE_PG_USER_BEHAVIOR: amprealize_test
+      AMPREALIZE_PG_PASS_BEHAVIOR: amprealize_dev
+      AMPREALIZE_PG_DB_BEHAVIOR: amprealize_test
+      AMPREALIZE_PG_HOST_TELEMETRY: localhost
+      AMPREALIZE_PG_HOST_METRICS: localhost
+      AMPREALIZE_PG_PORT_METRICS: 5432
+      AMPREALIZE_PG_USER_METRICS: amprealize_test
+      AMPREALIZE_PG_PASS_METRICS: amprealize_dev
+      AMPREALIZE_PG_DB_METRICS: amprealize_test
+      # Auth uses main DB
+      AMPREALIZE_PG_HOST_AUTH: localhost
+      AMPREALIZE_PG_PORT_AUTH: 5432
+      AMPREALIZE_PG_USER_AUTH: amprealize_test
+      AMPREALIZE_PG_PASS_AUTH: amprealize_dev
+      AMPREALIZE_PG_DB_AUTH: amprealize_test
+      # Redis
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+
+  cloud-dev:
+    description: Cloud database development environment (Neon / Supabase)
+    default_compliance_tier: standard
+    default_lifetime: 90m
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: cloud-dev
+      teardown_on_exit: false
+
+  staging:
+    description: Staging environment
+    default_compliance_tier: strict
+    default_lifetime: 4h
+    runtime:
+      provider: podman
+      memory_limit_mb: 4096

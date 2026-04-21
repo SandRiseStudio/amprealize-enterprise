@@ -18,31 +18,28 @@ Execution Modes:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .agent_registry_service import AgentRegistryService
 from .auth.llm_credential_repository import LLMCredentialRepository
-from .boards.contracts import WorkItem, WorkItemStatus, AssigneeType
-from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus, RunStep
+from .boards.contracts import WorkItem, AssigneeType
+from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus
 from .run_service import RunService, RunNotFoundError
 from .services.board_service import BoardService, WorkItemNotFoundError
 from .storage.postgres_pool import PostgresPool
 from .task_cycle_contracts import (
     CyclePhase,
-    CycleResponse,
     CreateCycleRequest,
     GateType,
     PHASE_GATES,
     SubmitClarificationRequest,
-    TimeoutConfig,
     TransitionPhaseRequest,
     TriggerType,
 )
@@ -57,28 +54,19 @@ from .work_item_execution_contracts import (
     ExecutionPolicy,
     ExecutionState,
     ExecutionStatusResponse,
-    GatePolicyType,
     InternetAccessPolicy,
     MODEL_CATALOG,
-    ModelCredential,
-    ModelDefinition,
-    ModelPolicy,
-    PendingFileChange,
-    PRCommitStrategy,
     PRExecutionContext,
-    WorkItemComment,
     WriteScope,
     generate_pr_branch_name,
     get_model,
 )
 from .projects.settings import (
     ExecutionMode,
-    LOCAL_CAPABLE_SURFACES,
     REMOTE_ONLY_SURFACES,
 )
 from .multi_tenant.settings import SettingsService
 from .workspace_agent import (
-    AmprealizeWorkspaceClient,
     WorkspaceConfig,
     WorkspaceInfo,
     WorkspaceProvisionError,

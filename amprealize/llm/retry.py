@@ -16,7 +16,6 @@ from amprealize.llm.providers.base import Provider
 from amprealize.llm.types import (
     AuthenticationError,
     LLMConfig,
-    LLMError,
     LLMResponse,
     RateLimitError,
     StreamChunk,

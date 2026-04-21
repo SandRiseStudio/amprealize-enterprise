@@ -9,13 +9,10 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 import os
-import sys
 import pytest
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from amprealize.execution_gateway_contracts import (
@@ -27,7 +24,6 @@ from amprealize.execution_gateway_contracts import (
 )
 from amprealize.source_providers import (
     BareGitSourceProvider,
-    CloneResult,
     CloneSpec,
     CloneStrategy,
     GitHubSourceProvider,

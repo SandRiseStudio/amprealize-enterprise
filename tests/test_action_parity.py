@@ -22,7 +22,6 @@ except ImportError:  # pragma: no cover - psycopg2 is optional for lint environm
 import pytest
 
 from amprealize.action_contracts import (
-    Action,
     ActionCreateRequest,
     Actor,
     ReplayOptions,

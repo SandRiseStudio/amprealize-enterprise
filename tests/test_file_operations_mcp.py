@@ -9,11 +9,7 @@ Tests following behavior_design_test_strategy:
 Note: These tests don't require database infrastructure.
 """
 
-import json
-import os
-import tempfile
 from pathlib import Path
-from typing import Any, Dict
 from unittest.mock import patch, MagicMock
 
 import pytest

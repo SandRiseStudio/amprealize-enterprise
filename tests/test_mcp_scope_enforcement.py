@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test Phase 3: Scope enforcement infrastructure."""
 
-from amprealize.mcp_server import MCPServer, MCPSessionContext, PUBLIC_TOOLS
+from amprealize.mcp_server import MCPServer, MCPSessionContext
 
 
 def test_tool_scopes_loaded():
@@ -9,7 +9,7 @@ def test_tool_scopes_loaded():
     print("Creating MCPServer...")
     server = MCPServer()
 
-    print(f"\n=== Tool Scopes Loaded ===")
+    print("\n=== Tool Scopes Loaded ===")
     print(f"Total tools with scopes: {len(server._tool_scopes)}")
     for tool, scopes in sorted(server._tool_scopes.items())[:10]:
         print(f"  {tool}: {scopes}")
@@ -26,7 +26,7 @@ def test_tool_scopes_loaded():
 
 def test_session_scope_methods():
     """Test MCPSessionContext scope checking methods."""
-    print(f"\n=== Session Scope Methods ===")
+    print("\n=== Session Scope Methods ===")
     ctx = MCPSessionContext()
     ctx.granted_scopes = {"behaviors.read", "runs.read", "runs.create"}
 
@@ -57,8 +57,8 @@ def test_session_scope_methods():
 
 def test_auth_middleware_import():
     """Test that MCPAuthMiddleware can be imported."""
-    print(f"\n=== Auth Middleware ===")
-    from amprealize.mcp_auth_middleware import MCPAuthMiddleware, AuthDecision, AuthResult
+    print("\n=== Auth Middleware ===")
+    from amprealize.mcp_auth_middleware import MCPAuthMiddleware
 
     middleware = MCPAuthMiddleware(
         tool_scopes={"test_tool": ["test.scope"]},

@@ -15,16 +15,11 @@ from pathlib import Path
 import pytest
 
 from amprealize.knowledge_pack.extractor import (
-    BehaviorFragment,
-    DoctrineFragment,
     ExtractionResult,
-    PlaybookFragment,
     SourceExtractor,
 )
 from amprealize.knowledge_pack.source_registry import (
     DriftResult,
-    RegisterSourceRequest,
-    SourceRecord,
 )
 
 pytestmark = [pytest.mark.unit]

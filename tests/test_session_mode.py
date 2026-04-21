@@ -15,8 +15,7 @@ from __future__ import annotations
 import asyncio
 import pytest
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from amprealize.work_item_execution_contracts import (
     AgentExecutionMode,
@@ -26,7 +25,6 @@ from amprealize.work_item_execution_contracts import (
 )
 from amprealize.task_cycle_contracts import (
     CyclePhase,
-    PHASE_GATES,
     VALID_TRANSITIONS,
 )
 from amprealize.mode_executors import SessionModeExecutor

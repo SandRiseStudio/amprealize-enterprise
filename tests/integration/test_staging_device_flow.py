@@ -23,12 +23,8 @@ Usage:
     pytest tests/integration/test_staging_device_flow.py::TestStagingDeviceFlow::test_device_login_real_oauth -v -s
 """
 
-import asyncio
-import json
 import os
-import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pytest
@@ -222,7 +218,7 @@ class TestStagingDeviceFlow:
         print("\n2. User authorization required:")
         print(f"   URL: {result['verification_uri']}")
         print(f"   Code: {result['user_code']}")
-        print(f"\n   Please visit the URL above and enter the code to authorize.")
+        print("\n   Please visit the URL above and enter the code to authorize.")
         print(f"   Waiting for approval (timeout in {result['expires_in']}s)...\n")
 
         # Polling happens server-side, but we wait for completion
@@ -268,13 +264,13 @@ class TestStagingDeviceFlow:
         assert "refresh_token_valid" in status
 
         if status["is_authenticated"]:
-            print(f"\n✓ Authenticated with staging tokens")
+            print("\n✓ Authenticated with staging tokens")
             print(f"  Client: {status['client_id']}")
             print(f"  Scopes: {status['scopes']}")
             print(f"  Access expires in: {status['expires_in']}s")
             print(f"  Storage: {status.get('token_storage_type', 'unknown')}")
         else:
-            print(f"\n⚠ Not authenticated - run manual login test first")
+            print("\n⚠ Not authenticated - run manual login test first")
 
     def test_token_persistence_across_surfaces(
         self,
@@ -344,7 +340,7 @@ class TestStagingDeviceFlow:
 
             # Examine most recent event
             latest = events[0]
-            print(f"\nLatest event:")
+            print("\nLatest event:")
             print(f"  Type: {latest['event_type']}")
             print(f"  Timestamp: {latest['timestamp']}")
             print(f"  Client ID: {latest.get('payload', {}).get('client_id')}")

@@ -1,5 +1,4 @@
 from typing import Dict, Any
-from amprealize.breakeramp import Blueprint, ServiceSpec
 
 def generate_heavy_blueprint(name: str, memory_mb: int, duration_sec: int = 60) -> Dict[str, Any]:
     """

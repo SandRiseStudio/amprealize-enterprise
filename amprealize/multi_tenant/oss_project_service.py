@@ -578,7 +578,6 @@ class OSSProjectService:
         current_work_item_id: Optional[str] = None,
     ) -> AgentPresenceResponse:
         """Upsert an agent's presence state in a project."""
-        import json
 
         now = _utc_now()
         conn = self._get_conn()

@@ -18,11 +18,7 @@ from __future__ import annotations
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
-from typing import Optional
-from fastapi.testclient import TestClient
-from fastapi import FastAPI
-from starlette.requests import Request
+from unittest.mock import MagicMock
 
 # Import contracts for type checking
 from amprealize.multi_tenant.contracts import (

@@ -17,13 +17,12 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional
 
 from .telemetry import TelemetryClient
 from .work_item_execution_contracts import (
     ExecutionPolicy,
     InternetAccessPolicy,
-    PendingFileChange,
     PRExecutionContext,
     ToolCall,
     ToolResult,
@@ -1066,7 +1065,6 @@ class ToolExecutor:
 
         elif tool_name == "find_files":
             # Find files matching a pattern
-            import fnmatch
             from pathlib import Path
 
             pattern = inputs.get("pattern", "*")

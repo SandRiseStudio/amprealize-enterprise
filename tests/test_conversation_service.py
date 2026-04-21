@@ -17,7 +17,6 @@ Infrastructure requirements:
 Run with: ./scripts/run_tests.sh --breakeramp --env test tests/test_conversation_service.py
 """
 import os
-import time
 import uuid
 
 import pytest
@@ -38,8 +37,6 @@ from amprealize.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
     DuplicateReactionError,
-    EditWindowClosedError,
-    MessageNotFoundError,
 )
 
 

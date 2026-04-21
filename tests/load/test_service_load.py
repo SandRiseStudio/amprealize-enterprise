@@ -31,7 +31,7 @@ import concurrent.futures
 import os
 import statistics
 import time
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 import pytest
 
@@ -188,7 +188,7 @@ def test_health_endpoint_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\n/health Endpoint Load Test Results:")
+    print("\n/health Endpoint Load Test Results:")
     print(f"  Total time: {stats['total_time']:.2f}s")
     print(f"  Throughput: {stats['requests_per_second']:.2f} req/s")
     print(f"  P50 latency: {stats['p50']*1000:.2f}ms")
@@ -209,7 +209,7 @@ def test_metrics_endpoint_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\n/metrics Endpoint Load Test Results:")
+    print("\n/metrics Endpoint Load Test Results:")
     print(f"  Total time: {stats['total_time']:.2f}s")
     print(f"  Throughput: {stats['requests_per_second']:.2f} req/s")
 
@@ -232,7 +232,7 @@ def test_behavior_service_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\nBehaviorService Load Test Results:")
+    print("\nBehaviorService Load Test Results:")
     print(f"  Total time: {stats['total_time']:.2f}s")
     print(f"  Throughput: {stats['requests_per_second']:.2f} req/s")
     print(f"  P50 latency: {stats['p50']*1000:.2f}ms")
@@ -252,7 +252,7 @@ def test_workflow_service_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\nWorkflowService Load Test Results:")
+    print("\nWorkflowService Load Test Results:")
     print(f"  Total time: {stats['total_time']:.2f}s")
     print(f"  Throughput: {stats['requests_per_second']:.2f} req/s")
     print(f"  P50 latency: {stats['p50']*1000:.2f}ms")
@@ -269,7 +269,7 @@ def test_action_service_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\nActionService Load Test Results:")
+    print("\nActionService Load Test Results:")
     print(f"  Total time: {stats['total_time']:.2f}s")
     print(f"  Throughput: {stats['requests_per_second']:.2f} req/s")
     print(f"  P50 latency: {stats['p50']*1000:.2f}ms")
@@ -287,7 +287,7 @@ def test_run_service_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\nRunService Load Test Results:")
+    print("\nRunService Load Test Results:")
     print(f"  P95 latency: {stats['p95']*1000:.2f}ms")
 
     assert stats["p95"] < 0.5, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 500ms threshold"
@@ -301,7 +301,7 @@ def test_compliance_service_load(load_tester, load_params):
         num_workers=load_params["concurrent"],
     )
 
-    print(f"\nComplianceService Load Test Results:")
+    print("\nComplianceService Load Test Results:")
     print(f"  P95 latency: {stats['p95']*1000:.2f}ms")
 
     assert stats["p95"] < 0.1, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 100ms threshold"

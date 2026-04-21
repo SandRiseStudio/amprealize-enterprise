@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
-import statistics
 from collections import Counter
 from dataclasses import asdict
 from time import perf_counter
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .behavior_retriever import BehaviorRetriever
 from .behavior_service import BehaviorService, SearchBehaviorsRequest
@@ -57,7 +55,6 @@ from .bci_contracts import (
     ValidateCitationsResponse,
     ParseCitationsRequest,
     ParseCitationsResponse,
-    PrependedBehavior,
 )
 
 _DEFAULT_PROMPT_INSTRUCTION = (

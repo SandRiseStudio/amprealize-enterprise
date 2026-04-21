@@ -17,7 +17,6 @@ Run with: pytest tests/test_knowledge_pack_schema.py -v -m unit
 from __future__ import annotations
 
 import json
-import textwrap
 from pathlib import Path
 from typing import Any, Dict
 
@@ -26,15 +25,11 @@ from pydantic import ValidationError
 
 from amprealize.knowledge_pack.schema import (
     KnowledgePackManifest,
-    LintIssue,
     OverlayFragment,
     OverlayKind,
-    PackConstraints,
     PackScope,
-    PackSource,
     PackSourceType,
     SourceScope,
-    ValidationResult,
 )
 from amprealize.knowledge_pack.validator import lint_manifest, validate_manifest
 

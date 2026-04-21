@@ -13,7 +13,6 @@ Following behavior_use_raze_for_logging pattern for telemetry assertions.
 import json
 import os
 import pytest
-from unittest.mock import patch, MagicMock
 
 # Mark all tests as unit tests (no infrastructure required)
 pytestmark = pytest.mark.unit
@@ -41,7 +40,6 @@ from amprealize.llm import (
     ProviderType,
     MODEL_CATALOG,
 )
-from amprealize.llm.providers.test import TestProvider as LLMTestProvider
 from amprealize.bci_service import BCIService
 
 

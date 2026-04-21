@@ -1,7 +1,6 @@
 """Unit tests for action replay executor."""
 
 import pytest
-from pathlib import Path
 
 from amprealize.action_replay_executor import ActionReplayExecutor, ExecutionStatus
 from amprealize.action_contracts import Action, Actor

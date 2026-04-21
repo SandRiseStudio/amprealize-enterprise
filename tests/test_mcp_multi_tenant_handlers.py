@@ -13,8 +13,7 @@ from __future__ import annotations
 
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
-from typing import Optional
+from unittest.mock import MagicMock, AsyncMock
 
 # Mark entire module as unit tests (no infrastructure required)
 pytestmark = pytest.mark.unit
@@ -28,12 +27,9 @@ from amprealize.multi_tenant.contracts import (
     MemberRole,
     Project,
     ProjectVisibility,
-    ProjectRole,
     Agent,
     AgentType,
     AgentStatus,
-    Invitation,
-    InvitationStatus,
 )
 
 # Import handlers
@@ -48,10 +44,6 @@ from amprealize.mcp.handlers.org_handlers import (
     handle_remove_member,
     handle_update_member_role,
     handle_get_context,
-    handle_list_members,
-    handle_invite_member,
-    handle_accept_invitation,
-    handle_switch_org,
 )
 
 from amprealize.mcp.handlers.project_handlers import (
@@ -62,10 +54,6 @@ from amprealize.mcp.handlers.project_handlers import (
     handle_update_project,
     handle_delete_project,
     handle_archive_project,
-    handle_restore_project,
-    handle_get_settings,
-    handle_update_settings,
-    handle_get_stats,
     handle_get_usage,
 )
 
@@ -74,12 +62,9 @@ from amprealize.mcp.handlers.org_agent_handlers import (
     handle_create_agent,
     handle_get_agent,
     handle_list_agents,
-    handle_update_agent,
-    handle_delete_agent,
     handle_pause_agent,
     handle_resume_agent,
     handle_stop_agent,
-    handle_get_status,
     handle_assign_to_project,
     handle_remove_from_project,
 )
@@ -87,7 +72,7 @@ from amprealize.mcp.handlers.org_agent_handlers import (
 from amprealize.mcp.handlers.billing_handlers import (
     BILLING_HANDLERS,
     handle_get_subscription,
-    handle_get_usage,
+    handle_get_usage as handle_get_billing_usage,
     handle_get_limits,
     handle_check_limit,
     handle_get_invoices,

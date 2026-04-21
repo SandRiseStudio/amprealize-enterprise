@@ -6,8 +6,7 @@ GUIDEAI-913: Session-to-GEP escalation trigger
 """
 
 import json
-import re
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,7 +21,6 @@ from amprealize.session_audit import (
 from amprealize.telemetry import InMemoryTelemetrySink, TelemetryClient
 from amprealize.work_item_execution_contracts import (
     SESSION_MODE_TOOL_PERMISSIONS,
-    AgentExecutionMode,
     ExecutionPolicy,
     ToolCall,
     ToolPermissionLevel,

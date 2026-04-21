@@ -15,9 +15,8 @@ real database infrastructure are marked with @pytest.mark.integration.
 from __future__ import annotations
 
 import json
-import os
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from datetime import datetime, timezone
 
 

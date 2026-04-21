@@ -19,12 +19,11 @@ Infrastructure requirements:
 Run with: ./scripts/run_tests.sh --breakeramp --env test tests/test_board_service.py
 """
 import os
-import json
 import pytest
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Generator, Any, Dict
+from typing import Generator
 
 # Mark all tests in this module as requiring postgres service
 pytestmark = [
@@ -36,10 +35,7 @@ pytestmark = [
 from amprealize.services.board_service import (
     BoardService,
     Actor,
-    BoardServiceError,
     BoardNotFoundError,
-    TaskNotFoundError,
-    WorkItemTransitionError,
 )
 from amprealize.multi_tenant.board_contracts import (
     CreateBoardRequest,
@@ -50,7 +46,6 @@ from amprealize.multi_tenant.board_contracts import (
     UpdateWorkItemRequest,
     AssignWorkItemRequest,
     CreateSprintRequest,
-    UpdateSprintRequest,
     BoardSettings,
     BoardVisibility,
     WorkItemStatus,

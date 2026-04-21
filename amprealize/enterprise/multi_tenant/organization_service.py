@@ -14,7 +14,6 @@ import uuid
 
 from amprealize.multi_tenant.contracts import (
     BillingContext,
-    MemberRole,
     OrgPlan,
     Project,
     ProjectCollaborator,

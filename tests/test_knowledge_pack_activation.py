@@ -16,11 +16,9 @@ Run with: pytest tests/test_knowledge_pack_activation.py -v
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Generator, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,7 +28,6 @@ from amprealize.knowledge_pack.activation_service import (
     ActivationListResult,
     ActivationNotFoundError,
     ActivationService,
-    ActivationServiceError,
     DuplicateActivationError,
     PackNotFoundError,
     workspace_id_from_path,

@@ -11,7 +11,7 @@ breakeramp package (packages/breakeramp/). These tests focus on:
 3. Error propagation from standalone to wrapper
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def mock_destroy_response():
 @pytest.fixture
 def mock_status_response():
     """Create a mock StatusResponse."""
-    from amprealize.breakeramp import StatusResponse, HealthCheck
+    from amprealize.breakeramp import StatusResponse
     return StatusResponse(
         amp_run_id="amp-run-123",
         phase="APPLIED",

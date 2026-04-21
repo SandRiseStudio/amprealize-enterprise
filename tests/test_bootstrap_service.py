@@ -9,7 +9,6 @@ Tests the orchestration layer for workspace bootstrap including:
 
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from amprealize.bootstrap.service import (
     BootstrapService,
@@ -20,7 +19,6 @@ from amprealize.bootstrap.service import (
 from amprealize.bootstrap.profile import (
     WorkspaceProfile,
     ProfileDetectionResult,
-    WorkspaceSignal,
 )
 
 

@@ -6,9 +6,7 @@ successful run completion, gated by the feature.auto_reflection flag.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest

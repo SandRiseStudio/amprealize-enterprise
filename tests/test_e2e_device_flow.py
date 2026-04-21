@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """E2E Device Flow Test via REST API."""
 import requests
-import json
 
 BASE_URL = "http://localhost:8000"
 
@@ -57,6 +56,6 @@ if "items" in orgs:
     for o in orgs["items"]:
         print(f"   - {o['id']}: {o['name']}")
 else:
-    print(f"   (orgs response format different)")
+    print("   (orgs response format different)")
 
 print("\n=== E2E Complete! ===")

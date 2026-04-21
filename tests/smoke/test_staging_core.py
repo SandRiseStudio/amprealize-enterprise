@@ -12,7 +12,6 @@ Last Updated: 2025-12-19
 """
 
 import time
-from typing import Any, Dict
 
 import httpx
 import pytest
@@ -33,7 +32,7 @@ def retry_request(func, retries: int = RETRY_COUNT, delay: float = RETRY_DELAY):
     for attempt in range(retries):
         try:
             return func()
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except (httpx.ConnectError, httpx.TimeoutException):
             if attempt == retries - 1:
                 raise
             time.sleep(delay * (2**attempt))

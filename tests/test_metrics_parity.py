@@ -8,7 +8,6 @@ Tests cache behavior, SSE streaming, and adapter payload consistency.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Generator
 
 import pytest
@@ -19,7 +18,6 @@ from amprealize.adapters import (
     MCPMetricsServiceAdapter,
 )
 from amprealize.metrics_service import MetricsService
-from amprealize.metrics_contracts import MetricsSummary, MetricsExportRequest
 
 
 @pytest.fixture
