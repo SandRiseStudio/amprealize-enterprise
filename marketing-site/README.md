@@ -20,6 +20,27 @@ serves this project — `/wiki/*` would redirect to itself (`ERR_TOO_MANY_REDIRE
 Use **Deploy marketing site (Astro)** workflow input `legacy_wiki_base` only when you
 intentionally want the marketing project to forward wiki paths.
 
+## Same-origin wiki (Phase 2 — default)
+
+The marketing home uses a **console-style shell** with the wiki in the main area. In
+production, `functions/_middleware.js` **reverse-proxies** these paths to the wiki Pages
+deployment (same-origin URLs in the browser, no wiki `_redirects` passthrough required):
+
+- `/wiki`, `/wiki/*`
+- `/assets/*` (Vite bundle from the wiki build)
+- `/favicon.png`
+
+Configure **`WIKI_UPSTREAM`** on the Cloudflare Pages project (`amprealize-marketing`) →
+**Settings → Environment variables** (e.g. `https://amprealize-web.pages.dev`). If unset,
+the middleware defaults to that host.
+
+The GitHub Action runs `wrangler pages deploy dist --cwd marketing-site` so **`functions/`**
+next to `dist/` is included in the deployment.
+
+**Local `npm run dev`:** Astro does not run Pages middleware. Set **`PUBLIC_WIKI_DEV_ORIGIN`**
+(e.g. `https://amprealize-web.pages.dev`) so sidebar links and the iframe load the wiki from
+that origin while you iterate on the shell.
+
 ## Local dev
 
 ```bash

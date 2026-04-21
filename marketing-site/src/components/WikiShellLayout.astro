@@ -1,0 +1,160 @@
+---
+import wikiNav from '../generated/wiki-nav.json';
+import '../styles/console-shell.bundle.css';
+
+type WikiPage = { path: string; title: string; pageType: string; folder: string };
+type WikiGroup = { folder: string; label: string; pages: WikiPage[] };
+type WikiDomain = { id: string; label: string; groups: WikiGroup[] };
+
+const nav = wikiNav as { domains: WikiDomain[]; defaultDomain: string; defaultPath: string | null };
+const isDev = import.meta.env.DEV;
+const devOrigin = (import.meta.env.PUBLIC_WIKI_DEV_ORIGIN ?? 'https://amprealize-web.pages.dev').replace(/\/$/, '');
+
+function wikiUrl(path: string) {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  if (isDev) return `${devOrigin}${p}`;
+  return p;
+}
+
+const initialPath =
+  nav.defaultPath != null ? `/wiki/${nav.defaultDomain}/${nav.defaultPath}` : `/wiki/${nav.defaultDomain}`;
+
+const iframeSrc = wikiUrl(initialPath);
+---
+
+<div class="marketing-wiki-root wiki-console-host">
+  <div class="workspace-shell">
+    <aside class="workspace-sidebar" aria-label="Wiki navigation">
+      <div class="sidebar-header">
+        <span class="sidebar-brand-mark" aria-hidden="true">A</span>
+        <span class="sidebar-brand-text">Wiki</span>
+      </div>
+      <div class="sidebar-nav">
+        <div class="sidebar-nav-panel">
+        <div class="wiki-domain-tabs marketing-wiki-domain-tabs" role="tablist" aria-label="Wiki domain">
+          {
+            nav.domains.map((d) => (
+              <a
+                class:list={['wiki-domain-tab', { active: d.id === nav.defaultDomain }]}
+                role="tab"
+                aria-selected={d.id === nav.defaultDomain ? 'true' : 'false'}
+                href={wikiUrl(`/wiki/${d.id}`)}
+                target="wikiMain"
+              >
+                {d.label}
+              </a>
+            ))
+          }
+        </div>
+
+        {
+          nav.domains.map((domain) => (
+            <div class="sidebar-section marketing-wiki-domain-block" data-domain={domain.id}>
+              <div class="sidebar-section-label">
+                <span class="sidebar-section-title-group">
+                  <span class="sidebar-section-dot" />
+                  <span>{domain.label}</span>
+                </span>
+              </div>
+              <div class="sidebar-section-body">
+                <div class="sidebar-section-body-inner">
+                  <div class="wiki-sidebar">
+                    {domain.groups.map((group) => (
+                      <div class="wiki-sidebar-folder">
+                        <div class="wiki-sidebar-folder-label marketing-wiki-folder-label">{group.label}</div>
+                        <div class="wiki-sidebar-folder-body">
+                          {group.pages.map((page) => (
+                            <a
+                              class="wiki-sidebar-item"
+                              href={wikiUrl(`/wiki/${domain.id}/${page.path}`)}
+                              target="wikiMain"
+                              style={`--indent: ${group.folder ? '12px' : '0px'}`}
+                            >
+                              <span class="wiki-sidebar-item-copy">
+                                <span>{page.title}</span>
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        }
+        </div>
+      </div>
+    </aside>
+    <div class="workspace-content wiki-marketing-stage">
+      <iframe class="wiki-marketing-iframe" name="wikiMain" title="Amprealize wiki" src={iframeSrc} />
+    </div>
+  </div>
+</div>
+
+<style>
+  .wiki-console-host {
+    height: calc(100vh - var(--marketing-header-offset, 56px));
+    min-height: 420px;
+  }
+  .marketing-wiki-domain-tabs {
+    margin: var(--space-3) 8px var(--space-2);
+  }
+  .wiki-domain-tab {
+    text-decoration: none;
+    color: inherit;
+  }
+  .marketing-wiki-domain-block {
+    margin-top: var(--space-2);
+  }
+  .marketing-wiki-folder-label {
+    font-size: 0.72rem;
+    font-weight: var(--font-semibold);
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 8px 2px;
+  }
+  .wiki-marketing-stage {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: rgba(255, 255, 255, 0.5);
+  }
+  .wiki-marketing-iframe {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: var(--color-bg-app);
+  }
+  .wiki-sidebar-item {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .sidebar-brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    background: var(--color-accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.75rem;
+  }
+  .sidebar-brand-text {
+    font-weight: var(--font-semibold);
+    font-size: 0.95rem;
+    color: var(--color-text-primary);
+  }
+</style>

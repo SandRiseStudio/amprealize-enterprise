@@ -1,39 +1,28 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import HeroSection from '../components/HeroSection.astro';
-import PersonaSection from '../components/PersonaSection.astro';
-import FeaturesSection from '../components/FeaturesSection.astro';
-import HowItWorksSection from '../components/HowItWorksSection.astro';
-import SocialProofSection from '../components/SocialProofSection.astro';
-import CTASection from '../components/CTASection.astro';
+import WikiShellLayout from '../components/WikiShellLayout.astro';
 
 const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Amprealize",
-  "url": "https://amprealize.ai",
-  "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "All",
-  "description": "Behavioral AI platform for software teams — capture what works, coordinate agents, and reuse behaviors across projects.",
-  "offers": {
-    "@type": "Offer",
-    "price": "0",
-    "priceCurrency": "USD"
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Amprealize',
+  url: 'https://amprealize.ai',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'All',
+  description: 'Behavioral AI platform for software teams — public wiki and documentation.',
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
   },
 };
 ---
 
 <Layout
-  title="Amprealize — behavioral AI for software teams"
-  description="Capture what works, coordinate agents as a system, and reuse behaviors across projects. Less thrash. Lower inference spend."
+  title="Amprealize — wiki"
+  description="Public wiki and documentation for Amprealize."
+  wikiShell={true}
 >
   <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} slot="head" />
-  <div class="container">
-    <HeroSection />
-    <PersonaSection />
-    <FeaturesSection />
-    <HowItWorksSection />
-    <SocialProofSection />
-    <CTASection />
-  </div>
+  <WikiShellLayout />
 </Layout>

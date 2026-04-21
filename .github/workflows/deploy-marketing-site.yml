@@ -1,6 +1,7 @@
 name: Deploy marketing site (Astro)
 
 # GUIDEAI-20 — static marketing site at apex; wiki passthrough is opt-in (`public/_redirects`).
+# Same-origin wiki is handled by `marketing-site/functions/_middleware.js` (WIKI_UPSTREAM).
 # Create Cloudflare Pages project `amprealize-marketing` (or override below)
 # before first deploy. Apex DNS cutover is manual; see marketing-site/README.md.
 
@@ -59,6 +60,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
-            pages deploy marketing-site/dist
+            pages deploy dist
+            --cwd marketing-site
             --project-name amprealize-marketing
             --branch main

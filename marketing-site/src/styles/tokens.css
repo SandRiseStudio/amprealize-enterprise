@@ -119,6 +119,12 @@
 
    /* Layout */
    --content-max: 1100px;
+   /* Console shell (WorkspaceShell / SidebarNav) — aligned with web-console design-system */
+   --sidebar-width: 240px;
+   --sidebar-collapsed-width: 48px;
+   --header-height: 48px;
+   --panel-header-height: 36px;
+   --gradient-page: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 1));
  }
 
  /* ─────────────────────────────────────────────────────────────────────────

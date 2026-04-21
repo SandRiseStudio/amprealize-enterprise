@@ -1,0 +1,330 @@
+{
+  "domains": [
+    {
+      "id": "research",
+      "label": "Research",
+      "groups": [
+        {
+          "folder": "evaluations",
+          "label": "Evaluations",
+          "pages": [
+            {
+              "path": "evaluations/claude-managed-agents.md",
+              "title": "Claude Managed Agents \\u2014 Evaluation Summary",
+              "pageType": "evaluation-summary",
+              "folder": "evaluations"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "infra",
+      "label": "Infrastructure",
+      "groups": [
+        {
+          "folder": "architecture",
+          "label": "Architecture",
+          "pages": [
+            {
+              "path": "architecture/docker-compose-test.md",
+              "title": "Docker Compose Test Stack",
+              "pageType": "architecture",
+              "folder": "architecture"
+            }
+          ]
+        },
+        {
+          "folder": "howto",
+          "label": "Howto",
+          "pages": [
+            {
+              "path": "howto/run-tests.md",
+              "title": "How to Run Tests",
+              "pageType": "howto",
+              "folder": "howto"
+            }
+          ]
+        },
+        {
+          "folder": "practice",
+          "label": "Practice",
+          "pages": [
+            {
+              "path": "practice/agent-handbook.md",
+              "title": "Agent Handbook & Conventions",
+              "pageType": "practice",
+              "folder": "practice"
+            }
+          ]
+        },
+        {
+          "folder": "reference",
+          "label": "Reference",
+          "pages": [
+            {
+              "path": "reference/alembic-ini.md",
+              "title": "Alembic Migration Configuration",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/breakeramp-environments.md",
+              "title": "BreakerAmp Environment Configuration",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/pyproject-toml.md",
+              "title": "pyproject.toml — Project Metadata & Dependencies",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/pytest-ini.md",
+              "title": "pytest.ini Configuration",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/run-tests-sh.md",
+              "title": "run_tests.sh — Test Runner",
+              "pageType": "reference",
+              "folder": "reference"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ai-learning",
+      "label": "AI Learning",
+      "groups": [
+        {
+          "folder": "concepts",
+          "label": "Concepts",
+          "pages": [
+            {
+              "path": "concepts/agent-harness.md",
+              "title": "Agent Harnesses & Context Fragments",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/attention.md",
+              "title": "Attention Mechanism",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/embeddings.md",
+              "title": "Embeddings",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/experiential-memory.md",
+              "title": "Experiential Memory for AI Agents",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/hybrid-retrieval.md",
+              "title": "Hybrid Retrieval",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/inference.md",
+              "title": "Inference & Generation",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/agent-platforms.md",
+              "title": "Managed Agent Platforms \\u2014 Comparative Overview",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/multi-agent.md",
+              "title": "Multi-Agent Orchestration",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/prompt-engineering.md",
+              "title": "Prompt Engineering",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/rag.md",
+              "title": "RAG (Retrieval-Augmented Generation)",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/bitter-lesson.md",
+              "title": "The Bitter Lesson & Search at Scale",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/tokenization.md",
+              "title": "Tokens & Tokenization",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/transformers.md",
+              "title": "Transformers",
+              "pageType": "concept",
+              "folder": "concepts"
+            }
+          ]
+        },
+        {
+          "folder": "glossary",
+          "label": "Glossary",
+          "pages": [
+            {
+              "path": "glossary/terms.md",
+              "title": "AI/ML Glossary",
+              "pageType": "glossary",
+              "folder": "glossary"
+            }
+          ]
+        },
+        {
+          "folder": "in-practice",
+          "label": "In Practice",
+          "pages": [
+            {
+              "path": "in-practice/agent-orchestration.md",
+              "title": "Agent Orchestration in Amprealize",
+              "pageType": "in-practice",
+              "folder": "in-practice"
+            },
+            {
+              "path": "in-practice/bci-in-amprealize.md",
+              "title": "BCI in Amprealize",
+              "pageType": "in-practice",
+              "folder": "in-practice"
+            },
+            {
+              "path": "in-practice/context-composition.md",
+              "title": "Context Composition in Amprealize",
+              "pageType": "in-practice",
+              "folder": "in-practice"
+            }
+          ]
+        },
+        {
+          "folder": "technologies",
+          "label": "Technologies",
+          "pages": [
+            {
+              "path": "technologies/faiss.md",
+              "title": "FAISS & Vector Databases",
+              "pageType": "technology",
+              "folder": "technologies"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "platform",
+      "label": "Platform",
+      "groups": [
+        {
+          "folder": "architecture",
+          "label": "Architecture",
+          "pages": [
+            {
+              "path": "architecture/behavior-system.md",
+              "title": "Behavior System",
+              "pageType": "architecture",
+              "folder": "architecture"
+            },
+            {
+              "path": "architecture/service-map.md",
+              "title": "Service Map",
+              "pageType": "architecture",
+              "folder": "architecture"
+            }
+          ]
+        },
+        {
+          "folder": "howto",
+          "label": "Howto",
+          "pages": [
+            {
+              "path": "howto/environment-setup.md",
+              "title": "Environment Setup",
+              "pageType": "howto",
+              "folder": "howto"
+            },
+            {
+              "path": "howto/getting-started.md",
+              "title": "Getting Started",
+              "pageType": "howto",
+              "folder": "howto"
+            },
+            {
+              "path": "howto/knowledge-packs.md",
+              "title": "Knowledge Packs",
+              "pageType": "howto",
+              "folder": "howto"
+            },
+            {
+              "path": "howto/run-tests.md",
+              "title": "Running Tests",
+              "pageType": "howto",
+              "folder": "howto"
+            }
+          ]
+        },
+        {
+          "folder": "reference",
+          "label": "Reference",
+          "pages": [
+            {
+              "path": "reference/agent-handbook.md",
+              "title": "Agent Handbook & Conventions",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/context-system.md",
+              "title": "Context System",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/editions.md",
+              "title": "Editions & Feature Matrix",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/mcp-tools.md",
+              "title": "MCP Tool Families",
+              "pageType": "reference",
+              "folder": "reference"
+            },
+            {
+              "path": "reference/surfaces.md",
+              "title": "Surfaces",
+              "pageType": "reference",
+              "folder": "reference"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "defaultDomain": "infra",
+  "defaultPath": "architecture/docker-compose-test.md"
+}
