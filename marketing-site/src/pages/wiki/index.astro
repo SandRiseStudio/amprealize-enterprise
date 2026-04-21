@@ -1,12 +1,10 @@
 ---
-import Layout from '../../layouts/Layout.astro';
-import AppShell from '../../components/AppShell.astro';
 import wikiNav from '../../generated/wiki-nav.json';
+import type { MarketingWikiNav } from '../../lib/marketingWiki';
 
-const { defaultDomain } = wikiNav as { defaultDomain: string };
-const wikiPath = `/wiki/${defaultDomain}`;
+const { defaultDomain, defaultPath } = wikiNav as MarketingWikiNav;
+if (!defaultDomain || !defaultPath) {
+  return new Response('Wiki navigation not generated.', { status: 500 });
+}
+return Astro.redirect(`/wiki/${defaultDomain}/${defaultPath}`, 302);
 ---
-
-<Layout title="Amprealize — wiki" description="Public wiki and documentation for Amprealize." wikiShell={true}>
-  <AppShell wikiPath={wikiPath} activeSlug={defaultDomain} />
-</Layout>

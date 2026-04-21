@@ -1,37 +1,21 @@
 ---
 import wikiNav from '../generated/wiki-nav.json';
 import '../styles/console-shell.bundle.css';
+import { pickFirstPagePathForDomain, type MarketingWikiNav } from '../lib/marketingWiki';
 
 type WikiPage = { path: string; title: string };
 type WikiGroup = { folder: string; label: string; pages?: WikiPage[] };
 type WikiDomain = { id: string; label: string; groups: WikiGroup[] };
 
 interface Props {
-  /** When set, main area is an iframe loading this wiki path (same-origin in prod). */
-  wikiPath?: string;
-  /** Slug segment after `/wiki/` for active states, e.g. `infra` or `infra/architecture/x.md`. */
+  /** Slug like `infra/architecture/page.md` for sidebar active states */
   activeSlug?: string | null;
 }
 
-const { wikiPath, activeSlug = null } = Astro.props;
+const { activeSlug = null } = Astro.props;
 
-const nav = wikiNav as { domains: WikiDomain[]; defaultDomain: string };
-const isDev = import.meta.env.DEV;
-const devOrigin = (import.meta.env.PUBLIC_WIKI_DEV_ORIGIN ?? 'https://amprealize-web.pages.dev').replace(/\/$/, '');
+const nav = wikiNav as MarketingWikiNav;
 
-function topNavPath(path: string) {
-  const p = path.startsWith('/') ? path : `/${path}`;
-  if (isDev) return `${devOrigin}${p}`;
-  return p;
-}
-
-function iframeSrc(path: string) {
-  const p = path.startsWith('/') ? path : `/${path}`;
-  if (isDev) return `${devOrigin}${p}`;
-  return p;
-}
-
-/** First page in group (same sort as build-wiki-nav / console TOC). */
 function firstPagePathInGroup(group: WikiGroup): string | null {
   const pages = group.pages ?? [];
   if (pages.length === 0) return null;
@@ -60,83 +44,119 @@ function isGroupActive(domainId: string, folder: string, allGroups: WikiGroup[])
   if (!firstSeg) return true;
   return !folderSegs.includes(firstSeg);
 }
-
-function isDomainActive(domainId: string) {
-  if (!normalizedActive) return false;
-  return normalizedActive === domainId || normalizedActive.startsWith(`${domainId}/`);
-}
 ---
 
-<div
-  class:list={[
-    'marketing-app-shell',
-    'wiki-console-host',
-    { 'marketing-app-shell--wiki': !!wikiPath },
-  ]}
->
+<div class="marketing-app-shell wiki-console-host marketing-app-shell--wiki">
   <div class="workspace-shell marketing-app-shell-inner">
-    <aside class="workspace-sidebar marketing-app-sidebar" aria-label="Wiki navigation">
+    <aside class="workspace-sidebar marketing-app-sidebar" aria-label="Primary navigation">
       <div class="sidebar-header">
-        <a class="sidebar-brand-link" href="/" aria-label="Amprealize home">
-          <span class="sidebar-brand-mark" aria-hidden="true">A</span>
-          <span class="sidebar-brand-text">Amprealize</span>
+        <a href="/" class="sidebar-toggle pressable" aria-label="Back to marketing home">
+          <svg class="sidebar-toggle-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M10.5 3.5L5.5 8L10.5 12.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"></path>
+          </svg>
+        </a>
+        <a class="sidebar-brand" href="/">
+          <span class="sidebar-brand-mark" aria-hidden="true">
+            <span class="sidebar-brand-mark-core"></span>
+          </span>
+          <div class="sidebar-brand-copy">
+            <span class="sidebar-title">Amprealize</span>
+          </div>
         </a>
       </div>
-      <div class="sidebar-nav">
+      <nav class="sidebar-nav">
         <div class="sidebar-nav-panel">
           {
-            nav.domains.map((domain) => (
-              <div class="sidebar-section marketing-wiki-domain-block" data-domain={domain.id}>
-                <a
-                  class:list={['sidebar-domain-heading', { 'sidebar-domain-heading--active': isDomainActive(domain.id) }]}
-                  href={topNavPath(`/wiki/${domain.id}`)}
-                >
-                  <div class="sidebar-section-label">
-                    <span class="sidebar-section-title-group">
-                      <span class="sidebar-section-dot" />
-                      <span>{domain.label}</span>
-                    </span>
-                  </div>
-                </a>
+            nav.domains.map((domain) => {
+              const domainFirstPath = pickFirstPagePathForDomain(nav, domain.id);
+              const domainOverviewActive =
+                domainFirstPath != null && normalizedActive === `${domain.id}/${domainFirstPath}`;
+              return (
+              <details class="sidebar-section marketing-wiki-domain-block" open data-domain={domain.id}>
+                <summary class="sidebar-section-toggle marketing-wiki-domain-summary">
+                  <span class="sidebar-section-title-group">
+                    <span class="sidebar-section-dot" />
+                    <span>{domain.label}</span>
+                  </span>
+                  <svg class="sidebar-chevron marketing-wiki-domain-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M6 3.5L10.5 8L6 12.5"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"></path>
+                  </svg>
+                </summary>
                 <div class="sidebar-section-body">
                   <div class="sidebar-section-body-inner">
+                    <a
+                      class:list={[
+                        'sidebar-nav-item',
+                        'nested',
+                        { active: domainOverviewActive },
+                      ]}
+                      href={`/wiki/${domain.id}`}
+                    >
+                      <span class="sidebar-nav-item-leading">
+                        <span class="sidebar-nav-icon-wrap">
+                          <svg class="sidebar-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path
+                              d="M3 3.5h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"
+                              stroke="currentColor"
+                              stroke-width="1.5"></path>
+                            <path d="M8 4.5h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H8" stroke="currentColor" stroke-width="1.5"></path>
+                            <path
+                              d="M4.5 6.5h2M4.5 8.5h2M10 7h2.5M10 9h2.5"
+                              stroke="currentColor"
+                              stroke-width="1"
+                              stroke-linecap="round"
+                              opacity="0.5"></path>
+                          </svg>
+                        </span>
+                        <span class="sidebar-nav-copy">
+                          <span class="sidebar-nav-label">Domain overview</span>
+                        </span>
+                      </span>
+                    </a>
                     {domain.groups.map((group) => {
                       const folder = group.folder ?? '';
-                      const href = topNavPath(groupWikiHref(domain.id, group));
+                      const href = groupWikiHref(domain.id, group);
                       const isActive = isGroupActive(domain.id, folder, domain.groups);
                       return (
-                        <a
-                          class:list={['sidebar-nav-item', 'nested', { active: isActive }]}
-                          href={href}
-                        >
-                          <span class="sidebar-nav-copy">
-                            <span class="sidebar-nav-label">{group.label}</span>
+                        <a class:list={['sidebar-nav-item', 'nested', { active: isActive }]} href={href}>
+                          <span class="sidebar-nav-item-leading">
+                            <span class="sidebar-nav-icon-wrap">
+                              <svg class="sidebar-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"></rect>
+                                <path d="M2 6.5h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                              </svg>
+                            </span>
+                            <span class="sidebar-nav-copy">
+                              <span class="sidebar-nav-label">{group.label}</span>
+                            </span>
                           </span>
                         </a>
                       );
                     })}
                   </div>
                 </div>
-              </div>
-            ))
+              </details>
+            );
+            })
           }
         </div>
-      </div>
+      </nav>
+      <div class="sidebar-footer marketing-sidebar-footer-spacer" aria-hidden="true" />
     </aside>
-    <div class:list={['workspace-content', 'marketing-app-main', { 'marketing-app-main--wiki': !!wikiPath }]}>
-      {
-        wikiPath ? (
-          <iframe
-            class="wiki-marketing-iframe"
-            title="Amprealize wiki"
-            src={iframeSrc(wikiPath)}
-          />
-        ) : (
-          <div class="marketing-app-slot">
-            <slot />
-          </div>
-        )
-      }
+    <div class="workspace-content marketing-app-main marketing-app-main--wiki">
+      <div class="marketing-app-wiki-slot">
+        <slot />
+      </div>
     </div>
   </div>
 </div>
@@ -149,13 +169,19 @@ function isDomainActive(domainId: string) {
     min-height: inherit;
   }
   .marketing-app-sidebar {
-    align-self: flex-start;
-    position: sticky;
-    top: var(--marketing-header-offset, 56px);
-    max-height: calc(100vh - var(--marketing-header-offset, 56px));
-    overflow-y: auto;
+    align-self: stretch;
+    min-height: 0;
   }
-  .sidebar-brand-link {
+  .marketing-app-sidebar .sidebar-nav {
+    flex: 1;
+    min-height: 0;
+  }
+  .marketing-sidebar-footer-spacer {
+    flex-shrink: 0;
+    min-height: 8px;
+    border-top: 1px solid transparent;
+  }
+  a.sidebar-brand {
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -163,76 +189,63 @@ function isDomainActive(domainId: string) {
     text-decoration: none;
     color: inherit;
   }
-  .sidebar-brand-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-md);
-    background: var(--color-accent);
-    color: #fff;
-    font-weight: 700;
-    font-size: 0.75rem;
-  }
-  .sidebar-brand-text {
-    font-weight: var(--font-semibold);
-    font-size: 0.95rem;
-    color: var(--color-text-primary);
-  }
-  .sidebar-domain-heading {
+  a.sidebar-toggle {
     text-decoration: none;
     color: inherit;
-    display: block;
-    border-radius: var(--radius-lg);
-    transition: color var(--duration-fast) var(--ease-out-quart);
-  }
-  .sidebar-domain-heading:hover .sidebar-section-title-group {
-    color: var(--color-accent);
-  }
-  .sidebar-domain-heading--active .sidebar-section-title-group {
-    color: var(--color-text-primary);
-  }
-  .marketing-wiki-domain-block {
-    margin-top: var(--space-2);
   }
   a.sidebar-nav-item {
     text-decoration: none;
     color: inherit;
     box-sizing: border-box;
   }
+  .marketing-wiki-domain-summary {
+    list-style: none;
+  }
+  .marketing-wiki-domain-summary::-webkit-details-marker {
+    display: none;
+  }
+  .marketing-wiki-domain-chevron {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--color-text-tertiary);
+    transition: transform var(--duration-fast) var(--ease-spring-gentle);
+  }
+  details.sidebar-section:not([open]) .marketing-wiki-domain-chevron {
+    transform: rotate(-90deg);
+  }
   .marketing-app-main {
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    flex: 1;
+    flex: 1 1 0%;
+    width: 100%;
   }
   .marketing-app-main--wiki {
     background: rgba(255, 255, 255, 0.5);
-    min-height: calc(100vh - var(--marketing-header-offset, 56px));
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .marketing-app-slot {
+  .marketing-app-wiki-slot {
     flex: 1;
     min-width: 0;
     width: 100%;
-    padding: var(--space-4) var(--space-6);
+    min-height: min-content;
+    display: flex;
+    flex-direction: column;
     box-sizing: border-box;
-    overflow-x: clip;
-  }
-  .wiki-marketing-iframe {
-    flex: 1;
-    width: 100%;
-    min-height: min(70vh, 720px);
-    border: 0;
-    background: var(--color-bg-app);
-  }
-  .marketing-app-main--wiki .wiki-marketing-iframe {
-    min-height: calc(100vh - var(--marketing-header-offset, 56px));
   }
 </style>
 
 <style is:global>
+  .marketing-app-shell .workspace-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+  }
   .marketing-app-shell .workspace-shell {
     display: flex;
     flex-direction: row;
@@ -244,11 +257,12 @@ function isDomainActive(domainId: string) {
     overflow: visible;
   }
   .marketing-app-shell--wiki .workspace-shell {
-    overflow: hidden;
-    max-height: calc(100vh - var(--marketing-header-offset, 56px));
+    max-height: none;
   }
   .marketing-app-shell .workspace-content {
-    flex: 1;
+    flex: 1 1 0%;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 </style>

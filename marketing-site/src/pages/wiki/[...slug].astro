@@ -1,44 +1,34 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import AppShell from '../../components/AppShell.astro';
+import WikiMarketingView from '../../components/WikiMarketingView.astro';
 import wikiNav from '../../generated/wiki-nav.json';
-
-type WikiPage = { path: string };
-type WikiGroup = { folder: string; pages?: WikiPage[] };
-type WikiDomain = { id: string; groups: WikiGroup[] };
+import {
+  getStaticWikiSlugParams,
+  loadWikiPageFromSlug,
+  type MarketingWikiNav,
+} from '../../lib/marketingWiki';
 
 export function getStaticPaths() {
-  const data = wikiNav as { domains: WikiDomain[] };
-  const paths: { params: { slug: string } }[] = [];
-  const seen = new Set<string>();
-
-  function add(slug: string) {
-    const s = slug.replace(/^\/+|\/+$/g, '');
-    if (!s || seen.has(s)) return;
-    seen.add(s);
-    paths.push({ params: { slug: s } });
-  }
-
-  for (const d of data.domains) {
-    add(d.id);
-    for (const g of d.groups) {
-      for (const p of g.pages ?? []) {
-        const rel = (p.path ?? '').replace(/^\/+/, '');
-        if (rel) add(`${d.id}/${rel}`);
-      }
-    }
-  }
-
-  return paths;
+  const nav = wikiNav as MarketingWikiNav;
+  return getStaticWikiSlugParams(nav);
 }
 
 const { slug } = Astro.params;
 if (!slug) throw new Error('Missing slug');
 
-const normalized = slug.replace(/^\/+/, '').replace(/\/+$/, '');
-const wikiPath = `/wiki/${normalized}`.replace(/\/+/g, '/');
+const nav = wikiNav as MarketingWikiNav;
+const loaded = await loadWikiPageFromSlug(slug, nav);
+if (!loaded) {
+  return new Response(null, { status: 404, statusText: 'Not Found' });
+}
+
+const { domain, pagePath, title, html, folder, pageType } = loaded;
+const pageTitle = `${title} — Amprealize wiki`;
 ---
 
-<Layout title="Amprealize — wiki" description="Public wiki and documentation for Amprealize." wikiShell={true}>
-  <AppShell wikiPath={wikiPath} activeSlug={slug} />
+<Layout title={pageTitle} description="Public wiki and documentation for Amprealize." wikiShell={true}>
+  <AppShell activeSlug={slug}>
+    <WikiMarketingView domain={domain} activePath={pagePath} {title} {html} {folder} {pageType} />
+  </AppShell>
 </Layout>

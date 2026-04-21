@@ -1,0 +1,225 @@
+---
+import wikiNav from '../generated/wiki-nav.json';
+import { folderLabel, pickFirstPagePathForDomain, type MarketingWikiNav } from '../lib/marketingWiki';
+
+interface Props {
+  domain: string;
+  activePath: string;
+  title: string;
+  html: string;
+  folder: string;
+  pageType: string;
+}
+
+const { domain, activePath, title, html, folder, pageType } = Astro.props;
+const nav = wikiNav as MarketingWikiNav;
+const domainConfig = nav.domains.find((d) => d.id === domain);
+const domainLabel = domainConfig?.label ?? domain;
+const groups = domainConfig?.groups ?? [];
+const domainRootPath = pickFirstPagePathForDomain(nav, domain);
+
+const searchScopes = [{ id: 'all', label: 'All' }, ...nav.domains.map((d) => ({ id: d.id, label: d.label }))];
+---
+
+<div class="marketing-wiki-stage wiki-layout">
+  <div id="wiki-marketing-search-boot" data-scopes={JSON.stringify(searchScopes)} hidden></div>
+  <div class="wiki-header">
+    <div class="wiki-header-title">
+      <svg class="wiki-header-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path
+          d="M3 4.5A1.5 1.5 0 0 1 4.5 3h3A1.5 1.5 0 0 1 9 4.5v11A1.5 1.5 0 0 1 7.5 17h-3A1.5 1.5 0 0 1 3 15.5v-11Z"
+          stroke="currentColor"
+          stroke-width="1.5"></path>
+        <path
+          d="M9 5.5A1.5 1.5 0 0 1 10.5 4h5A1.5 1.5 0 0 1 17 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 9 15.5v-10Z"
+          stroke="currentColor"
+          stroke-width="1.5"></path>
+        <path d="M6 7h1.5M6 9.5h1.5M12 7.5h2.5M12 10h2.5M12 12.5h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"
+        ></path>
+      </svg>
+      <div class="wiki-header-title-copy">
+        <span>Wiki</span>
+        <span class="wiki-header-subtitle">{domainLabel}</span>
+      </div>
+    </div>
+
+    <div class="wiki-domain-tabs">
+      {
+        nav.domains.map((item) => {
+          const first = pickFirstPagePathForDomain(nav, item.id);
+          const href = first ? `/wiki/${item.id}/${first}` : `/wiki/${item.id}`;
+          return (
+            <a
+              class:list={['wiki-domain-tab', { active: domain === item.id }]}
+              href={href}
+              data-astro-prefetch
+              aria-current={domain === item.id ? 'page' : undefined}
+            >
+              {item.label}
+            </a>
+          );
+        })
+      }
+    </div>
+
+    <div class="wiki-header-actions">
+      <button type="button" class="wiki-search-trigger marketing-wiki-search-open" aria-label="Open wiki search">
+        <svg class="wiki-search-trigger-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"></circle>
+          <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+        Search
+        <kbd>⌘K</kbd>
+      </button>
+    </div>
+  </div>
+
+  <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+    <a
+      class="wiki-breadcrumb-item wiki-breadcrumb-item--link"
+      href={domainRootPath ? `/wiki/${domain}/${domainRootPath}` : '#'}
+    >
+      {domainLabel}
+    </a>
+    {
+      folder ? (
+        <>
+          <span class="wiki-breadcrumb-sep" aria-hidden="true">/</span>
+          <span class="wiki-breadcrumb-item">{folderLabel(folder)}</span>
+        </>
+      ) : null
+    }
+    <span class="wiki-breadcrumb-sep" aria-hidden="true">/</span>
+    <span class="wiki-breadcrumb-item wiki-breadcrumb-item--current">{title}</span>
+  </nav>
+
+  <div class="wiki-shell">
+    <aside class="wiki-local-nav" aria-label="Pages in this wiki">
+      {
+        groups.map((g) => (
+          <div class="wiki-local-group">
+            <div class="wiki-local-group-label">{g.label}</div>
+            <ul class="wiki-local-list">
+              {(g.pages ?? []).map((p) => (
+                <li>
+                  <a
+                    class:list={['wiki-local-link', { active: p.path === activePath }]}
+                    href={`/wiki/${domain}/${p.path}`}
+                    data-astro-prefetch
+                  >
+                    {p.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </aside>
+
+    <div class="wiki-main-stage">
+      <div class="wiki-article-pane">
+        <div class="wiki-article-shell">
+          <div class="wiki-article-inner">
+            <div class="wiki-article-hero">
+              <div class="wiki-article-meta">
+                <span class="wiki-article-badge wiki-article-badge--type">{pageType}</span>
+              </div>
+              <h1 class="wiki-article-title">{title}</h1>
+            </div>
+            <div class="wiki-article-content">
+              <div class="wiki-article-body marketing-wiki-md" set:html={html} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { mountWikiMarketingSearch } from '../scripts/wiki-marketing-search-client';
+
+  const boot = document.getElementById('wiki-marketing-search-boot');
+  const raw = boot?.dataset.scopes;
+  if (raw) {
+    try {
+      mountWikiMarketingSearch({ scopes: JSON.parse(raw) });
+    } catch {
+      /* ignore */
+    }
+    boot?.remove();
+  }
+</script>
+
+<style>
+  .marketing-wiki-stage {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+  .marketing-wiki-stage.wiki-layout {
+    height: 100%;
+    min-height: min(100%, calc(100vh - var(--marketing-header-offset, 56px) - 24px));
+  }
+  a.wiki-domain-tab {
+    text-decoration: none;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  a.wiki-breadcrumb-item--link {
+    text-decoration: none;
+    color: inherit;
+  }
+  a.wiki-local-link {
+    text-decoration: none;
+    color: inherit;
+  }
+  button.wiki-search-trigger {
+    font: inherit;
+    cursor: pointer;
+  }
+  .wiki-local-group {
+    margin-bottom: 10px;
+  }
+  .wiki-local-group-label {
+    padding: 4px 8px 2px;
+    font-size: 10px;
+    font-weight: var(--font-semibold, 600);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary, #64748b);
+  }
+  .wiki-local-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .wiki-local-link {
+    display: block;
+    padding: 5px 8px;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+  }
+  .wiki-local-link:hover {
+    background: rgba(255, 255, 255, 0.72);
+  }
+  .wiki-local-link.active {
+    background: var(--color-accent-subtle, rgba(34, 118, 210, 0.14));
+    color: var(--color-accent, #2276d2);
+    font-weight: var(--font-medium, 500);
+  }
+  .marketing-wiki-md :where(pre.shiki) {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0.75em 0;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+</style>

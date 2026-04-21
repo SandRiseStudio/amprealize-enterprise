@@ -20,31 +20,27 @@ serves this project — `/wiki/*` would redirect to itself (`ERR_TOO_MANY_REDIRE
 Use **Deploy marketing site (Astro)** workflow input `legacy_wiki_base` only when you
 intentionally want the marketing project to forward wiki paths.
 
-## Same-origin wiki (Phase 2 — default)
+## Public wiki (static, no iframe)
 
-The site uses a **persistent app shell** (console-style sidebar): **`/`** is the marketing
-landing; **`/wiki/*`** are static Astro shell pages with an iframe whose `src` is the same
-`/wiki/...` path. In production, `functions/_middleware.js` **reverse-proxies** to the wiki
-Pages deployment when:
+**`/wiki/*`** is generated at build time from the monorepo **`../wiki/`** Markdown (same
+sources the console static wiki uses). Pages use the marketing **app shell** (console-style
+sidebar) plus an in-page wiki chrome (domain tabs, local TOC, article body). There is **no
+iframe** and no dependency on the wiki SPA for HTML.
 
-- **`Sec-Fetch-Dest: iframe`** — wiki HTML and assets under `/wiki/*` (iframe loads only).
-- **`/assets/*`** and **`/favicon.png`** — always proxied (Vite bundle from the wiki build).
+`functions/_middleware.js` still **reverse-proxies** **`/_wiki/*`**, **`/assets/*`**, and
+**`/favicon.png`** to **`WIKI_UPSTREAM`** when those URLs hit the marketing origin (optional
+for bookmarks or other clients). Wiki **HTML** at `/wiki/*` is served entirely from Astro
+`dist/`.
 
-Top-level navigations to `/wiki/*` send **`Sec-Fetch-Dest: document`**, so the middleware
-calls **`next()`** and Cloudflare serves the Astro **`dist/wiki/...`** shell instead of the
-upstream HTML.
-
-Configure **`WIKI_UPSTREAM`** on the Cloudflare Pages project (`amprealize-marketing`) →
-**Settings → Environment variables** (e.g. `https://amprealize-web.pages.dev`). If unset,
-the middleware defaults to that host.
+Configure **`WIKI_UPSTREAM`** on the Cloudflare Pages project if you rely on that proxy
+(defaults to `https://amprealize-web.pages.dev`).
 
 The GitHub Action runs `wrangler pages deploy dist` with **`workingDirectory: marketing-site`**
 so **`functions/`** next to `dist/` is included in the deployment (Wrangler 3.x does not support
 `--cwd` on `pages deploy`).
 
-**Local `npm run dev`:** Astro does not run Pages middleware. Set **`PUBLIC_WIKI_DEV_ORIGIN`**
-(e.g. `https://amprealize-web.pages.dev`) so sidebar links and the iframe load the wiki from
-that origin while you iterate on the shell.
+**`npm run dev`:** wiki routes work locally without extra env vars (Markdown is read from
+`../wiki/` when the dev server cwd is `marketing-site`).
 
 ## Local dev
 

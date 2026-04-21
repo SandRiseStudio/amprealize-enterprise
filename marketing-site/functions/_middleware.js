@@ -1,8 +1,8 @@
 /**
- * Reverse-proxy public wiki SPA assets from the marketing apex to the wiki
- * Pages deployment so the browser stays on amprealize.ai while loading the
- * Vite bundle (same-origin /assets/*). Wiki HTML at `/wiki/*` is proxied only when
- * `Sec-Fetch-Dest: iframe` so Astro shell pages can handle top-level `/wiki/*` navigations.
+ * Reverse-proxy static wiki JSON and Vite assets from the marketing apex to the
+ * wiki Pages deployment when those paths are requested directly (e.g. bookmarks).
+ * Marketing `/wiki/*` HTML is served by Astro (no iframe); `/_wiki/*` may still be
+ * fetched by other clients hitting this origin.
  *
  * Set `WIKI_UPSTREAM` in the Cloudflare Pages project (e.g. https://amprealize-web.pages.dev).
  */
@@ -13,17 +13,10 @@ function upstreamBase(env) {
   return raw.replace(/\/+$/, '');
 }
 
-/**
- * Wiki HTML is proxied only for iframe subrequests so top-level navigations to
- * `/wiki/*` can be served by Astro static shell pages (Sec-Fetch-Dest: document).
- */
-function shouldProxy(pathname, request) {
+function shouldProxy(pathname) {
   if (pathname === '/favicon.png') return true;
   if (pathname.startsWith('/assets/')) return true;
-  if (pathname === '/wiki' || pathname.startsWith('/wiki/')) {
-    const dest = (request.headers.get('sec-fetch-dest') ?? '').toLowerCase();
-    return dest === 'iframe';
-  }
+  if (pathname.startsWith('/_wiki/')) return true;
   return false;
 }
 
@@ -68,7 +61,7 @@ function rewriteLocation(loc, requestOrigin, upstreamOrigin) {
  */
 export async function onRequest(context) {
   const url = new URL(context.request.url);
-  if (!shouldProxy(url.pathname, context.request)) {
+  if (!shouldProxy(url.pathname)) {
     return context.next();
   }
 
@@ -94,7 +87,6 @@ export async function onRequest(context) {
     if (nextLoc) headers.set('location', nextLoc);
   }
 
-  // Strip headers that would block the wiki from being framed inside the marketing shell.
   headers.delete('content-security-policy');
   headers.delete('content-security-policy-report-only');
   headers.delete('x-frame-options');
