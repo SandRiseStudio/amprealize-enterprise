@@ -40,6 +40,10 @@ jobs:
       - name: Pages deploy
         uses: cloudflare/wrangler-action@v3
         with:
+          # The enterprise repo has a root `pnpm-lock.yaml` for other packages, which makes
+          # wrangler-action infer `pnpm` even though this workflow builds with npm. Pin npm
+          # so CI runners don't need a global pnpm install.
+          packageManager: npm
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
