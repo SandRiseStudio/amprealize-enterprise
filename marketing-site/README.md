@@ -34,8 +34,9 @@ Configure **`WIKI_UPSTREAM`** on the Cloudflare Pages project (`amprealize-marke
 **Settings → Environment variables** (e.g. `https://amprealize-web.pages.dev`). If unset,
 the middleware defaults to that host.
 
-The GitHub Action runs `wrangler pages deploy dist --cwd marketing-site` so **`functions/`**
-next to `dist/` is included in the deployment.
+The GitHub Action runs `wrangler pages deploy dist` with **`workingDirectory: marketing-site`**
+so **`functions/`** next to `dist/` is included in the deployment (Wrangler 3.x does not support
+`--cwd` on `pages deploy`).
 
 **Local `npm run dev`:** Astro does not run Pages middleware. Set **`PUBLIC_WIKI_DEV_ORIGIN`**
 (e.g. `https://amprealize-web.pages.dev`) so sidebar links and the iframe load the wiki from

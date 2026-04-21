@@ -53,6 +53,9 @@ jobs:
       - name: Pages deploy
         uses: cloudflare/wrangler-action@v3
         with:
+          # Run from marketing-site so `dist/` and `functions/` resolve (Wrangler 3.x has no
+          # `--cwd` for `pages deploy`; wrangler-action defaults to Wrangler 3.x).
+          workingDirectory: marketing-site
           # The enterprise repo has a root `pnpm-lock.yaml` for other packages, which makes
           # wrangler-action infer `pnpm` even though this workflow builds with npm. Pin npm
           # so CI runners don't need a global pnpm install.
@@ -61,6 +64,5 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
             pages deploy dist
-            --cwd marketing-site
             --project-name amprealize-marketing
             --branch main
