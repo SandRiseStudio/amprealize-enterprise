@@ -12,6 +12,9 @@ const wc = path.join(root, '..', 'web-console', 'src');
 const outFile = path.join(root, 'src', 'styles', 'console-shell.bundle.css');
 
 const chunks = [
+  // design-system.css first — canonical source of all CSS tokens so the
+  // sidebar/shell CSS variables resolve identically to the console.
+  path.join(wc, 'styles', 'design-system.css'),
   path.join(wc, 'components', 'workspace', 'WorkspaceShell.css'),
   path.join(wc, 'components', 'sidebar', 'SidebarNav.css'),
   path.join(wc, 'components', 'wiki', 'Wiki.css'),

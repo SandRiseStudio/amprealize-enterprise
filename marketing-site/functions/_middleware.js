@@ -86,8 +86,11 @@ export async function onRequest(context) {
     if (nextLoc) headers.set('location', nextLoc);
   }
 
+  // Strip headers that would block the wiki from being framed inside the marketing shell.
   headers.delete('content-security-policy');
   headers.delete('content-security-policy-report-only');
+  headers.delete('x-frame-options');
+  headers.delete('x-content-type-options');
 
   return new Response(res.body, {
     status: res.status,

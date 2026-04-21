@@ -57,12 +57,25 @@
    --space-3: 12px;
    --space-4: 16px;
    --space-5: 20px;
-   --space-6: 24px;
-   --space-8: 32px;
-   --space-10: 40px;
-   --space-12: 48px;
-   --space-14: 56px;
-   --space-16: 64px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+
+  /* ────────────────────────────────────────────────────────────────────────
+     Z-Index Scale (mirrors web-console design-system)
+     ──────────────────────────────────────────────────────────────────────── */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-popover: 500;
+  --z-toast: 600;
+  --z-command-palette: 700;
 
    /* ────────────────────────────────────────────────────────────────────────
       Typography
@@ -96,11 +109,12 @@
    --radius-2xl: 16px;
    --radius-full: 9999px;
 
-   /* Shadows disabled */
-   --shadow-sm: none;
-   --shadow-md: none;
-   --shadow-lg: none;
-   --shadow-xl: none;
+  /* Shadows disabled */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-glow: none;
 
    /* ────────────────────────────────────────────────────────────────────────
       Motion
@@ -108,8 +122,9 @@
    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
    --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
    --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
-   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-   --ease-spring-gentle: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring-gentle: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.7, 0.64, 1);
 
    --duration-instant: 50ms;
    --duration-fast: 100ms;
