@@ -6,6 +6,15 @@ name: Deploy marketing site (Astro)
 
 on:
   workflow_dispatch:
+    inputs:
+      legacy_wiki_base:
+        description: >-
+          Base URL for /wiki/* passthrough redirect. Before apex cutover: https://amprealize.ai.
+          After apex cutover (when amprealize.ai points here): https://amprealize-web.pages.dev
+          (or docs.amprealize.ai once that subdomain is live).
+        type: string
+        required: false
+        default: ''
   push:
     branches: [main]
     paths:
@@ -33,7 +42,9 @@ jobs:
       - name: Install and build
         working-directory: marketing-site
         env:
-          PUBLIC_LEGACY_WIKI_BASE: https://amprealize.ai
+          # Passthrough must target the wiki SPA origin (amprealize-web), never the same apex host,
+          # or Cloudflare will 302 /wiki/* → /wiki/* until ERR_TOO_MANY_REDIRECTS.
+          PUBLIC_LEGACY_WIKI_BASE: ${{ inputs.legacy_wiki_base || 'https://amprealize-web.pages.dev' }}
         run: |
           npm ci
           npm run build

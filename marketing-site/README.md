@@ -9,11 +9,19 @@ deployed separately from the React `web-console` so `amprealize.ai` can ship a r
 `npm run build` runs `scripts/gen-redirects.mjs`, which writes `public/_redirects` for
 Cloudflare Pages:
 
-- `/wiki/*` → `302` to `${PUBLIC_LEGACY_WIKI_BASE}/wiki/:splat` (default `https://amprealize.ai`)
+- When `PUBLIC_LEGACY_WIKI_BASE` is set (CI default: `https://amprealize-web.pages.dev`):
+  - `/wiki/*` → `302` to `${PUBLIC_LEGACY_WIKI_BASE}/wiki/:splat`
+  - `/` → `302` to `${PUBLIC_LEGACY_WIKI_BASE}/wiki/infra` (smoke / M2 wiki-first apex)
+- When it is **unset or empty**, no wiki rules are emitted (avoid self-redirect loops if the
+  wiki SPA is not deployed elsewhere yet).
 
-Use that default **only while the apex still points at the legacy wiki Pages project**. After
-DNS cuts over to this deployment, set `PUBLIC_LEGACY_WIKI_BASE=https://docs.amprealize.ai` (or
-bundle static wiki content into this repo and delete the redirect rule).
+Never set the base to the **same hostname** as this Pages project’s apex (e.g. do not use
+`https://amprealize.ai` while `amprealize.ai` already points here) — Cloudflare will loop
+`/wiki/*` with `ERR_TOO_MANY_REDIRECTS`.
+
+Set `PUBLIC_LEGACY_WIKI_REDIRECT_ROOT=0` to omit the `/` rule when shipping a real marketing
+homepage on apex (M3+). Point `PUBLIC_LEGACY_WIKI_BASE` at `https://docs.amprealize.ai` or
+remove passthrough once static wiki ships in this repo.
 
 ## Local dev
 
