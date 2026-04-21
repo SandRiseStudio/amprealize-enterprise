@@ -109,4 +109,3 @@ export async function onRequest(context: { request: Request; env: Env }): Promis
 
   return json(200, { ok: true }, origin);
 }
-

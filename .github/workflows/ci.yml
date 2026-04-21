@@ -410,7 +410,7 @@ jobs:
 
       - name: Run MCP server validation
         run: |
-          python examples/test_mcp_server.py
+          python tests/examples/test_mcp_server.py
 
       - name: Test MCP server startup
         run: |

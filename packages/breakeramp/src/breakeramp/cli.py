@@ -52,10 +52,10 @@ def get_service() -> BreakerAmpService:
 
 def _apply_amprealize_context(quiet: bool = False) -> Optional[str]:
     """Apply amprealize context to environment if available.
-    
+
     This ensures DATABASE_URL and other DSNs are set from the active context
     before breakeramp expands blueprint variables.
-    
+
     Returns the context name if applied, None otherwise.
     """
     try:
@@ -2022,10 +2022,10 @@ def up(
         breakeramp up --rebuild-images         # Rebuild local images with latest code
     """
     import subprocess
-    
+
     # Apply amprealize context to get DATABASE_URL and other DSNs
     ctx_name = _apply_amprealize_context(quiet=quiet)
-    
+
     service = get_service()
 
     # Warn (and offer to switch) when cloud context + local-DB blueprint

@@ -69,7 +69,7 @@ Before asking any questions, gather context automatically:
    - Related services and existing implementations of similar features
    - Relevant tests and parity patterns
    - Data models that may be affected
-   
+
 2. **MCP tools**:
    - `behaviors.getForTask` — Retrieve behaviors that may apply to this feature
    - `context.getContext` — Get current project/org context
