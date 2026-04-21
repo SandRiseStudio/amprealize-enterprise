@@ -1,6 +1,6 @@
 name: Deploy marketing site (Astro)
 
-# GUIDEAI-20 — static marketing + wiki passthrough (`public/_redirects`).
+# GUIDEAI-20 — static marketing site at apex; wiki passthrough is opt-in (`public/_redirects`).
 # Create Cloudflare Pages project `amprealize-marketing` (or override below)
 # before first deploy. Apex DNS cutover is manual; see marketing-site/README.md.
 
@@ -9,9 +9,9 @@ on:
     inputs:
       legacy_wiki_base:
         description: >-
-          Base URL for /wiki/* passthrough redirect. Before apex cutover: https://amprealize.ai.
-          After apex cutover (when amprealize.ai points here): https://amprealize-web.pages.dev
-          (or docs.amprealize.ai once that subdomain is live).
+          Optional: set to e.g. https://amprealize-web.pages.dev to emit /wiki/* and / → wiki
+          redirects from this Pages project. Leave empty so amprealize.ai serves only the
+          marketing Astro site (landing, pricing, etc.).
         type: string
         required: false
         default: ''
@@ -42,9 +42,10 @@ jobs:
       - name: Install and build
         working-directory: marketing-site
         env:
-          # Passthrough must target the wiki SPA origin (amprealize-web), never the same apex host,
-          # or Cloudflare will 302 /wiki/* → /wiki/* until ERR_TOO_MANY_REDIRECTS.
-          PUBLIC_LEGACY_WIKI_BASE: ${{ inputs.legacy_wiki_base || 'https://amprealize-web.pages.dev' }}
+          # Empty = no _redirects wiki rules (recommended when apex shows marketing only).
+          # If set, must not equal this site’s own apex host or /wiki/* will loop.
+          PUBLIC_LEGACY_WIKI_BASE: >-
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.legacy_wiki_base || '' }}
         run: |
           npm ci
           npm run build
