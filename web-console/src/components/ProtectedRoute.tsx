@@ -16,7 +16,7 @@
 
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import './ProtectedRoute.css';
 
 interface ProtectedRouteProps {
@@ -93,7 +93,7 @@ export function ProtectedRoute({
   requiredScopes,
   loadingFallback,
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, actor } = useAuth();
+  const { isAuthenticated, isLoading, actor, scopes } = useAuth();
   const location = useLocation();
 
   // Show loading state while checking auth
@@ -124,11 +124,15 @@ export function ProtectedRoute({
     }
   }
 
-  // Check scope restrictions
-  // TODO: Add scopes to AuthContextValue interface to enable scope-based access control
   if (requiredScopes && requiredScopes.length > 0) {
-    // For now, skip scope checks - would need session.tokens.scopes exposed
-    console.warn('[ProtectedRoute] Scope checking not yet implemented, skipping check for:', requiredScopes);
+    const missing = requiredScopes.filter((required) => !scopes.includes(required));
+    if (missing.length > 0) {
+      return (
+        <AccessDenied
+          reason={`This page requires permissions you do not have: ${missing.join(', ')}.`}
+        />
+      );
+    }
   }
 
   // All checks passed, render children with animation

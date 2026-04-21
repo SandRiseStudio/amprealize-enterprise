@@ -258,6 +258,11 @@ class UserAuthService:
         email: Optional[str] = None,
     ) -> User:
         """Create an internal username/password user on the canonical auth table."""
+        from .invite_policy import InviteOnlyRegistrationError, is_invite_only
+
+        if is_invite_only():
+            raise InviteOnlyRegistrationError()
+
         normalized_username = username.strip()
         if not normalized_username:
             raise ValueError("Username is required")

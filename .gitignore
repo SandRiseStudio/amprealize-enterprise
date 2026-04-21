@@ -45,3 +45,6 @@ marketing-site/.astro/
 # Runtime / ephemeral
 .tmp/
 data/cache/
+
+# Local MCP / agent scratch payloads (never commit)
+.scratch-*

@@ -330,7 +330,6 @@ export const PlanComposer: FC<PlanComposerProps> = ({
   documentId,
   workspaceId: _workspaceId,
   initialContent,
-  onSave: _onSave,
   readOnly = false,
 }) => {
   // Connect to document for real-time collaboration
@@ -340,7 +339,6 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     isConnected,
     cursors,
     presence,
-    operations: _operations,
     replace: sendReplace,
     error: collabError,
   } = useCollaboration({
@@ -348,14 +346,7 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     documentId,
   });
 
-  // Helper to broadcast plan updates as JSON
-  const broadcastPlanUpdate = useCallback((newPlan: PlanContent) => {
-    const content = JSON.stringify(newPlan);
-    sendReplace(0, collabDoc?.content?.length ?? 0, content);
-    setSyncStatus('syncing');
-  }, [sendReplace, collabDoc?.content?.length]);
-
-  // Local state
+  // Local state (declared before callbacks that call setSyncStatus)
   const [planContent, setPlanContent] = useState<PlanContent>(
     initialContent ?? {
       title: 'Untitled Plan',
@@ -365,6 +356,13 @@ export const PlanComposer: FC<PlanComposerProps> = ({
   const [focusedStepId, setFocusedStepId] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
   const [showConflictModal, setShowConflictModal] = useState(false);
+
+  // Helper to broadcast plan updates as JSON
+  const broadcastPlanUpdate = useCallback((newPlan: PlanContent) => {
+    const content = JSON.stringify(newPlan);
+    sendReplace(0, collabDoc?.content?.length ?? 0, content);
+    setSyncStatus('syncing');
+  }, [sendReplace, collabDoc?.content?.length]);
 
   useEffect(() => {
     collabStore.setActiveDocument(documentId);
@@ -408,26 +406,30 @@ export const PlanComposer: FC<PlanComposerProps> = ({
   // Sync content from collab document
   useEffect(() => {
     if (collabDoc?.content) {
-      try {
-        const parsed = JSON.parse(collabDoc.content) as PlanContent;
-        setPlanContent(parsed);
-      } catch {
-        // Content might not be JSON, use as title
-        setPlanContent(prev => ({
-          ...prev,
-          title: collabDoc.content,
-        }));
-      }
+      queueMicrotask(() => {
+        try {
+          const parsed = JSON.parse(collabDoc.content) as PlanContent;
+          setPlanContent(parsed);
+        } catch {
+          // Content might not be JSON, use as title
+          setPlanContent((prev) => ({
+            ...prev,
+            title: collabDoc.content,
+          }));
+        }
+      });
     }
   }, [collabDoc]);
 
   // Update sync status based on connection and errors
   useEffect(() => {
-    if (collabError) {
-      setSyncStatus('error');
-    } else if (isConnected) {
-      setSyncStatus('synced');
-    }
+    queueMicrotask(() => {
+      if (collabError) {
+        setSyncStatus('error');
+      } else if (isConnected) {
+        setSyncStatus('synced');
+      }
+    });
   }, [isConnected, collabError]);
 
   // Broadcast presence when focus changes
@@ -524,7 +526,7 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     }
     setShowConflictModal(false);
     setSyncStatus('synced');
-  }, [collabDoc?.content]);
+  }, [collabDoc]);
 
   // Reset sync status after brief delay
   useEffect(() => {

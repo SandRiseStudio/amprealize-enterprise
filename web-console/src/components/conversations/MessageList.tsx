@@ -7,7 +7,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useElementVirtualizer } from '../../hooks/useElementVirtualizer';
 import { useInfiniteMessages } from '../../api/conversations';
 import type { ConversationMessage } from '../../lib/collab-client';
 import { MessageBubble } from './MessageBubble';
@@ -151,8 +151,7 @@ export const MessageList = memo(function MessageList({
 
   type RowItem = VirtualRow | { kind: 'streaming'; messageId: string };
 
-  // eslint-disable-next-line -- useVirtualizer returns non-memoizable functions; React Compiler will skip this component
-  const virtualizer = useVirtualizer({
+  const virtualizer = useElementVirtualizer({
     count: rowsWithStreaming.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => {

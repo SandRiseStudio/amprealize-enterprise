@@ -8,9 +8,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useShellTitle } from '../workspace/useShell';
-import { useOrganizations, useProjects } from '../../api/dashboard';
+import { useOrganizations, useProjects, type Agent } from '../../api/dashboard';
 import { useOrgContext } from '../../store/orgContextStore';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import {
   useAgentRegistry,
   useAgentRegistryDetail,
@@ -162,20 +162,28 @@ function normalizeIdentity(value: string | null | undefined): string | null {
   return trimmed.toLowerCase();
 }
 
-function getAssignmentRegistryIdentity(agent: { config?: Record<string, unknown> }) {
-  const config = (agent.config ?? {}) as Record<string, unknown>;
-  const rawAgent = agent as { agent_id?: unknown; agent_slug?: unknown };
-
+function getAssignmentRegistryIdentity(agent: Agent) {
+  const config = agent.config ?? {};
   const configRegistryId = typeof config.registry_agent_id === 'string' ? config.registry_agent_id : null;
   const configRegistrySlug = typeof config.registry_agent_slug === 'string' ? config.registry_agent_slug : null;
 
-  const topLevelRegistryId = typeof rawAgent.agent_id === 'string' ? rawAgent.agent_id : null;
-  const topLevelRegistrySlug = typeof rawAgent.agent_slug === 'string' ? rawAgent.agent_slug : null;
-
   return {
-    registryId: normalizeIdentity(configRegistryId ?? topLevelRegistryId),
-    registrySlug: normalizeIdentity(configRegistrySlug ?? topLevelRegistrySlug),
+    registryId: normalizeIdentity(configRegistryId),
+    registrySlug: normalizeIdentity(configRegistrySlug),
   };
+}
+
+function assignmentIdentityKeys(agent: Agent): Array<string | null | undefined> {
+  const { registryId, registrySlug } = getAssignmentRegistryIdentity(agent);
+  const c = agent.config ?? {};
+  return [
+    registryId,
+    registrySlug,
+    typeof c.registry_agent_id === 'string' ? c.registry_agent_id : null,
+    typeof c.registry_agent_slug === 'string' ? c.registry_agent_slug : null,
+    agent.name,
+    agent.id,
+  ];
 }
 
 function getIdentityCandidates(values: Array<string | null | undefined>): Set<string> {
@@ -303,19 +311,9 @@ export function AgentsPage(): React.JSX.Element {
   const assignmentIndex = useMemo(() => {
     const map = new Map<string, { projects: number }>();
     assignmentAgents.forEach((agent) => {
-      const rawAgent = agent as { agent_id?: unknown; agent_slug?: unknown; name?: unknown };
-      const { registryId, registrySlug } = getAssignmentRegistryIdentity(agent);
-      const keys = getIdentityCandidates([
-        registryId,
-        registrySlug,
-        typeof rawAgent.agent_id === 'string' ? rawAgent.agent_id : null,
-        typeof rawAgent.agent_slug === 'string' ? rawAgent.agent_slug : null,
-        typeof rawAgent.name === 'string' ? rawAgent.name : null,
-        typeof (rawAgent as any).agent_name === 'string' ? (rawAgent as any).agent_name : null,
-        typeof (rawAgent as any).id === 'string' ? (rawAgent as any).id : null,
-      ]);
+      const keys = getIdentityCandidates(assignmentIdentityKeys(agent));
       if (keys.size === 0) return;
-      const projectKey = agent.project_id ?? (agent as { projectId?: string }).projectId;
+      const projectKey = agent.project_id;
 
       keys.forEach((key) => {
         const entry = map.get(key) ?? { projects: 0 };
@@ -344,22 +342,11 @@ export function AgentsPage(): React.JSX.Element {
       selectedAgent.agent_id,
       selectedAgent.slug,
       selectedAgent.name,
-      (selectedAgent as any).id,
     ]);
     if (selectedAgentCandidates.size === 0) return [];
 
     return assignmentAgents.filter((agent) => {
-      const rawAgent = agent as { agent_id?: unknown; agent_slug?: unknown; name?: unknown };
-      const { registryId, registrySlug } = getAssignmentRegistryIdentity(agent);
-      const assignmentCandidates = getIdentityCandidates([
-        registryId,
-        registrySlug,
-        typeof rawAgent.agent_id === 'string' ? rawAgent.agent_id : null,
-        typeof rawAgent.agent_slug === 'string' ? rawAgent.agent_slug : null,
-        typeof rawAgent.name === 'string' ? rawAgent.name : null,
-        typeof (rawAgent as any).agent_name === 'string' ? (rawAgent as any).agent_name : null,
-        typeof (rawAgent as any).id === 'string' ? (rawAgent as any).id : null,
-      ]);
+      const assignmentCandidates = getIdentityCandidates(assignmentIdentityKeys(agent));
       return hasIntersection(assignmentCandidates, selectedAgentCandidates);
     });
   }, [assignmentAgents, selectedAgent]);
@@ -367,7 +354,7 @@ export function AgentsPage(): React.JSX.Element {
   const projectAssignments = useMemo(() => {
     const mapping = new Map<string, string>();
     assignmentMatches.forEach((agent) => {
-      const projectKey = agent.project_id ?? (agent as { projectId?: string }).projectId;
+      const projectKey = agent.project_id;
       if (projectKey) {
         mapping.set(projectKey, agent.id);
       }

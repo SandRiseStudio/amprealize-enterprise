@@ -319,9 +319,19 @@ class WorkItem(BaseModel):
     # Computed fields (populated by service)
     display_number: int | None = None  # Project-scoped sequential ID (e.g., 1, 2, 3)
     display_id: str | None = None  # Human-friendly ID: "{project_slug}-{display_number}"
-    child_count: int | None = None
-    completed_child_count: int | None = None
-    progress_percent: float | None = None
+    child_count: int | None = Field(
+        default=None,
+        description="Direct children only (immediate rows with parent_id = this item).",
+    )
+    completed_child_count: int | None = Field(
+        default=None,
+        description="Direct children in status mapped to done.",
+    )
+    progress_percent: float | None = Field(
+        default=None,
+        description="Subtree completion: same as WorkItemProgressRollup.completion_percent "
+        "(done descendants / all descendants, excluding the root).",
+    )
 
     @model_validator(mode="after")
     def validate_assignee(self) -> "WorkItem":

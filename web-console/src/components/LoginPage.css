@@ -6,6 +6,33 @@
  * - COLLAB_SAAS_REQUIREMENTS.md animation specs
  */
 
+.login-invite-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(180, 140, 60, 0.35);
+  background: linear-gradient(135deg, rgba(255, 248, 230, 0.95), rgba(255, 252, 240, 0.88));
+  color: rgba(35, 42, 52, 0.92);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.login-invite-banner strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(120, 75, 20, 0.95);
+}
+
+.login-invite-banner a {
+  color: rgba(20, 90, 160, 0.95);
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+
 .login-home {
   display: flex;
   flex-direction: column;

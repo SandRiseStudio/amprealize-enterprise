@@ -19,8 +19,7 @@ export type TelemetrySink = (event: TelemetryEvent) => void;
 
 declare global {
   interface Window {
-    /** @deprecated use __AMPREALIZE_TELEMETRY__ */
-    __AMPREALIZE_TELEMETRY__?: TelemetryEvent[];
+    /** In-memory buffer of telemetry events (tests and local debugging). */
     __AMPREALIZE_TELEMETRY__?: TelemetryEvent[];
   }
 }
@@ -31,9 +30,8 @@ let sessionInitialized = false;
 const ensureStore = (): void => {
   if (typeof window === 'undefined') return;
   if (!window.__AMPREALIZE_TELEMETRY__) {
-    window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__?.slice() ?? [];
+    window.__AMPREALIZE_TELEMETRY__ = [];
   }
-  window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__;
 };
 
 const randomId = (): string => {
@@ -48,8 +46,7 @@ export const ensureTelemetrySession = (): void => {
   sessionInitialized = true;
   ensureStore();
   if (!window.sessionStorage.getItem('amprealize-session-id')) {
-    const legacy = window.sessionStorage.getItem('amprealize-session-id');
-    window.sessionStorage.setItem('amprealize-session-id', legacy ?? randomId());
+    window.sessionStorage.setItem('amprealize-session-id', randomId());
   }
 };
 
@@ -77,25 +74,17 @@ export const emitTelemetry = (eventType: string, payload: TelemetryPayload = {})
     event_id: randomId(),
     timestamp: new Date().toISOString(),
     actor: {
-      id:
-        window.localStorage.getItem('amprealize-actor-id') ??
-        window.localStorage.getItem('amprealize-actor-id') ??
-        'anonymous-web',
+      id: window.localStorage.getItem('amprealize-actor-id') ?? 'anonymous-web',
       role: 'STUDENT',
       surface: 'web',
     },
-    session_id:
-      window.sessionStorage.getItem('amprealize-session-id') ??
-      window.sessionStorage.getItem('amprealize-session-id') ??
-      undefined,
+    session_id: window.sessionStorage.getItem('amprealize-session-id') ?? undefined,
     event_type: eventType,
     payload: { ...payload },
   };
 
   ensureStore();
   window.__AMPREALIZE_TELEMETRY__?.push(event);
-  window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__;
   sinks.forEach((sink) => sink(event));
-  window.dispatchEvent(new CustomEvent('amprealize-telemetry', { detail: event }));
   window.dispatchEvent(new CustomEvent('amprealize-telemetry', { detail: event }));
 };

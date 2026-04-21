@@ -77,7 +77,7 @@ export const WikiPage = memo(function WikiPage() {
 
   const { data: treeData, isLoading: treeLoading } = useWikiTree(domain);
 
-  const pages = treeData?.pages ?? [];
+  const pages = useMemo(() => treeData?.pages ?? [], [treeData?.pages]);
 
   const domainRootPath = useMemo(
     () => pickDomainRootPath(pages),

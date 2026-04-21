@@ -125,6 +125,7 @@ from .auth.providers import InvalidCredentialsError, OAuthError
 from .auth.providers.github import GitHubOAuthProvider
 from .auth.providers.google import GoogleOAuthProvider
 from .auth.user_auth_service import UserAuthService
+from .auth.invite_policy import NEW_USER_FORBIDDEN_MESSAGE, InviteOnlyRegistrationError, is_invite_only
 from .auth.service_principal_service import (
     ServicePrincipalService,
     CreateServicePrincipalRequest,
@@ -1262,6 +1263,7 @@ def create_app(
         "/api/v1/device/authorize",  # Device flow activation page alias (HTML)
         "/api/v1/device/token",      # Device flow token endpoint
         "/api/v1/auth/device/authorize",  # Device flow start (JSON) — CLI entrypoint
+        "/api/v1/auth/device/login",      # Alias of authorize (integration tests / CLI)
         "/api/v1/auth/device/token",      # Device flow poll (JSON)
         "/api/v1/auth/device/lookup",     # Device code lookup for activation UI
         "/api/v1/auth/device/refresh",    # Refresh-token grant
@@ -5334,7 +5336,11 @@ def create_app(
 
     @app.post("/api/v1/auth/device/approve")
     def approve_device_flow(payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Approve a device authorization request."""
+        """Approve a device authorization request.
+
+        Does not create ``auth.users`` rows — the approver must already exist.
+        Invite-only gating for *new* humans remains on OAuth / internal register.
+        """
 
         raw_code = payload.get("user_code")
         approver = payload.get("approver")
@@ -5942,13 +5948,10 @@ def create_app(
         Returns:
             Authentication tokens and user info
         """
-        if os.getenv("AMPREALIZE_INVITE_ONLY", "").lower() in ("1", "true", "yes"):
+        if is_invite_only():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Amprealize is currently invite-only. "
-                    "Request access at https://amprealize.ai."
-                ),
+                detail=NEW_USER_FORBIDDEN_MESSAGE,
             )
 
         username = payload.get("username")
@@ -6003,6 +6006,11 @@ def create_app(
                 "refresh_expires_at": refresh_expires_at.isoformat(),
             }
 
+        except InviteOnlyRegistrationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(exc),
+            ) from exc
         except ValueError as exc:
             error_msg = str(exc).lower()
             if "already exists" in error_msg:
@@ -6707,7 +6715,7 @@ def create_app(
         internal_user_id = user_info.user_id
         logger.info(f"OAuth user authenticated: {provider}:{user_info.user_id}")
 
-        invite_only = os.getenv("AMPREALIZE_INVITE_ONLY", "").lower() in ("1", "true", "yes")
+        invite_only = is_invite_only()
 
         # Ensure user exists in auth.users for FK constraints (projects, boards, etc.)
         try:
@@ -6724,10 +6732,7 @@ def create_app(
                             if invite_only:
                                 raise HTTPException(
                                     status_code=status.HTTP_403_FORBIDDEN,
-                                    detail=(
-                                        "Amprealize is currently invite-only. "
-                                        "Request access at https://amprealize.ai."
-                                    ),
+                                    detail=NEW_USER_FORBIDDEN_MESSAGE,
                                 )
                             # Create user record (open registration)
                             cur.execute("""

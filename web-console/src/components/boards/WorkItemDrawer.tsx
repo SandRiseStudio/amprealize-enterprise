@@ -39,7 +39,7 @@ import {
   useProvideClarification,
   useWorkItemExecutionStatus,
 } from '../../api/executions';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import type { ActorViewModel } from '../../types/actor';
 import { toActorViewModel } from '../../utils/actorViewModel';
@@ -290,6 +290,7 @@ export function WorkItemDrawer({
   const titleRef = useRef<HTMLInputElement | null>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const commentEndRef = useRef<HTMLDivElement | null>(null);
+  const lastHydratedItemIdRef = useRef<string | null>(null);
 
   const { actor } = useAuth();
 
@@ -344,7 +345,10 @@ export function WorkItemDrawer({
     enabled: Boolean(executionStatus?.runId && projectId),
     refetchInterval: executionStream.isConnected ? false : activeExecution ? 2000 : false,
   });
-  const executionSteps = executionStepsQuery.data?.steps ?? [];
+  const executionSteps = useMemo(
+    () => executionStepsQuery.data?.steps ?? [],
+    [executionStepsQuery.data],
+  );
 
   const isOpen = phase === 'open' || phase === 'entering';
   const typeLabel = useMemo(() => (item ? labelForType(item.item_type) : 'Work item'), [item]);
@@ -364,7 +368,7 @@ export function WorkItemDrawer({
   const parentItem = useMemo(() => {
     if (!item?.parent_id) return null;
     return boardItems.find((candidate) => candidate.item_id === item.parent_id) ?? null;
-  }, [boardItems, item?.parent_id]);
+  }, [boardItems, item]);
 
   const childItems = useMemo(() => {
     if (!item) return [];
@@ -378,6 +382,7 @@ export function WorkItemDrawer({
   }, [boardItems, item]);
 
   useEffect(() => {
+    lastHydratedItemIdRef.current = null;
     prevFocusRef.current = document.activeElement as HTMLElement | null;
     const id = window.requestAnimationFrame(() => setPhase('open'));
     return () => window.cancelAnimationFrame(id);
@@ -400,25 +405,31 @@ export function WorkItemDrawer({
 
   useEffect(() => {
     if (!item) return;
-    setTitleDraft(item.title);
-    setDescriptionDraft(item.description ?? '');
-    setPriorityDraft(item.priority);
-    setLabels(item.labels ?? []);
-    setDueDateDraft(toDateInputValue(item.due_date));
-    setStartDateDraft(toDateInputValue(item.start_date));
-    setTargetDateDraft(toDateInputValue(item.target_date));
-    setPointsDraft(toNumberDraft(item.points ?? item.story_points ?? null));
-    setEstimatedHoursDraft(toNumberDraft(item.estimated_hours ?? null));
-    setActualHoursDraft(toNumberDraft(item.actual_hours ?? null));
-    setShowAssigneePicker(false);
-    setShowAdvancedDetails(false);
-    setSaveState('idle');
-  }, [item?.item_id]);
+    if (item.item_id === lastHydratedItemIdRef.current) return;
+    lastHydratedItemIdRef.current = item.item_id;
+    queueMicrotask(() => {
+      setTitleDraft(item.title);
+      setDescriptionDraft(item.description ?? '');
+      setPriorityDraft(item.priority);
+      setLabels(item.labels ?? []);
+      setDueDateDraft(toDateInputValue(item.due_date));
+      setStartDateDraft(toDateInputValue(item.start_date));
+      setTargetDateDraft(toDateInputValue(item.target_date));
+      setPointsDraft(toNumberDraft(item.points ?? item.story_points ?? null));
+      setEstimatedHoursDraft(toNumberDraft(item.estimated_hours ?? null));
+      setActualHoursDraft(toNumberDraft(item.actual_hours ?? null));
+      setShowAssigneePicker(false);
+      setShowAdvancedDetails(false);
+      setSaveState('idle');
+    });
+  }, [item]);
 
   useEffect(() => {
-    setAssigneeSearch('');
-    setCommentDraft('');
-    setActivityFilter('all');
+    queueMicrotask(() => {
+      setAssigneeSearch('');
+      setCommentDraft('');
+      setActivityFilter('all');
+    });
   }, [itemId]);
 
   const requestClose = useCallback(() => {
@@ -683,7 +694,7 @@ export function WorkItemDrawer({
         }
       ),
     } satisfies AssigneeProfile;
-  }, [currentAssignee, item?.assignee_id, item?.assignee_type]);
+  }, [currentAssignee, item]);
 
   const assignmentProfile = currentAssignee ?? fallbackAssignee;
   const assigneeSearchValue = assigneeSearch.trim().toLowerCase();
@@ -803,9 +814,9 @@ export function WorkItemDrawer({
   const commentAuthorType = useMemo<WorkItemCommentAuthorType | null>(() => {
     if (!actor?.type) return null;
     return actor.type === 'human' ? 'user' : 'agent';
-  }, [actor?.type]);
+  }, [actor]);
 
-  const comments = commentsQuery.data ?? [];
+  const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
   const commentDraftValue = commentDraft.trim();
   const canPostComment =
     Boolean(commentDraftValue) && Boolean(actor?.id) && Boolean(commentAuthorType) && !postComment.isPending;
@@ -936,7 +947,7 @@ export function WorkItemDrawer({
         },
       }
     );
-  }, [actor?.id, commentAuthorType, commentDraftValue, itemId, postComment]);
+  }, [actor, commentAuthorType, commentDraftValue, itemId, postComment]);
 
   const handleCommentKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1659,11 +1670,7 @@ export function WorkItemDrawer({
       handleLabelsRemove,
       handleNewLabelKeyDown,
       handleNumberBlur,
-      item?.behavior_id,
-      item?.created_at,
-      item?.metadata,
-      item?.run_id,
-      item?.updated_at,
+      item,
       labels,
       newLabelDraft,
       pointsDraft,
@@ -1924,6 +1931,7 @@ export function WorkItemDrawer({
     showProgressSection,
     titleDraft,
     typeLabel,
+    projectSlug,
   ]);
 
   return (

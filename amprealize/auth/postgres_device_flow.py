@@ -8,6 +8,12 @@ Key features:
 - Tokens are stored persistently for session recovery
 - Automatic cleanup of expired sessions
 
+Invite-only note: approving a device session does **not** create rows in
+``auth.users``. It authorizes an existing approver (already signed in on the
+web) for a CLI/MCP client. First-time human sign-up remains gated by
+``AMPREALIZE_INVITE_ONLY`` on the OAuth and internal-register paths in
+``amprealize.api``.
+
 Following behavior_align_storage_layers (Student).
 """
 

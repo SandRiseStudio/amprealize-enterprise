@@ -1045,6 +1045,11 @@ class TestWorkItemProgressRollups:
         assert rollup.completion_percent == pytest.approx(33.3, abs=0.2)
         assert len(rollup.incomplete_items) == 2
 
+        goal_hydrated = service.get_work_item(goal.item_id, org_id=test_org_id)
+        assert goal_hydrated.progress_percent == pytest.approx(rollup.completion_percent, abs=0.01)
+        assert goal_hydrated.child_count == 1
+        assert goal_hydrated.completed_child_count == 0
+
     def test_board_rollups_by_item_type(
         self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
     ):

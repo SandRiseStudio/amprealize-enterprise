@@ -9,7 +9,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useElementVirtualizer } from '../../hooks/useElementVirtualizer';
 import { ExecutionStatusBadge, type ExecutionListItem } from '../../lib/collab-client';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useShellTitle, useShellMode } from '../workspace/useShell';
@@ -40,7 +40,7 @@ import {
   useExecutionList,
   useExecutionStream,
 } from '../../api/executions';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { WorkItemDrawer, type AssigneeProfile } from './WorkItemDrawer';
@@ -358,7 +358,7 @@ function useItemDiffState(items: WorkItem[]): ItemDiffMap {
 
     // Apply new diff states only if actual changes detected
     if (newDiffs.size > 0) {
-      setDiffMap(newDiffs);
+      queueMicrotask(() => setDiffMap(newDiffs));
 
       // Clear diff states after animation completes
       const timer = window.setTimeout(() => {
@@ -538,7 +538,7 @@ const WorkItemCard = memo(function WorkItemCard({
         presenceState: item.assignee_type === 'agent' ? 'working' : 'available',
       },
     );
-  }, [assignee?.actor, assigneeLabel, item.assignee_id, item.assignee_type]);
+  }, [assignee, assigneeLabel, item.assignee_id, item.assignee_type]);
 
   const executionState = useMemo(() => {
     if (!execution?.state) return null;
@@ -1124,7 +1124,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
     if (pendingDueDate) details.push(`due ${quickDueDateLabel(pendingDueDate).toLowerCase()}`);
     if (autoOpenAfterCreate) details.push('opening instantly');
     return `Shape a ${itemType} with ${joinNatural(details)}.`;
-  }, [autoOpenAfterCreate, itemType, pendingAssignment?.label, pendingDueDate, priorityDraft]);
+  }, [autoOpenAfterCreate, itemType, pendingAssignment, pendingDueDate, priorityDraft]);
 
   const hasMagicSummary = useMemo(
     () =>
@@ -1731,12 +1731,14 @@ const ColumnLane = memo(function ColumnLane({
     if (draggedItemId) return;
     dragDepthRef.current = 0;
     isOverRef.current = false;
-    setIsOver(false);
     dropIndexRef.current = null;
     lastPointerYRef.current = 0;
     lastFrameTsRef.current = 0;
     clearShiftedCards();
-  }, [draggedItemId]);
+    queueMicrotask(() => {
+      setIsOver(false);
+    });
+  }, [draggedItemId, clearShiftedCards]);
 
   const toggleCollapse = useCallback((itemId: string) => {
     setCollapsed((prev) => {
@@ -1790,11 +1792,13 @@ const ColumnLane = memo(function ColumnLane({
         if (!prevDoneRef.current!.has(id)) newlyDone.push(id);
       });
       if (newlyDone.length > 0) {
-        setCollapsed((prev) => {
-          const next = new Set(prev);
-          for (const id of newlyDone) next.add(id);
-          saveCollapsedSet(column.column_id, next);
-          return next;
+        queueMicrotask(() => {
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            for (const id of newlyDone) next.add(id);
+            saveCollapsedSet(column.column_id, next);
+            return next;
+          });
         });
       }
     }
@@ -1991,7 +1995,7 @@ const ColumnLane = memo(function ColumnLane({
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-  }, []);
+  }, [clearShiftedCards]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2310,7 +2314,7 @@ const ColumnLane = memo(function ColumnLane({
   const useVirtualList =
     !deferColumnVirtualization && visibleRows.length > 80;
 
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useElementVirtualizer({
     count: useVirtualList ? visibleRows.length : 0,
     getScrollElement: () => columnItemsRef.current,
     estimateSize: (index) => {
@@ -2658,7 +2662,7 @@ const OutlineView = memo(function OutlineView({
     }
 
     return result;
-  }, [items, columns, itemsByColumnId, itemById]);
+  }, [columns, itemsByColumnId, itemById]);
 
   const columnNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2819,7 +2823,7 @@ export function BoardPage(): React.JSX.Element {
   const copyToastTimerRef = React.useRef<number | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const boardColumnsRef = useRef<HTMLDivElement>(null);
-  const boardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const boardPerfStartedAtRef = useRef<number | null>(null);
   const boardPerfFlagsRef = useRef<{ shell?: string; firstPage?: string; full?: string }>({});
   const [scrolled, setScrolled] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -2895,7 +2899,10 @@ export function BoardPage(): React.JSX.Element {
     enabled: Boolean(projectId) && assignmentDrawerOpen,
   });
   const executionAvailable = capabilitiesQuery.data?.routes.executions ?? false;
-  const participantRecords = participantsQuery.data?.items ?? [];
+  const participantRecords = useMemo(
+    () => participantsQuery.data?.items ?? [],
+    [participantsQuery.data],
+  );
   const projectAgents = projectAgentsQuery.data ?? EMPTY_AGENTS;
   const participantsError = participantsQuery.error;
   const projectAgentsError = assignmentDrawerOpen ? projectAgentsQuery.error : null;
@@ -2916,10 +2923,12 @@ export function BoardPage(): React.JSX.Element {
   const [hydrationNoticeDismissed, setHydrationNoticeDismissed] = useState(false);
 
   useEffect(() => {
-    setHydrationNoticeDismissed(false);
-    if (typeof sessionStorage !== 'undefined' && boardId) {
-      setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
-    }
+    queueMicrotask(() => {
+      setHydrationNoticeDismissed(false);
+      if (typeof sessionStorage !== 'undefined' && boardId) {
+        setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
+      }
+    });
   }, [boardId]);
 
   const dismissHydrationNotice = useCallback(() => {
@@ -2930,8 +2939,10 @@ export function BoardPage(): React.JSX.Element {
   }, [boardId]);
 
   useEffect(() => {
-    setMembersSheetOpen(false);
-    setUnifiedChat(null);
+    queueMicrotask(() => {
+      setMembersSheetOpen(false);
+      setUnifiedChat(null);
+    });
   }, [boardId, projectId]);
 
   useEffect(() => {
@@ -3114,7 +3125,7 @@ export function BoardPage(): React.JSX.Element {
     }));
 
     return [...humans, ...agents];
-  }, [actor?.id, actor?.type, assignableAgents, assignableHumans]);
+  }, [assignableAgents, assignableHumans]);
 
   const assigneeIndex = useMemo(() => {
     const index = new Map<string, AssigneeProfile>();
@@ -3235,7 +3246,6 @@ export function BoardPage(): React.JSX.Element {
     return positions;
   }, [columns, itemsByColumnId]);
 
-  const executionByItemIdRef = useRef(new Map<string, ExecutionListItem>());
   const executionByItemId = useMemo(() => {
     const map = new Map<string, ExecutionListItem>();
     const executions = executionListQuery.data?.executions ?? [];
@@ -3251,16 +3261,6 @@ export function BoardPage(): React.JSX.Element {
         map.set(execution.workItemId, execution);
       }
     });
-    // Structural stability: reuse previous reference when entries are identical
-    const prev = executionByItemIdRef.current;
-    if (prev.size === map.size) {
-      let same = true;
-      for (const [k, v] of map) {
-        if (prev.get(k) !== v) { same = false; break; }
-      }
-      if (same) return prev;
-    }
-    executionByItemIdRef.current = map;
     return map;
   }, [executionListQuery.data?.executions]);
 
@@ -3641,10 +3641,11 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.shell === boardId) return;
     boardPerfFlagsRef.current.shell = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const perfStart = boardPerfStartedAtRef.current ?? now;
     void razeLog('INFO', 'board.shell_ready', {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - perfStart),
       filters_active: hasActiveFilters,
     });
     trackBoardOpened({ projectId: projectId ?? '', boardId, view: 'board' });
@@ -3655,10 +3656,11 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.firstPage === boardId) return;
     boardPerfFlagsRef.current.firstPage = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const perfStart = boardPerfStartedAtRef.current ?? now;
     void razeLog('INFO', 'board.first_items_page_ready', {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - perfStart),
       loaded_count: loadedCount,
       total_count: totalItemCount,
       filters_active: hasActiveFilters,
@@ -3671,10 +3673,11 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.full === boardId) return;
     boardPerfFlagsRef.current.full = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const perfStart = boardPerfStartedAtRef.current ?? now;
     void razeLog('INFO', 'board.full_hydration_ready', {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - perfStart),
       loaded_count: loadedCount,
       total_count: totalItemCount,
       filters_active: hasActiveFilters,

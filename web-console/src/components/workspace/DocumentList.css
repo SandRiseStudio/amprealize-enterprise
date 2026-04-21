@@ -157,6 +157,7 @@
 }
 
 .document-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -191,6 +192,36 @@
 .document-action-btn:hover {
   background-color: var(--color-bg-active);
   color: var(--color-text-primary);
+}
+
+.document-item-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 11rem;
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.12));
+  z-index: 20;
+}
+
+.document-item-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.document-item-menu-item:hover {
+  background-color: var(--color-bg-hover);
 }
 
 /* New Document Button */

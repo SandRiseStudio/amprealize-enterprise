@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import { apiClient, ApiError } from '../api/client';
 import './FeatureFlagsPage.css';
 

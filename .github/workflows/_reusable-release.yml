@@ -65,6 +65,11 @@ on:
         required: false
         type: string
         default: ""
+      vite_invite_only:
+        description: "Optional VITE_INVITE_ONLY for web-console (set 1 on prod console for invite-only /login banner)"
+        required: false
+        type: string
+        default: ""
       run_smoke:
         description: "Run the Playwright smoke suite after deploy"
         required: false
@@ -299,6 +304,8 @@ jobs:
           # When VITE_POSTHOG_KEY is empty, posthog.ts is a no-op (analytics disabled).
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ inputs.vite_posthog_host }}
+          # Invite-only banner on /login (must match API AMPREALIZE_INVITE_ONLY).
+          VITE_INVITE_ONLY: ${{ inputs.vite_invite_only }}
           # Sentry frontend DSN — empty = error tracking disabled.
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
           # Git SHA attached to every PostHog event and Sentry release.

@@ -1458,6 +1458,11 @@ class BoardService:
     ) -> List[WorkItem]:
         """Populate child_count, completed_child_count, and progress_percent for items.
 
+        ``child_count`` / ``completed_child_count`` are **direct** children only (SQL).
+
+        ``progress_percent`` matches ``WorkItemProgressRollup.completion_percent`` (all
+        descendants under the item, same as the web console).
+
         Note: Requires `parent_id` column in work_items table. If column doesn't exist,
         returns items unchanged (sub-task hierarchy feature not yet migrated).
         """
@@ -1504,10 +1509,14 @@ class BoardService:
             executor=_query,
             telemetry=self._telemetry,
         )
+        # Empty agg+: either parent_id column missing (never set exists) or no batch item
+        # has direct children. Only the first case should short-circuit.
         if not agg_rows:
-            return items  # No child aggregation data (column missing or no children)
-
-        agg_map = {str(r["parent_id"]): r for r in agg_rows}
+            if not getattr(self, "_parent_id_exists", False):
+                return items
+            agg_map: Dict[str, Dict] = {}
+        else:
+            agg_map = {str(r["parent_id"]): r for r in agg_rows}
 
         for item in items:
             agg = agg_map.get(item.item_id)
@@ -1516,10 +1525,31 @@ class BoardService:
                 completed = agg["completed_child_count"]
                 item.child_count = total
                 item.completed_child_count = completed
-                item.progress_percent = round((completed / total) * 100, 1) if total > 0 else 0.0
             else:
                 item.child_count = 0
                 item.completed_child_count = 0
+
+        # Subtree completion (canonical; aligns with UI + get_work_item_progress_rollup)
+        board_ids = {str(i.board_id) for i in items if i.board_id}
+        subtree_pct: Dict[str, float] = {}
+        for bid in board_ids:
+            all_board_items = self.list_work_items(
+                board_id=bid,
+                org_id=org_id,
+                limit=10000,
+                offset=0,
+                skip_child_aggregation=True,
+            )
+            for item in items:
+                if not item.board_id or str(item.board_id) != bid:
+                    continue
+                rollup = self._compute_rollup_from_items(item, all_board_items)
+                subtree_pct[item.item_id] = rollup.completion_percent
+
+        for item in items:
+            if item.item_id in subtree_pct:
+                item.progress_percent = subtree_pct[item.item_id]
+            else:
                 item.progress_percent = 0.0
 
         return items
@@ -1804,6 +1834,7 @@ class BoardService:
         org_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        skip_child_aggregation: bool = False,
     ) -> List[WorkItem]:
         """
         List work items with filters.
@@ -1822,6 +1853,8 @@ class BoardService:
             sort_by: Sort column — one of position, priority, created_at, updated_at,
                      due_date, title, points (or story_points).
             order: Sort direction — asc or desc (default asc).
+            skip_child_aggregation: When True, skip ``_enrich_child_aggregation`` (avoids
+                recursion when enrichment needs a full-board fetch for subtree progress).
         """
         # Allow-list for sort columns to prevent SQL injection
         SORT_COLUMNS = {
@@ -1932,7 +1965,8 @@ class BoardService:
             if slug and item.display_number and not item.display_id:
                 item.display_id = f"{slug}-{item.display_number}"
 
-        self._enrich_child_aggregation(items, org_id=org_id)
+        if not skip_child_aggregation:
+            self._enrich_child_aggregation(items, org_id=org_id)
         return items
 
     def count_work_items(

@@ -23,7 +23,7 @@ import {
   Link2,
   Sparkles,
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import { authStore, AUTH_STORE_INSTANCE_ID } from '../stores/authStore';
 import { AuthStage } from './auth/AuthStage';
 import { createOAuthState } from './auth/oauthState';
@@ -33,6 +33,7 @@ import {
   OAUTH_GOOGLE_POPUP_NAME,
   PRODUCT_DISPLAY_NAME,
 } from '../config/branding';
+import { isInviteOnlyUi, MARKETING_REQUEST_ACCESS_URL } from '../config/invite';
 import './LoginPage.css';
 
 type LoginMode = 'human' | 'device-flow' | 'agent-credentials';
@@ -338,6 +339,17 @@ export function LoginPage() {
         </footer>
       )}
     >
+      {isInviteOnlyUi() && (
+        <div className="login-invite-banner" role="status">
+          <strong>Private preview</strong>
+          <span>
+            {PRODUCT_DISPLAY_NAME} cloud access is invite-only. Already invited? Sign in below.
+            Need access?{' '}
+            <a href={MARKETING_REQUEST_ACCESS_URL}>Request access on the marketing site</a>
+            {' '}(opens the public site at amprealize.ai).
+          </span>
+        </div>
+      )}
       {mode === 'human' && (
         <div className="login-home animate-fade-in-up">
           {/* ── Two side-by-side entry buttons ──────────────────────────── */}

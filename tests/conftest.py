@@ -58,6 +58,9 @@ collect_ignore = [
     "test_kafka_consume.py",
     "test_e2e_device_flow.py",
 ]
+# Hits production API; only collected when AMPREALIZE_REMOTE_DEVICE_FLOW_SMOKE=1 (see ci.yml).
+if os.getenv("AMPREALIZE_REMOTE_DEVICE_FLOW_SMOKE", "").lower() not in ("1", "true", "yes"):
+    collect_ignore.append("integration/test_api_device_flow_remote_smoke.py")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

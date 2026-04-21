@@ -235,7 +235,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   }, [activeConversationId, activeConv?.title, activeConv?.scope]);
 
   useEffect(() => {
-    setSearchOpen(false);
+    queueMicrotask(() => setSearchOpen(false));
   }, [activeConversationId]);
 
   const conversationIdFromTarget =
@@ -243,11 +243,13 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
 
   // When opening / remount intent changes, set or clear selection for project-room entry
   useEffect(() => {
-    if (initialTarget.mode === 'conversation' && conversationIdFromTarget) {
-      setActiveConversationId(conversationIdFromTarget);
-      return;
-    }
-    setActiveConversationId(null);
+    queueMicrotask(() => {
+      if (initialTarget.mode === 'conversation' && conversationIdFromTarget) {
+        setActiveConversationId(conversationIdFromTarget);
+        return;
+      }
+      setActiveConversationId(null);
+    });
   }, [initialTargetKey, initialTarget.mode, conversationIdFromTarget]);
 
   // Pick first project room once list loads (only after first-room entry cleared selection)
@@ -256,7 +258,9 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
     const rooms =
       convList?.items.filter((c) => c.scope === ConversationScope.ProjectRoom) ?? [];
     if (rooms[0]) {
-      setActiveConversationId((prev) => prev ?? rooms[0]!.id);
+      queueMicrotask(() => {
+        setActiveConversationId((prev) => prev ?? rooms[0]!.id);
+      });
     }
   }, [initialTarget.mode, convList?.items]);
 

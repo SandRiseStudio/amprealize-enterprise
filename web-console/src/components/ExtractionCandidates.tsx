@@ -3,7 +3,7 @@
  * Implements auto-accept for candidates with confidence >= 0.8 (per PRD requirement)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   useReflectionExtract,
   useApproveCandidate,
@@ -33,32 +33,33 @@ export function ExtractionCandidates({
 
   const extractMutation = useReflectionExtract();
   const approveMutation = useApproveCandidate();
+  const { mutate: approveCandidate } = approveMutation;
   const rejectMutation = useRejectCandidate();
 
-  // Categorize candidates when extraction completes
-  const categorized = extractMutation.data
-    ? categorizeCandidates(extractMutation.data.candidates)
-    : null;
+  const categorized = useMemo(
+    () => (extractMutation.data ? categorizeCandidates(extractMutation.data.candidates) : null),
+    [extractMutation.data],
+  );
 
-  // Auto-approve high-confidence candidates when extraction results change
-  // We intentionally use extractMutation.data.candidates.length as the dependency
-  // to avoid re-running when callbacks change
-  const autoApprovedCount = categorized?.autoApproved.length ?? 0;
+  const onAutoApprovedRef = useRef(onAutoApproved);
   useEffect(() => {
-    if (autoApprovedCount > 0 && categorized?.autoApproved) {
-      onAutoApproved?.(categorized.autoApproved);
+    onAutoApprovedRef.current = onAutoApproved;
+  }, [onAutoApproved]);
 
-      // Automatically submit approvals for auto-accepted candidates
-      for (const candidate of categorized.autoApproved) {
-        approveMutation.mutate({
-          slug: candidate.slug,
-          status: 'auto_approved',
-          reviewer_notes: `Auto-approved: confidence ${candidate.confidence.toFixed(2)} >= ${AUTO_ACCEPT_THRESHOLD}`,
-        });
-      }
+  useEffect(() => {
+    const autoApproved = categorized?.autoApproved;
+    if (!autoApproved?.length) return;
+
+    onAutoApprovedRef.current?.(autoApproved);
+
+    for (const candidate of autoApproved) {
+      approveCandidate({
+        slug: candidate.slug,
+        status: 'auto_approved',
+        reviewer_notes: `Auto-approved: confidence ${candidate.confidence.toFixed(2)} >= ${AUTO_ACCEPT_THRESHOLD}`,
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoApprovedCount]);
+  }, [categorized, approveCandidate]);
 
   const handleExtract = (e: React.FormEvent) => {
     e.preventDefault();

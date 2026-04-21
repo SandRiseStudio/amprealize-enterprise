@@ -14,7 +14,7 @@
 
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import {
   useLinkedProviders,
   useLinkIdentity,
@@ -161,7 +161,7 @@ function MfaSetupModal({ isOpen, onClose, userId }: MfaSetupModalProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid verification code');
     }
-  }, [verifyMutation, setupMutation.data?.setupId, verificationCode, userId]);
+  }, [verifyMutation, setupMutation.data, verificationCode, userId]);
 
   const handleClose = useCallback(() => {
     setStep('qr');

@@ -36,6 +36,10 @@ on:
         description: "Force wiki-only shell on app.amprealize.ai? (kill switch)"
         type: boolean
         default: false
+      invite_banner:
+        description: "Show invite-only /login banner (VITE_INVITE_ONLY)"
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-prod-saas-console
@@ -67,6 +71,8 @@ jobs:
       vite_api_base_url: https://api.amprealize.ai
       vite_public_preview: ${{ (github.event_name == 'workflow_dispatch' && inputs.public_preview == true) && '1' || '0' }}
       vite_app_origin: console
+      # Aligns /login invite banner with API AMPREALIZE_INVITE_ONLY in prod (dispatch can disable).
+      vite_invite_only: ${{ github.event_name == 'workflow_dispatch' && inputs.invite_banner == false && '0' || '1' }}
       smoke_base_url: https://app.amprealize.ai
       run_smoke: true
     secrets:

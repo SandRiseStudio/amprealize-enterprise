@@ -4,7 +4,7 @@
  * High-performance document navigation with presence indicators
  */
 
-import { useCallback, useMemo, memo } from 'react';
+import { useCallback, useEffect, useMemo, memo, useRef, useState } from 'react';
 import type { Document } from '../../lib/collab-client';
 import './DocumentList.css';
 
@@ -110,6 +110,22 @@ const getDocumentIcon = (type: string) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DocumentItem = memo<DocumentItemProps>(({ document, isSelected, onSelect, presence = [] }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const root = globalThis.document;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = actionsRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    root.addEventListener('pointerdown', onPointerDown);
+    return () => root.removeEventListener('pointerdown', onPointerDown);
+  }, [menuOpen]);
+
   const handleClick = useCallback(() => {
     onSelect(document.id);
   }, [document.id, onSelect]);
@@ -122,6 +138,32 @@ const DocumentItem = memo<DocumentItemProps>(({ document, isSelected, onSelect, 
       }
     },
     [document.id, onSelect]
+  );
+
+  const copyDocumentId = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(document.id);
+      } catch {
+        /* ignore clipboard failures */
+      }
+      setMenuOpen(false);
+    },
+    [document.id, setMenuOpen]
+  );
+
+  const copyTitle = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(document.title);
+      } catch {
+        /* ignore clipboard failures */
+      }
+      setMenuOpen(false);
+    },
+    [document.title, setMenuOpen]
   );
 
   const relativeTime = useMemo(() => {
@@ -177,18 +219,31 @@ const DocumentItem = memo<DocumentItemProps>(({ document, isSelected, onSelect, 
         </div>
       )}
 
-      <div className="document-actions">
+      <div className="document-actions" ref={actionsRef} onClick={(e) => e.stopPropagation()}>
         <button
+          type="button"
           className="document-action-btn"
           onClick={(e) => {
             e.stopPropagation();
-            // TODO: Open context menu
+            setMenuOpen((open) => !open);
           }}
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
           aria-label={`More actions for ${document.title}`}
           title={`More actions for ${document.title}`}
         >
           <MoreIcon />
         </button>
+        {menuOpen ? (
+          <div className="document-item-menu" role="menu">
+            <button type="button" className="document-item-menu-item" role="menuitem" onClick={copyDocumentId}>
+              Copy document ID
+            </button>
+            <button type="button" className="document-item-menu-item" role="menuitem" onClick={copyTitle}>
+              Copy title
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

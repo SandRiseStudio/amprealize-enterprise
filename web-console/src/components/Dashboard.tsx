@@ -774,7 +774,7 @@ export function Dashboard() {
   const { currentOrgId } = useOrgContext();
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(() => loadProjectSortPreference());
   const [agentPanelEnabled, setAgentPanelEnabled] = useState(false);
-  const dashboardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const dashboardPerfStartedAtRef = useRef<number | null>(null);
   const dashboardPerfFlagsRef = useRef<{ chrome?: string; agentPanel?: string }>({});
   const scopePerfKey = currentOrgId ?? 'personal';
 
@@ -914,12 +914,13 @@ export function Dashboard() {
     if (dashboardPerfFlagsRef.current.chrome === scopePerfKey) return;
     dashboardPerfFlagsRef.current.chrome = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const perfStart = dashboardPerfStartedAtRef.current ?? now;
     void razeLog('INFO', 'dashboard.chrome_ready', {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       project_count: projects.length,
       visible_project_count: visibleProjectIds.length,
-      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - perfStart),
     });
   }, [currentOrgId, projects.length, scopedStats, scopePerfKey, showProjectsLoading, visibleProjectIds.length]);
 
@@ -928,12 +929,13 @@ export function Dashboard() {
     if (dashboardPerfFlagsRef.current.agentPanel === scopePerfKey) return;
     dashboardPerfFlagsRef.current.agentPanel = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const perfStart = dashboardPerfStartedAtRef.current ?? now;
     void razeLog('INFO', 'dashboard.agent_panel_ready', {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       total_agents: scopedAgents.length,
       displayed_agents: displayedAgents.length,
-      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - perfStart),
     });
   }, [agentPanelEnabled, currentOrgId, displayedAgents.length, scopedAgents.length, scopePerfKey, showAgentsLoading]);
 
