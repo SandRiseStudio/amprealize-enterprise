@@ -346,6 +346,12 @@ jobs:
     name: Service Parity Tests
     runs-on: ubuntu-latest
     needs: [security-scan]
+    # No Postgres service in this job; clear inherited DATABASE_URL so session
+    # schema init does not run Alembic against a DB stamped with migrations
+    # absent from this checkout (would fail with "Can't locate revision …").
+    env:
+      DATABASE_URL: ""
+      AMPREALIZE_ALEMBIC_DATABASE_URL: ""
 
     steps:
       - name: Checkout repository
