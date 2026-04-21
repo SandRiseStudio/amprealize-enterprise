@@ -33,6 +33,12 @@ concurrency:
 
 jobs:
   release:
+    # Required so the nested `build-api` job in _reusable-release.yml can push
+    # the API container image to GHCR. Reusable workflows inherit the caller's
+    # permissions; the repo default is `packages: read`.
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/_reusable-release.yml
     with:
       environment: prod-saas

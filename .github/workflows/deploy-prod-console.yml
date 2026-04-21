@@ -43,6 +43,13 @@ concurrency:
 
 jobs:
   release:
+    # Even though this workflow skips build-api (ghcr_image: ""), the reusable
+    # workflow declares `packages: write` at the job level, which is validated
+    # against the caller's permissions at startup regardless of whether the
+    # job actually runs.
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/_reusable-release.yml
     with:
       environment: prod-saas
