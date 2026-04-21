@@ -114,6 +114,10 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     overflow: hidden;
     height: 100vh;
   }
+  body.app-shell-body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
   body.wiki-shell-body,
   body.app-shell-body {
     --marketing-header-offset: 56px;
