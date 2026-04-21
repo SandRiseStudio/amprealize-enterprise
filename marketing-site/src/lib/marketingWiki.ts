@@ -91,6 +91,12 @@ export function getStaticWikiSlugParams(nav: MarketingWikiNav): { params: { slug
       }
     }
   }
+  for (const d of nav.domains) {
+    const first = pickFirstPagePathForDomain(nav, d.id);
+    if (!first || !wikiMarkdownExists(d.id, first) || seen.has(d.id)) continue;
+    seen.add(d.id);
+    out.push({ params: { slug: d.id } });
+  }
   return out;
 }
 
@@ -110,7 +116,13 @@ export async function loadWikiPageFromSlug(
   const normalized = slug.replace(/^\/+|\/+$/g, '');
   if (!normalized) return null;
   const slash = normalized.indexOf('/');
-  if (slash < 0) return null;
+  if (slash < 0) {
+    const domainOnly = normalized;
+    if (!nav.domains.some((d) => d.id === domainOnly)) return null;
+    const first = pickFirstPagePathForDomain(nav, domainOnly);
+    if (!first || !wikiMarkdownExists(domainOnly, first)) return null;
+    return loadWikiPageFromSlug(`${domainOnly}/${first}`, nav);
+  }
   const domain = normalized.slice(0, slash);
   const pagePath = normalized.slice(slash + 1);
   if (!domain || !pagePath) return null;
