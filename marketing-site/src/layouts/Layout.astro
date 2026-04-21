@@ -130,8 +130,11 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     padding: 0;
     display: block;
     min-height: 0;
+    min-width: 0;
     flex: 1;
     overflow: hidden;
+    width: 100%;
+    max-width: none;
   }
   main.main-app-shell {
     padding: 0;
@@ -139,6 +142,7 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     width: 100%;
     max-width: none;
     min-height: 0;
+    min-width: 0;
     flex: 1;
   }
   .container {

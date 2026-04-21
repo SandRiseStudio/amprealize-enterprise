@@ -22,7 +22,6 @@ export function getStaticPaths() {
   for (const d of data.domains) {
     add(d.id);
     for (const g of d.groups) {
-      if (g.folder) add(`${d.id}/${g.folder}`);
       for (const p of g.pages ?? []) {
         const rel = (p.path ?? '').replace(/^\/+/, '');
         if (rel) add(`${d.id}/${rel}`);
@@ -36,10 +35,8 @@ export function getStaticPaths() {
 const { slug } = Astro.params;
 if (!slug) throw new Error('Missing slug');
 
-const normalized = slug.replace(/^\/+/, '');
-const lastSeg = normalized.split('/').pop() ?? '';
-const looksLikeFile = /\.[a-z0-9]+$/i.test(lastSeg);
-const wikiPath = looksLikeFile ? `/wiki/${normalized}` : `/wiki/${normalized.replace(/\/$/, '')}/`;
+const normalized = slug.replace(/^\/+/, '').replace(/\/+$/, '');
+const wikiPath = `/wiki/${normalized}`.replace(/\/+/g, '/');
 ---
 
 <Layout title="Amprealize — wiki" description="Public wiki and documentation for Amprealize." wikiShell={true}>

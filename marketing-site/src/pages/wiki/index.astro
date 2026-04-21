@@ -4,7 +4,7 @@ import AppShell from '../../components/AppShell.astro';
 import wikiNav from '../../generated/wiki-nav.json';
 
 const { defaultDomain } = wikiNav as { defaultDomain: string };
-const wikiPath = `/wiki/${defaultDomain}/`;
+const wikiPath = `/wiki/${defaultDomain}`;
 ---
 
 <Layout title="Amprealize — wiki" description="Public wiki and documentation for Amprealize." wikiShell={true}>
