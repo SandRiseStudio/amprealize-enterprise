@@ -20,6 +20,9 @@ const {
   appShell = false,
 } = Astro.props;
 
+/** Marketing home + wiki use sidebar chrome; duplicate top bar removed */
+const hideSiteHeader = appShell || wikiShell;
+
 const canonicalURL = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageURL = new URL(ogImage, Astro.site).href;
 ---
@@ -60,7 +63,7 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
 
   </head>
   <body class:list={{ 'wiki-shell-body': wikiShell, 'app-shell-body': appShell }}>
-    <header class="site-header">
+    <header class="site-header" hidden={hideSiteHeader}>
       <div class="header-inner">
         <a class="logo" href="/" aria-label="Amprealize home">
           Amprealize
@@ -121,7 +124,7 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
   }
   body.wiki-shell-body,
   body.app-shell-body {
-    --marketing-header-offset: 56px;
+    --marketing-header-offset: 0px;
   }
   main {
     flex: 1;
