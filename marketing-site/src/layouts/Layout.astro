@@ -1,10 +1,21 @@
 ---
+import '../styles/tokens.css';
+import RequestAccessModal from '../components/RequestAccessModal.astro';
+
 interface Props {
   title: string;
   description?: string;
+  ogImage?: string;
 }
 
-const { title, description = 'Amprealize — behavioral AI for software teams.' } = Astro.props;
+const {
+  title,
+  description = 'Amprealize — behavioral AI for software teams.',
+  ogImage = '/og-default.png',
+} = Astro.props;
+
+const canonicalURL = new URL(Astro.url.pathname, Astro.site).href;
+const ogImageURL = new URL(ogImage, Astro.site).href;
 ---
 
 <!DOCTYPE html>
@@ -14,8 +25,25 @@ const { title, description = 'Amprealize — behavioral AI for software teams.' 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <title>{title}</title>
-    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
+    <link rel="canonical" href={canonicalURL} />
     <meta name="theme-color" content="#edf5fb" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImageURL} />
+    <meta property="og:site_name" content="Amprealize" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageURL} />
+
+    <!-- Extra head content injected by pages (JSON-LD, etc.) -->
+    <slot name="head" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,7 +52,6 @@ const { title, description = 'Amprealize — behavioral AI for software teams.' 
       rel="stylesheet"
     />
 
-    <link rel="stylesheet" href="/src/styles/tokens.css" />
   </head>
   <body>
     <header class="site-header">
@@ -38,8 +65,9 @@ const { title, description = 'Amprealize — behavioral AI for software teams.' 
           <a class="nav-link" href="/wiki/infra">Wiki</a>
         </nav>
         <div class="header-ctas">
-          <a class="btn btn-ghost pressable" href="https://app.amprealize.ai/login">Sign in</a>
-          <a class="btn btn-primary pressable" href="/#access-form">Request access</a>
+          <button type="button" class="btn btn-primary pressable" data-open-request-access>
+            Request access
+          </button>
         </div>
       </div>
     </header>
@@ -51,6 +79,8 @@ const { title, description = 'Amprealize — behavioral AI for software teams.' 
         <p>© {new Date().getFullYear()} Amprealize. Product access may be invite-only during preview.</p>
       </div>
     </footer>
+
+    <RequestAccessModal />
 
     <script>
       (() => {
@@ -166,6 +196,10 @@ const { title, description = 'Amprealize — behavioral AI for software teams.' 
   .btn-primary:hover {
     background: var(--color-accent-hover);
     border-color: var(--color-accent-hover);
+  }
+  button.btn {
+    font: inherit;
+    cursor: pointer;
   }
   .site-footer {
     border-top: 1px solid var(--color-border-subtle);

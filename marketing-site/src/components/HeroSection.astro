@@ -1,10 +1,6 @@
----
-import RequestAccessForm from './RequestAccessForm.astro';
----
-
 <section class="hero">
   <div class="container">
-    <div class="hero-grid">
+    <div class="hero-inner">
       <div class="copy" data-animate>
         <div class="eyebrow">
           <span class="dot" aria-hidden="true"></span>
@@ -18,13 +14,10 @@ import RequestAccessForm from './RequestAccessForm.astro';
           Less thrash. Lower inference spend. A calmer way to ship.
         </p>
         <div class="actions" data-animate style="transition-delay: 60ms">
-          <a class="btn btn-primary pressable" href="#access-form">Request access</a>
-          <a class="btn btn-ghost pressable" href="https://app.amprealize.ai/login">Already have access? Sign in →</a>
+          <button type="button" class="btn btn-primary pressable" data-open-request-access>
+            Request access
+          </button>
         </div>
-      </div>
-
-      <div class="panel" data-animate style="transition-delay: 120ms">
-        <RequestAccessForm />
       </div>
     </div>
   </div>
@@ -39,14 +32,12 @@ import RequestAccessForm from './RequestAccessForm.astro';
     width: 100%;
     max-width: var(--content-max);
   }
-  .hero-grid {
-    display: grid;
-    grid-template-columns: 1.02fr 1fr;
-    gap: var(--space-10);
-    align-items: start;
+  .hero-inner {
+    max-width: 72ch;
+    margin: 0 auto;
   }
   .copy {
-    padding-top: var(--space-4);
+    padding-top: var(--space-2);
   }
   .eyebrow {
     display: inline-flex;
@@ -104,9 +95,6 @@ import RequestAccessForm from './RequestAccessForm.astro';
     background: var(--color-bg-hover);
     border-color: var(--color-border-hover);
   }
-  .btn-ghost {
-    background: transparent;
-  }
   .btn-primary {
     background: var(--color-accent);
     border-color: var(--color-accent);
@@ -116,18 +104,8 @@ import RequestAccessForm from './RequestAccessForm.astro';
     background: var(--color-accent-hover);
     border-color: var(--color-accent-hover);
   }
-  .panel {
-    border-radius: var(--radius-2xl);
-  }
-
-  @media (max-width: 980px) {
-    .hero-grid {
-      grid-template-columns: 1fr;
-      gap: var(--space-8);
-    }
-    .copy {
-      padding-top: 0;
-    }
+  button.btn {
+    font: inherit;
+    cursor: pointer;
   }
 </style>
-

@@ -1,0 +1,157 @@
+<section class="section" id="who">
+  <div class="container">
+    <header class="header" data-animate>
+      <h2>Built for teams that ship AI</h2>
+      <p>
+        Whether you're writing the agent or directing it, Amprealize gives everyone on the team a shared language for what works.
+      </p>
+    </header>
+
+    <div class="grid" data-animate style="transition-delay: 60ms">
+      <article class="card">
+        <div class="icon" aria-hidden="true">⌥</div>
+        <h3>Developer</h3>
+        <p>
+          Capture patterns from your best runs, version them like code, and stop re-solving the same problems across sessions.
+        </p>
+        <ul>
+          <li>CLI + VS Code native workflow</li>
+          <li>Behavior library with semver</li>
+          <li>MCP tool parity for automation</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="icon" aria-hidden="true">⊞</div>
+        <h3>Product Manager</h3>
+        <p>
+          Track what agents are doing, keep execution aligned with intent, and ship without needing to read the logs yourself.
+        </p>
+        <ul>
+          <li>Projects + boards for agent work</li>
+          <li>Behavior approval workflows</li>
+          <li>Audit-friendly execution trail</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="icon" aria-hidden="true">⊡</div>
+        <h3>Business Analyst</h3>
+        <p>
+          Write behaviors in plain language, attach them to processes, and let the team reuse them without asking engineering for help.
+        </p>
+        <ul>
+          <li>Human-readable behavior format</li>
+          <li>Compliance checklist integration</li>
+          <li>Usage reports per project</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="icon" aria-hidden="true">◈</div>
+        <h3>Enterprise</h3>
+        <p>
+          Deploy on your infrastructure, enforce governance from day one, and keep every AI action traceable to a person and a policy.
+        </p>
+        <ul>
+          <li>Self-hosted Docker + Helm</li>
+          <li>SAML SSO + RBAC</li>
+          <li>SOC 2–ready audit logs</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .section {
+    width: 100%;
+    padding-top: var(--space-14);
+  }
+  .container {
+    width: 100%;
+    max-width: var(--content-max);
+  }
+  .header h2 {
+    margin: 0 0 var(--space-3);
+    letter-spacing: -0.03em;
+    font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+    line-height: var(--leading-tight);
+  }
+  .header p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    max-width: 68ch;
+    font-size: var(--text-lg);
+  }
+  .grid {
+    margin-top: var(--space-8);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+  .card {
+    border-radius: var(--radius-2xl);
+    border: 1px solid rgba(70, 108, 140, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: var(--space-6);
+    display: grid;
+    gap: var(--space-3);
+    align-content: start;
+    transition:
+      transform var(--duration-normal) var(--ease-spring-gentle),
+      border-color var(--duration-normal) var(--ease-out-quart),
+      background var(--duration-normal) var(--ease-out-quart);
+    will-change: transform;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    border-color: var(--color-border-hover);
+    background: rgba(255, 255, 255, 0.8);
+  }
+  .icon {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--color-accent-secondary);
+    font-weight: var(--font-bold);
+    margin-bottom: var(--space-1);
+    user-select: none;
+  }
+  h3 {
+    margin: 0;
+    letter-spacing: -0.02em;
+    font-size: 1.05rem;
+  }
+  .card p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+  ul {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+  }
+  li + li {
+    margin-top: 6px;
+  }
+  @media (max-width: 1100px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 560px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

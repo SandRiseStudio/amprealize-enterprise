@@ -1,16 +1,19 @@
----
-const formId = 'access-form';
----
+<dialog
+  id="request-access-dialog"
+  class="rad"
+  aria-labelledby="request-access-title"
+  aria-describedby="request-access-desc"
+>
+  <div class="rad-panel">
+    <button type="button" class="rad-close pressable" aria-label="Close dialog">×</button>
 
-<section class="access" id={formId} data-animate>
-  <div class="access-inner">
-    <div class="access-copy">
+    <div class="rad-copy">
       <div class="eyebrow">
         <span class="dot" aria-hidden="true"></span>
         PRIVATE PREVIEW
       </div>
-      <h2>Request early access</h2>
-      <p class="sub">
+      <h2 id="request-access-title">Request early access</h2>
+      <p id="request-access-desc" class="sub">
         Amprealize is invite-only during the preview. Share a little context and we’ll reach out.
       </p>
     </div>
@@ -28,7 +31,7 @@ const formId = 'access-form';
 
       <label class="full">
         <span class="label">What are you building? <span class="opt">(optional)</span></span>
-        <textarea name="message" rows="3" placeholder="A few words is perfect." />
+        <textarea name="message" rows="3" placeholder="A few words is perfect."></textarea>
       </label>
 
       <div class="row">
@@ -40,26 +43,65 @@ const formId = 'access-form';
       </div>
     </form>
   </div>
-</section>
+</dialog>
 
 <script is:inline>
   (() => {
-    const root = document.currentScript?.previousElementSibling;
-    if (!(root instanceof HTMLElement)) return;
-    const form = root.querySelector('form');
-    const status = root.querySelector('.status');
-    const button = root.querySelector('button[type="submit"]');
+    const dlg = document.getElementById('request-access-dialog');
+    if (!(dlg instanceof HTMLDialogElement)) return;
+
+    const form = dlg.querySelector('form');
+    const status = dlg.querySelector('.status');
+    const submitBtn = dlg.querySelector('button[type="submit"]');
+    const closeBtn = dlg.querySelector('.rad-close');
+
     if (!(form instanceof HTMLFormElement)) return;
     if (!(status instanceof HTMLElement)) return;
-    if (!(button instanceof HTMLButtonElement)) return;
+    if (!(submitBtn instanceof HTMLButtonElement)) return;
 
     const setState = (state, message) => {
-      root.dataset.state = state;
+      dlg.dataset.state = state;
       status.textContent = message || '';
-      button.disabled = state === 'submitting' || state === 'success';
+      submitBtn.disabled = state === 'submitting' || state === 'success';
     };
 
     const emailOk = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+    const resetUi = () => {
+      form.reset();
+      setState('idle', '');
+    };
+
+    dlg.addEventListener('close', () => {
+      resetUi();
+    });
+
+    if (closeBtn instanceof HTMLButtonElement) {
+      closeBtn.addEventListener('click', () => dlg.close());
+    }
+
+    dlg.addEventListener('click', (e) => {
+      if (e.target === dlg) dlg.close();
+    });
+
+    document.addEventListener('click', (e) => {
+      const opener = e.target.closest('[data-open-request-access]');
+      if (!opener) return;
+      e.preventDefault();
+      dlg.showModal();
+    });
+
+    const openFromHash = () => {
+      const h = window.location.hash;
+      if (h === '#request-access' || h === '#access-form') dlg.showModal();
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', openFromHash);
+    } else {
+      openFromHash();
+    }
+    window.addEventListener('hashchange', openFromHash);
 
     setState('idle', '');
 
@@ -82,7 +124,7 @@ const formId = 'access-form';
         });
         const json = await res.json().catch(() => null);
         if (!res.ok || !json || json.ok !== true) {
-          const msg = (json && json.error) ? String(json.error) : 'Something went wrong. Please try again.';
+          const msg = json && json.error ? String(json.error) : 'Something went wrong. Please try again.';
           return setState('error', msg);
         }
         form.reset();
@@ -95,20 +137,58 @@ const formId = 'access-form';
 </script>
 
 <style>
-  .access {
-    width: 100%;
-    border: 1px solid var(--color-border-subtle);
-    background: rgba(255, 255, 255, 0.64);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  .rad {
+    width: min(calc(100vw - 32px), 560px);
+    max-height: calc(100vh - 32px);
+    margin: auto;
+    padding: 0;
+    border: none;
     border-radius: var(--radius-2xl);
+    background: transparent;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.18);
   }
-  .access-inner {
-    display: grid;
-    grid-template-columns: 1fr 1.2fr;
-    gap: var(--space-10);
-    padding: var(--space-10);
-    align-items: start;
+  .rad::backdrop {
+    background: rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .rad-panel {
+    position: relative;
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: var(--radius-2xl);
+    padding: var(--space-8);
+    overflow: auto;
+    max-height: calc(100vh - 32px);
+    box-sizing: border-box;
+  }
+  .rad-close {
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .rad-close:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+  .rad-copy {
+    padding-right: var(--space-10);
+    margin-bottom: var(--space-6);
   }
   .eyebrow {
     display: inline-flex;
@@ -131,12 +211,13 @@ const formId = 'access-form';
     margin: 0 0 var(--space-3);
     letter-spacing: -0.03em;
     line-height: var(--leading-tight);
-    font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+    font-size: clamp(1.25rem, 2.5vw, 1.65rem);
   }
   .sub {
     margin: 0;
     color: var(--color-text-secondary);
     max-width: 56ch;
+    font-size: var(--text-sm);
   }
   .form {
     display: grid;
@@ -170,7 +251,10 @@ const formId = 'access-form';
     border: 1px solid var(--color-border-default);
     background: rgba(255, 255, 255, 0.82);
     padding: 12px 12px;
-    transition: border-color var(--duration-fast) var(--ease-out-quart), background var(--duration-fast) var(--ease-out-quart);
+    box-sizing: border-box;
+    transition:
+      border-color var(--duration-fast) var(--ease-out-quart),
+      background var(--duration-fast) var(--ease-out-quart);
   }
   textarea {
     resize: vertical;
@@ -178,6 +262,7 @@ const formId = 'access-form';
   }
   input:focus,
   textarea:focus {
+    outline: none;
     border-color: var(--color-accent);
     background: rgba(255, 255, 255, 0.92);
   }
@@ -191,6 +276,7 @@ const formId = 'access-form';
     justify-content: space-between;
     gap: var(--space-4);
     padding-top: var(--space-2);
+    flex-wrap: wrap;
   }
   .submit {
     display: inline-flex;
@@ -225,28 +311,20 @@ const formId = 'access-form';
     font-size: var(--text-sm);
   }
 
-  .access[data-state='submitting'] .spinner {
+  .rad[data-state='submitting'] .spinner {
     display: inline-block;
     animation: spin 0.9s linear infinite;
   }
-  .access[data-state='error'] .status {
+  .rad[data-state='error'] .status {
     color: var(--color-error);
   }
-  .access[data-state='success'] .status {
+  .rad[data-state='success'] .status {
     color: var(--color-success);
   }
 
-  @media (max-width: 920px) {
-    .access-inner {
-      grid-template-columns: 1fr;
-      gap: var(--space-6);
-      padding: var(--space-8);
-    }
-  }
   @media (max-width: 520px) {
     .form {
       grid-template-columns: 1fr;
     }
   }
 </style>
-

@@ -20,7 +20,9 @@ import Layout from '../layouts/Layout.astro';
           <li>Projects + boards</li>
           <li>CLI + IDE workflows</li>
         </ul>
-        <a class="btn btn-primary pressable" href="/#access-form">Request access</a>
+        <button type="button" class="btn btn-primary pressable" data-open-request-access>
+          Request access
+        </button>
       </article>
 
       <article class="tier">
@@ -31,7 +33,9 @@ import Layout from '../layouts/Layout.astro';
           <li>Audit-friendly tool calls</li>
           <li>Priority support</li>
         </ul>
-        <a class="btn btn-ghost pressable" href="/#access-form">Request access</a>
+        <button type="button" class="btn btn-ghost pressable" data-open-request-access>
+          Request access
+        </button>
       </article>
     </section>
 
@@ -125,6 +129,10 @@ import Layout from '../layouts/Layout.astro';
   .btn-primary:hover {
     background: var(--color-accent-hover);
     border-color: var(--color-accent-hover);
+  }
+  button.btn {
+    font: inherit;
+    cursor: pointer;
   }
   .note {
     margin-top: var(--space-8);

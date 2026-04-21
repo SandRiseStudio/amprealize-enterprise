@@ -3,11 +3,12 @@
     <div class="cta" data-animate>
       <div class="copy">
         <h2>Ready to build with behavioral leverage?</h2>
-        <p>Request access for the private preview, or sign in if you already have an invite.</p>
+        <p>Request access for the private preview.</p>
       </div>
       <div class="actions">
-        <a class="btn btn-primary pressable" href="#access-form">Request access</a>
-        <a class="btn btn-ghost pressable" href="https://app.amprealize.ai/login">Sign in</a>
+        <button type="button" class="btn btn-primary pressable" data-open-request-access>
+          Request access
+        </button>
       </div>
     </div>
   </div>
@@ -73,9 +74,6 @@
     background: var(--color-bg-hover);
     border-color: var(--color-border-hover);
   }
-  .btn-ghost {
-    background: transparent;
-  }
   .btn-primary {
     background: var(--color-accent);
     border-color: var(--color-accent);
@@ -84,6 +82,10 @@
   .btn-primary:hover {
     background: var(--color-accent-hover);
     border-color: var(--color-accent-hover);
+  }
+  button.btn {
+    font: inherit;
+    cursor: pointer;
   }
   @media (max-width: 920px) {
     .cta {
@@ -95,4 +97,3 @@
     }
   }
 </style>
-

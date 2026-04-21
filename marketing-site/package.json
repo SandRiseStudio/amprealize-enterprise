@@ -10,6 +10,7 @@
     "preview": "astro preview --port 4322"
   },
   "dependencies": {
+    "@astrojs/sitemap": "3.1.6",
     "astro": "^4.16.18"
   },
   "devDependencies": {
