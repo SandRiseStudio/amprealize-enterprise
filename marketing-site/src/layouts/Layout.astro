@@ -6,8 +6,10 @@ interface Props {
   title: string;
   description?: string;
   ogImage?: string;
-  /** Full-height wiki shell (console chrome + iframe); relaxes main padding */
+  /** Full-height wiki route (iframe stage); relaxes main padding, hides footer */
   wikiShell?: boolean;
+  /** Marketing home + sidebar: full-width main, no default content padding */
+  appShell?: boolean;
 }
 
 const {
@@ -15,6 +17,7 @@ const {
   description = 'Amprealize — behavioral AI for software teams.',
   ogImage = '/og-default.png',
   wikiShell = false,
+  appShell = false,
 } = Astro.props;
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site).href;
@@ -56,7 +59,7 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     />
 
   </head>
-  <body class:list={{ 'wiki-shell-body': wikiShell }}>
+  <body class:list={{ 'wiki-shell-body': wikiShell, 'app-shell-body': appShell }}>
     <header class="site-header">
       <div class="header-inner">
         <a class="logo" href="/" aria-label="Amprealize home">
@@ -69,7 +72,7 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
         </div>
       </div>
     </header>
-    <main class:list={{ 'main-wiki-shell': wikiShell }}>
+    <main class:list={{ 'main-wiki-shell': wikiShell, 'main-app-shell': appShell }}>
       <slot />
     </main>
     <footer class="site-footer" hidden={wikiShell}>
@@ -111,7 +114,8 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     overflow: hidden;
     height: 100vh;
   }
-  body.wiki-shell-body {
+  body.wiki-shell-body,
+  body.app-shell-body {
     --marketing-header-offset: 56px;
   }
   main {
@@ -128,6 +132,14 @@ const ogImageURL = new URL(ogImage, Astro.site).href;
     min-height: 0;
     flex: 1;
     overflow: hidden;
+  }
+  main.main-app-shell {
+    padding: 0;
+    display: block;
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    flex: 1;
   }
   .container {
     width: 100%;

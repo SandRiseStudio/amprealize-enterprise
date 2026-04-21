@@ -22,13 +22,17 @@ intentionally want the marketing project to forward wiki paths.
 
 ## Same-origin wiki (Phase 2 — default)
 
-The marketing home uses a **console-style shell** with the wiki in the main area. In
-production, `functions/_middleware.js` **reverse-proxies** these paths to the wiki Pages
-deployment (same-origin URLs in the browser, no wiki `_redirects` passthrough required):
+The site uses a **persistent app shell** (console-style sidebar): **`/`** is the marketing
+landing; **`/wiki/*`** are static Astro shell pages with an iframe whose `src` is the same
+`/wiki/...` path. In production, `functions/_middleware.js` **reverse-proxies** to the wiki
+Pages deployment when:
 
-- `/wiki`, `/wiki/*`
-- `/assets/*` (Vite bundle from the wiki build)
-- `/favicon.png`
+- **`Sec-Fetch-Dest: iframe`** — wiki HTML and assets under `/wiki/*` (iframe loads only).
+- **`/assets/*`** and **`/favicon.png`** — always proxied (Vite bundle from the wiki build).
+
+Top-level navigations to `/wiki/*` send **`Sec-Fetch-Dest: document`**, so the middleware
+calls **`next()`** and Cloudflare serves the Astro **`dist/wiki/...`** shell instead of the
+upstream HTML.
 
 Configure **`WIKI_UPSTREAM`** on the Cloudflare Pages project (`amprealize-marketing`) →
 **Settings → Environment variables** (e.g. `https://amprealize-web.pages.dev`). If unset,

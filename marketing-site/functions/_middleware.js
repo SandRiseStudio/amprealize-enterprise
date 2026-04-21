@@ -1,7 +1,8 @@
 /**
  * Reverse-proxy public wiki SPA assets from the marketing apex to the wiki
  * Pages deployment so the browser stays on amprealize.ai while loading the
- * Vite bundle (same-origin /assets/* and /wiki/*).
+ * Vite bundle (same-origin /assets/*). Wiki HTML at `/wiki/*` is proxied only when
+ * `Sec-Fetch-Dest: iframe` so Astro shell pages can handle top-level `/wiki/*` navigations.
  *
  * Set `WIKI_UPSTREAM` in the Cloudflare Pages project (e.g. https://amprealize-web.pages.dev).
  */
@@ -12,10 +13,17 @@ function upstreamBase(env) {
   return raw.replace(/\/+$/, '');
 }
 
-function shouldProxy(pathname) {
+/**
+ * Wiki HTML is proxied only for iframe subrequests so top-level navigations to
+ * `/wiki/*` can be served by Astro static shell pages (Sec-Fetch-Dest: document).
+ */
+function shouldProxy(pathname, request) {
   if (pathname === '/favicon.png') return true;
-  if (pathname === '/wiki' || pathname.startsWith('/wiki/')) return true;
   if (pathname.startsWith('/assets/')) return true;
+  if (pathname === '/wiki' || pathname.startsWith('/wiki/')) {
+    const dest = (request.headers.get('sec-fetch-dest') ?? '').toLowerCase();
+    return dest === 'iframe';
+  }
   return false;
 }
 
@@ -60,7 +68,7 @@ function rewriteLocation(loc, requestOrigin, upstreamOrigin) {
  */
 export async function onRequest(context) {
   const url = new URL(context.request.url);
-  if (!shouldProxy(url.pathname)) {
+  if (!shouldProxy(url.pathname, context.request)) {
     return context.next();
   }
 

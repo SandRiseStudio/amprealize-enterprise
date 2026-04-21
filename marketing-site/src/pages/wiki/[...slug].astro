@@ -1,0 +1,47 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import AppShell from '../../components/AppShell.astro';
+import wikiNav from '../../generated/wiki-nav.json';
+
+type WikiPage = { path: string };
+type WikiGroup = { folder: string; pages?: WikiPage[] };
+type WikiDomain = { id: string; groups: WikiGroup[] };
+
+export function getStaticPaths() {
+  const data = wikiNav as { domains: WikiDomain[] };
+  const paths: { params: { slug: string } }[] = [];
+  const seen = new Set<string>();
+
+  function add(slug: string) {
+    const s = slug.replace(/^\/+|\/+$/g, '');
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    paths.push({ params: { slug: s } });
+  }
+
+  for (const d of data.domains) {
+    add(d.id);
+    for (const g of d.groups) {
+      if (g.folder) add(`${d.id}/${g.folder}`);
+      for (const p of g.pages ?? []) {
+        const rel = (p.path ?? '').replace(/^\/+/, '');
+        if (rel) add(`${d.id}/${rel}`);
+      }
+    }
+  }
+
+  return paths;
+}
+
+const { slug } = Astro.params;
+if (!slug) throw new Error('Missing slug');
+
+const normalized = slug.replace(/^\/+/, '');
+const lastSeg = normalized.split('/').pop() ?? '';
+const looksLikeFile = /\.[a-z0-9]+$/i.test(lastSeg);
+const wikiPath = looksLikeFile ? `/wiki/${normalized}` : `/wiki/${normalized.replace(/\/$/, '')}/`;
+---
+
+<Layout title="Amprealize — wiki" description="Public wiki and documentation for Amprealize." wikiShell={true}>
+  <AppShell wikiPath={wikiPath} activeSlug={slug} />
+</Layout>

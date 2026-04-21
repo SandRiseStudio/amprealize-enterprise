@@ -1,6 +1,12 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import WikiShellLayout from '../components/WikiShellLayout.astro';
+import AppShell from '../components/AppShell.astro';
+import HeroSection from '../components/HeroSection.astro';
+import FeaturesSection from '../components/FeaturesSection.astro';
+import HowItWorksSection from '../components/HowItWorksSection.astro';
+import PersonaSection from '../components/PersonaSection.astro';
+import SocialProofSection from '../components/SocialProofSection.astro';
+import CTASection from '../components/CTASection.astro';
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -19,10 +25,17 @@ const jsonLd = {
 ---
 
 <Layout
-  title="Amprealize — wiki"
-  description="Public wiki and documentation for Amprealize."
-  wikiShell={true}
+  title="Amprealize — behavioral AI for software teams"
+  description="Amprealize helps teams capture what works, coordinate agents as a system, and reuse behaviors across projects."
+  appShell={true}
 >
   <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} slot="head" />
-  <WikiShellLayout />
+  <AppShell>
+    <HeroSection />
+    <FeaturesSection />
+    <HowItWorksSection />
+    <PersonaSection />
+    <SocialProofSection />
+    <CTASection />
+  </AppShell>
 </Layout>
