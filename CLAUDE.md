@@ -380,6 +380,32 @@ Scan this table before starting any task. If keywords match, follow the linked b
 
 ---
 
+## 🧰 GitHub CLI (`gh`) defaults (enterprise monorepo)
+
+`SandRiseStudio/amprealize-enterprise` tracks OSS work via a second git remote (`upstream` → `SandRiseStudio/amprealize`).
+Because the repo contains a root `pnpm-lock.yaml`, some `gh` commands can otherwise infer the wrong “current repo” context.
+
+**One-time fix per clone** (persists in `.git/config`):
+
+```bash
+gh repo set-default SandRiseStudio/amprealize-enterprise
+```
+
+**Verify**:
+
+```bash
+gh repo view --json nameWithOwner -q .
+# expected: SandRiseStudio/amprealize-enterprise
+```
+
+**Escape hatch** (works even if defaults are wrong):
+
+```bash
+gh <command> -R SandRiseStudio/amprealize-enterprise ...
+```
+
+---
+
 ## 🛠️ Agent Etiquette
 
 ### Testing & Validation
