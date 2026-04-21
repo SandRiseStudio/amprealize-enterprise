@@ -38,3 +38,7 @@ htmlcov/
 .coverage
 coverage.xml
 node_modules
+
+# Runtime / ephemeral
+.tmp/
+data/cache/
