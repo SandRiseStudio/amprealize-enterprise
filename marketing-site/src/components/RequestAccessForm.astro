@@ -1,0 +1,252 @@
+---
+const formId = 'access-form';
+---
+
+<section class="access" id={formId} data-animate>
+  <div class="access-inner">
+    <div class="access-copy">
+      <div class="eyebrow">
+        <span class="dot" aria-hidden="true"></span>
+        PRIVATE PREVIEW
+      </div>
+      <h2>Request early access</h2>
+      <p class="sub">
+        Amprealize is invite-only during the preview. Share a little context and we’ll reach out.
+      </p>
+    </div>
+
+    <form class="form" novalidate>
+      <label>
+        <span class="label">Name</span>
+        <input name="name" autocomplete="name" required />
+      </label>
+
+      <label>
+        <span class="label">Email</span>
+        <input name="email" type="email" autocomplete="email" required />
+      </label>
+
+      <label class="full">
+        <span class="label">What are you building? <span class="opt">(optional)</span></span>
+        <textarea name="message" rows="3" placeholder="A few words is perfect." />
+      </label>
+
+      <div class="row">
+        <button class="submit pressable" type="submit">
+          <span class="submit-label">Request early access</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+        <div class="status" role="status" aria-live="polite"></div>
+      </div>
+    </form>
+  </div>
+</section>
+
+<script is:inline>
+  (() => {
+    const root = document.currentScript?.previousElementSibling;
+    if (!(root instanceof HTMLElement)) return;
+    const form = root.querySelector('form');
+    const status = root.querySelector('.status');
+    const button = root.querySelector('button[type="submit"]');
+    if (!(form instanceof HTMLFormElement)) return;
+    if (!(status instanceof HTMLElement)) return;
+    if (!(button instanceof HTMLButtonElement)) return;
+
+    const setState = (state, message) => {
+      root.dataset.state = state;
+      status.textContent = message || '';
+      button.disabled = state === 'submitting' || state === 'success';
+    };
+
+    const emailOk = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+    setState('idle', '');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const name = String(fd.get('name') || '').trim();
+      const email = String(fd.get('email') || '').trim();
+      const message = String(fd.get('message') || '').trim();
+
+      if (!name) return setState('error', 'Please enter your name.');
+      if (!emailOk(email)) return setState('error', 'Please enter a valid email.');
+
+      try {
+        setState('submitting', 'Sending…');
+        const res = await fetch('/api/request-access', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name, email, message }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json || json.ok !== true) {
+          const msg = (json && json.error) ? String(json.error) : 'Something went wrong. Please try again.';
+          return setState('error', msg);
+        }
+        form.reset();
+        return setState('success', 'We’ll be in touch — access requests are reviewed weekly.');
+      } catch {
+        return setState('error', 'Network error. Please try again.');
+      }
+    });
+  })();
+</script>
+
+<style>
+  .access {
+    width: 100%;
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.64);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: var(--radius-2xl);
+  }
+  .access-inner {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: var(--space-10);
+    padding: var(--space-10);
+    align-items: start;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--text-xs);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+    font-weight: var(--font-semibold);
+    margin-bottom: var(--space-3);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--color-accent-secondary);
+  }
+  h2 {
+    margin: 0 0 var(--space-3);
+    letter-spacing: -0.03em;
+    line-height: var(--leading-tight);
+    font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+  }
+  .sub {
+    margin: 0;
+    color: var(--color-text-secondary);
+    max-width: 56ch;
+  }
+  .form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+  label {
+    display: grid;
+    gap: 8px;
+    color: var(--color-text-secondary);
+    font-weight: var(--font-medium);
+    font-size: var(--text-sm);
+  }
+  .label {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .opt {
+    color: var(--color-text-tertiary);
+    font-weight: var(--font-normal);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  input,
+  textarea {
+    width: 100%;
+    font: inherit;
+    color: var(--color-text-primary);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border-default);
+    background: rgba(255, 255, 255, 0.82);
+    padding: 12px 12px;
+    transition: border-color var(--duration-fast) var(--ease-out-quart), background var(--duration-fast) var(--ease-out-quart);
+  }
+  textarea {
+    resize: vertical;
+    min-height: 88px;
+  }
+  input:focus,
+  textarea:focus {
+    border-color: var(--color-accent);
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .full {
+    grid-column: 1 / -1;
+  }
+  .row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-top: var(--space-2);
+  }
+  .submit {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-accent);
+    background: var(--color-accent);
+    color: #fff;
+    font-weight: var(--font-semibold);
+    padding: 12px 16px;
+    cursor: pointer;
+  }
+  .submit:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  .submit:disabled {
+    cursor: not-allowed;
+    opacity: 0.82;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-full);
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-top-color: #fff;
+    display: none;
+  }
+  .status {
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+  }
+
+  .access[data-state='submitting'] .spinner {
+    display: inline-block;
+    animation: spin 0.9s linear infinite;
+  }
+  .access[data-state='error'] .status {
+    color: var(--color-error);
+  }
+  .access[data-state='success'] .status {
+    color: var(--color-success);
+  }
+
+  @media (max-width: 920px) {
+    .access-inner {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
+      padding: var(--space-8);
+    }
+  }
+  @media (max-width: 520px) {
+    .form {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+

@@ -1,0 +1,48 @@
+name: Deploy marketing site (Astro)
+
+# GUIDEAI-20 — static marketing + wiki passthrough (`public/_redirects`).
+# Create Cloudflare Pages project `amprealize-marketing` (or override below)
+# before first deploy. Apex DNS cutover is manual; see marketing-site/README.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "marketing-site/**"
+      - ".github/workflows/deploy-marketing-site.yml"
+
+concurrency:
+  group: deploy-marketing-site-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy marketing site
+    runs-on: ubuntu-latest
+    environment: prod-saas
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: marketing-site/package-lock.json
+      - name: Install and build
+        working-directory: marketing-site
+        env:
+          PUBLIC_LEGACY_WIKI_BASE: https://amprealize.ai
+        run: |
+          npm ci
+          npm run build
+      - name: Pages deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy marketing-site/dist
+            --project-name amprealize-marketing
+            --branch main

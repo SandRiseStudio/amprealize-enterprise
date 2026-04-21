@@ -1,0 +1,201 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'Amprealize — behavioral AI for software teams.' } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
+    <meta name="theme-color" content="#edf5fb" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="logo" href="/" aria-label="Amprealize home">
+          Amprealize
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-link" href="/#how">How it works</a>
+          <a class="nav-link" href="/pricing">Pricing</a>
+          <a class="nav-link" href="/wiki/infra">Wiki</a>
+        </nav>
+        <div class="header-ctas">
+          <a class="btn btn-ghost pressable" href="https://app.amprealize.ai/login">Sign in</a>
+          <a class="btn btn-primary pressable" href="/#access-form">Request access</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p>© {new Date().getFullYear()} Amprealize. Product access may be invite-only during preview.</p>
+      </div>
+    </footer>
+
+    <script>
+      (() => {
+        const els = document.querySelectorAll('[data-animate]');
+        if (els.length === 0) return;
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                io.unobserve(entry.target);
+              }
+            }
+          },
+          { threshold: 0.14 }
+        );
+        for (const el of els) io.observe(el);
+      })();
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  main {
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    padding: calc(var(--space-12) + 48px) var(--space-6) var(--space-16);
+    display: grid;
+    justify-items: center;
+  }
+  .container {
+    width: 100%;
+    max-width: var(--content-max);
+    margin: 0 auto;
+  }
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-6);
+    max-width: var(--content-max);
+    margin: 0 auto;
+  }
+  .logo {
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    text-decoration: none;
+  }
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+  }
+  .nav-link {
+    text-decoration: none;
+    color: var(--color-text-secondary);
+    font-weight: var(--font-medium);
+    transition: color var(--duration-fast) var(--ease-out-quart);
+  }
+  .nav-link:hover {
+    color: var(--color-text-primary);
+  }
+  .header-ctas {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    border-radius: var(--radius-full);
+    font-weight: var(--font-semibold);
+    text-decoration: none;
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    transition:
+      transform var(--duration-fast) var(--ease-out-quart),
+      background var(--duration-fast) var(--ease-out-quart),
+      border-color var(--duration-fast) var(--ease-out-quart);
+    will-change: transform;
+  }
+  .btn:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+  .btn-ghost {
+    background: transparent;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  .site-footer {
+    border-top: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.68);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+  }
+  .footer-inner {
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-6);
+  }
+
+  @media (max-width: 860px) {
+    .nav-links {
+      display: none;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .header-inner,
+    .footer-inner {
+      padding-left: var(--space-4);
+      padding-right: var(--space-4);
+    }
+    main {
+      padding-left: var(--space-4);
+      padding-right: var(--space-4);
+    }
+  }
+</style>

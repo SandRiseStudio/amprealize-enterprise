@@ -1,0 +1,123 @@
+<section class="section" id="features">
+  <div class="container">
+    <header class="header" data-animate>
+      <h2>Built for behavioral leverage</h2>
+      <p>
+        Capture what works, coordinate agents, and reuse behaviors across teams — with a design that stays calm under load.
+      </p>
+    </header>
+
+    <div class="grid" data-animate style="transition-delay: 60ms">
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">◎</div>
+        <h3>Capture behaviors from traces</h3>
+        <p>Extract patterns that work from any reasoning run — then turn them into reusable building blocks.</p>
+      </article>
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">⟡</div>
+        <h3>Coordinate agents as a team</h3>
+        <p>Projects, boards, and role-scoped behaviors that keep execution aligned without micromanagement.</p>
+      </article>
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">⎔</div>
+        <h3>Reuse what works</h3>
+        <p>A behavior library you can version, fork, and compose across projects — the same way you treat code.</p>
+      </article>
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">≋</div>
+        <h3>Cut inference spend</h3>
+        <p>Behavioral playbooks reduce redundant exploration and keep agents from repeating expensive dead-ends.</p>
+      </article>
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">⌁</div>
+        <h3>MCP-native from day one</h3>
+        <p>Every agent action has an equivalent tool call — automation and auditability are first-class.</p>
+      </article>
+      <article class="card pressable">
+        <div class="icon" aria-hidden="true">⌘</div>
+        <h3>Works with your IDE</h3>
+        <p>Use it from the CLI, VS Code, or API — and keep the tight loop you already like.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .section {
+    width: 100%;
+    padding-top: var(--space-12);
+  }
+  .container {
+    width: 100%;
+    max-width: var(--content-max);
+  }
+  .header h2 {
+    margin: 0 0 var(--space-3);
+    letter-spacing: -0.03em;
+    font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+    line-height: var(--leading-tight);
+  }
+  .header p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    max-width: 72ch;
+    font-size: var(--text-lg);
+  }
+  .grid {
+    margin-top: var(--space-8);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+  .card {
+    border-radius: var(--radius-2xl);
+    border: 1px solid rgba(70, 108, 140, 0.18);
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: var(--space-6);
+    transition:
+      transform var(--duration-normal) var(--ease-spring-gentle),
+      border-color var(--duration-normal) var(--ease-out-quart),
+      background var(--duration-normal) var(--ease-out-quart);
+    will-change: transform;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    border-color: var(--color-border-hover);
+    background: rgba(255, 255, 255, 0.8);
+  }
+  .icon {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--color-accent-secondary);
+    font-weight: var(--font-bold);
+    margin-bottom: var(--space-4);
+    user-select: none;
+  }
+  h3 {
+    margin: 0 0 var(--space-2);
+    letter-spacing: -0.02em;
+    font-size: 1.02rem;
+  }
+  .card p {
+    margin: 0;
+    color: var(--color-text-secondary);
+  }
+  @media (max-width: 980px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 580px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+

@@ -1,0 +1,98 @@
+<section class="section">
+  <div class="container">
+    <div class="cta" data-animate>
+      <div class="copy">
+        <h2>Ready to build with behavioral leverage?</h2>
+        <p>Request access for the private preview, or sign in if you already have an invite.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary pressable" href="#access-form">Request access</a>
+        <a class="btn btn-ghost pressable" href="https://app.amprealize.ai/login">Sign in</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .section {
+    width: 100%;
+    padding-top: var(--space-12);
+    padding-bottom: var(--space-12);
+  }
+  .container {
+    width: 100%;
+    max-width: var(--content-max);
+  }
+  .cta {
+    border-radius: var(--radius-2xl);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.68);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: var(--space-10);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-6);
+  }
+  h2 {
+    margin: 0 0 var(--space-2);
+    letter-spacing: -0.03em;
+    line-height: var(--leading-tight);
+    font-size: clamp(1.4rem, 2.3vw, 1.9rem);
+  }
+  p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    max-width: 72ch;
+  }
+  .actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 16px;
+    border-radius: var(--radius-full);
+    font-weight: var(--font-semibold);
+    text-decoration: none;
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    transition:
+      transform var(--duration-fast) var(--ease-out-quart),
+      background var(--duration-fast) var(--ease-out-quart),
+      border-color var(--duration-fast) var(--ease-out-quart);
+  }
+  .btn:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+  .btn-ghost {
+    background: transparent;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  @media (max-width: 920px) {
+    .cta {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .actions {
+      justify-content: flex-start;
+    }
+  }
+</style>
+

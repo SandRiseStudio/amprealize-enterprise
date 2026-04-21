@@ -38,6 +38,9 @@ htmlcov/
 .coverage
 coverage.xml
 node_modules
+marketing-site/node_modules/
+marketing-site/dist/
+marketing-site/.astro/
 
 # Runtime / ephemeral
 .tmp/

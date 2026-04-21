@@ -1,0 +1,144 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Pricing — Amprealize" description="Starter, Pro, Team, and Enterprise tiers (preview).">
+  <div class="container">
+    <header class="header" data-animate>
+      <h1>Pricing</h1>
+      <p class="lede">
+        Final public tiers and checkout ship with commercial v1 (M3). Until then, cloud access is invite-only.
+      </p>
+    </header>
+
+    <section class="tiers" data-animate style="transition-delay: 60ms" aria-label="Preview tiers">
+      <article class="tier">
+        <h2>Starter</h2>
+        <p class="price">Invite-only preview</p>
+        <ul>
+          <li>Behavior library</li>
+          <li>Projects + boards</li>
+          <li>CLI + IDE workflows</li>
+        </ul>
+        <a class="btn btn-primary pressable" href="/#access-form">Request access</a>
+      </article>
+
+      <article class="tier">
+        <h2>Pro</h2>
+        <p class="price">Invite-only preview</p>
+        <ul>
+          <li>Teams + governance</li>
+          <li>Audit-friendly tool calls</li>
+          <li>Priority support</li>
+        </ul>
+        <a class="btn btn-ghost pressable" href="/#access-form">Request access</a>
+      </article>
+    </section>
+
+    <section class="note" data-animate style="transition-delay: 120ms">
+      <p>
+        Need an enterprise pilot? Email <a href="mailto:hello@amprealize.ai?subject=Enterprise%20pilot">hello@amprealize.ai</a>.
+      </p>
+    </section>
+  </div>
+</Layout>
+
+<style>
+  .container {
+    width: 100%;
+    max-width: var(--content-max);
+  }
+  h1 {
+    margin: 0 0 var(--space-3);
+    letter-spacing: -0.04em;
+    line-height: 1.08;
+    font-size: clamp(2.1rem, 4.2vw, 3rem);
+  }
+  .lede {
+    margin: 0;
+    color: var(--color-text-secondary);
+    max-width: 70ch;
+    font-size: var(--text-lg);
+  }
+  .tiers {
+    margin-top: var(--space-10);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+  .tier {
+    border-radius: var(--radius-2xl);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.68);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: var(--space-8);
+    display: grid;
+    gap: var(--space-4);
+    align-content: start;
+  }
+  .tier h2 {
+    margin: 0;
+    letter-spacing: -0.03em;
+  }
+  .price {
+    margin: 0;
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+  }
+  ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--color-text-secondary);
+  }
+  li + li {
+    margin-top: 8px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 16px;
+    border-radius: var(--radius-full);
+    font-weight: var(--font-semibold);
+    text-decoration: none;
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    transition:
+      transform var(--duration-fast) var(--ease-out-quart),
+      background var(--duration-fast) var(--ease-out-quart),
+      border-color var(--duration-fast) var(--ease-out-quart);
+  }
+  .btn:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+  .btn-ghost {
+    background: transparent;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+  }
+  .note {
+    margin-top: var(--space-8);
+    border-radius: var(--radius-2xl);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.56);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: var(--space-6);
+    color: var(--color-text-secondary);
+  }
+  @media (max-width: 860px) {
+    .tiers {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
