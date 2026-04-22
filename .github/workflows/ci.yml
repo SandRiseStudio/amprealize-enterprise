@@ -5,6 +5,8 @@ on:
     branches: [ main, develop, release/* ]
   pull_request:
     branches: [ main, develop ]
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       environment:
@@ -169,7 +171,9 @@ jobs:
           /tmp/amprealize-wheel-venv/bin/python scripts/check_oss_version.py --package amprealize-enterprise --strict
 
   # ============================================================================
-  # Python Test Matrix (3.10, 3.11, 3.12) with Service Containers
+  # Python Tests
+  # PRs / non-main pushes: Python 3.11 only for fast feedback
+  # main / nightly / manual: full 3.10, 3.11, 3.12 matrix
   # ============================================================================
   test-python:
     name: Python Tests (Python ${{ matrix.python-version }})
@@ -224,7 +228,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ${{ fromJson((github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')) && '["3.11"]' || '["3.10", "3.11", "3.12"]') }}
 
     # Modular monolith Postgres (6433) + telemetry + Redis (matches local Podman test stack defaults)
     services:
@@ -483,6 +487,7 @@ jobs:
     name: Device flow API smoke (prod)
     runs-on: ubuntu-latest
     needs: [security-scan]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - name: Checkout repository
@@ -578,6 +583,7 @@ jobs:
   test-dashboard:
     name: Dashboard Build & Tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - name: Checkout repository
@@ -615,6 +621,7 @@ jobs:
   test-extension:
     name: VS Code Extension Build
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     steps:
       - name: Checkout repository
@@ -650,18 +657,47 @@ jobs:
           retention-days: 7
 
   # ============================================================================
-  # Integration Gate (All Tests Must Pass)
+  # Fast Integration Gate (PRs / non-main pushes)
   # ============================================================================
-  integration-gate:
-    name: Integration Gate
+  integration-gate-fast:
+    name: Integration Gate (Fast)
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
     needs:
       - security-scan
       - pre-commit
+      - packaging-smoke
+      - test-python
+      - test-parity
+      - test-mcp-server
+
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ Fast CI checks passed successfully!"
+          echo "✅ Security scan: PASSED"
+          echo "✅ Pre-commit hooks: PASSED"
+          echo "✅ Wheel packaging + MCP manifests: PASSED"
+          echo "✅ Python tests (3.11): PASSED"
+          echo "✅ Service parity tests: PASSED"
+          echo "✅ MCP server validation: PASSED"
+          echo ""
+          echo "🎉 Ready for merge review!"
+
+  # ============================================================================
+  # Full Integration Gate (main / nightly / manual)
+  # ============================================================================
+  integration-gate-full:
+    name: Integration Gate (Full)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs:
+      - security-scan
+      - pre-commit
+      - packaging-smoke
       - test-python
       - test-parity
       - device-flow-api-smoke
-      - staging-device-flow
       - test-mcp-server
       - test-dashboard
       - test-extension
@@ -669,13 +705,13 @@ jobs:
     steps:
       - name: All checks passed
         run: |
-          echo "✅ All CI checks passed successfully!"
+          echo "✅ Full CI checks passed successfully!"
           echo "✅ Security scan: PASSED"
           echo "✅ Pre-commit hooks: PASSED"
+          echo "✅ Wheel packaging + MCP manifests: PASSED"
           echo "✅ Python tests (3.10, 3.11, 3.12): PASSED"
           echo "✅ Service parity tests: PASSED"
           echo "✅ Device flow API smoke (prod): PASSED"
-          echo "✅ Staging device flow integration: PASSED"
           echo "✅ MCP server validation: PASSED"
           echo "✅ Dashboard build: PASSED"
           echo "✅ VS Code extension: PASSED"
@@ -688,7 +724,7 @@ jobs:
   publish-marketplace:
     name: Publish to Marketplace
     runs-on: ubuntu-latest
-    needs: [integration-gate]
+    needs: [integration-gate-full]
     if: github.event_name == 'workflow_dispatch' && (github.event.inputs.publish_vscode == 'true' || github.event.inputs.publish_cursor == 'true')
 
     steps:
@@ -761,7 +797,7 @@ jobs:
   deploy:
     name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
-    needs: [integration-gate]
+    needs: [integration-gate-full]
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     environment:
