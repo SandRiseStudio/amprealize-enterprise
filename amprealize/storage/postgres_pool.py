@@ -28,7 +28,7 @@ _T = TypeVar("_T")
 # All application schemas in resolution order.  Every raw connection sets this
 # as search_path so unqualified table names resolve correctly regardless of
 # whether the caller explicitly calls set_tenant_context().
-_APP_SEARCH_PATH = "board, auth, execution, behavior, workflow, consent, audit, compliance, credentials, messaging, research, public"
+_APP_SEARCH_PATH = "board, auth, execution, behavior, workflow, consent, compliance, audit, credentials, messaging, research, public"
 
 _POOL_CACHE: Dict[Tuple[str, int, int, int, int, int], Engine] = {}
 _CACHE_LOCK = threading.Lock()
