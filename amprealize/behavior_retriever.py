@@ -1291,6 +1291,10 @@ class BehaviorRetriever:
             return []
 
         # Reshape to 2D array for FAISS search
+        if not hasattr(query_vec, "reshape"):
+            import numpy as np
+
+            query_vec = np.asarray(query_vec, dtype="float32")
         query_vec_2d = query_vec.reshape(1, -1)  # pragma: no cover
         scores, indices = self._index.search(query_vec_2d, k)  # pragma: no cover - heavy path
         scores_list = scores[0].tolist()
