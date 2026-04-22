@@ -25,7 +25,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -103,7 +103,7 @@ class NightlyReflectionJob:
     def execute(self) -> ExtractionJob:
         """Run the batch extraction pipeline."""
         job_id = str(uuid.uuid4())
-        start_time = datetime.now(UTC).isoformat()
+        start_time = datetime.now(timezone.utc).isoformat()
 
         logger.info(f"Starting nightly reflection job {job_id}")
         logger.info(f"Config: {self.config}")
@@ -190,7 +190,7 @@ class NightlyReflectionJob:
             logger.info(f"Generated {candidates_generated} behavior candidates")
 
             # Step 4: Mark job complete
-            end_time = datetime.now(UTC).isoformat()
+            end_time = datetime.now(timezone.utc).isoformat()
             self.job.end_time = end_time
             self.job.status = ExtractionJobStatus.COMPLETE
             self._update_job_status(ExtractionJobStatus.COMPLETE, "Job complete")
@@ -203,13 +203,13 @@ class NightlyReflectionJob:
         except Exception as e:
             logger.exception(f"Job {job_id} failed: {e}")
             self.job.error_message = str(e)
-            self.job.end_time = datetime.now(UTC).isoformat()
+            self.job.end_time = datetime.now(timezone.utc).isoformat()
             self._update_job_status(ExtractionJobStatus.FAILED, str(e))
             return self.job
 
     def _fetch_recent_runs(self) -> List[Run]:
         """Fetch runs from the last N days."""
-        cutoff_date = datetime.now(UTC) - timedelta(days=self.config.lookback_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.lookback_days)
         cutoff_iso = cutoff_date.isoformat()
 
         # List runs with completed status after cutoff date
@@ -309,7 +309,7 @@ class NightlyReflectionJob:
 
         self.job.status = status
         if status in {ExtractionJobStatus.COMPLETE, ExtractionJobStatus.FAILED}:
-            self.job.end_time = datetime.now(UTC).isoformat()
+            self.job.end_time = datetime.now(timezone.utc).isoformat()
 
         logger.info(f"Job {self.job.job_id} status: {status} - {message}")
 

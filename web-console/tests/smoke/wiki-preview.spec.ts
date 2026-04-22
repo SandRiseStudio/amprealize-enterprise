@@ -6,8 +6,14 @@ import { expect, test } from '@playwright/test';
 // when running `npm run dev`.
 const BASE_URL = process.env.SMOKE_BASE_URL ?? 'http://localhost:5173';
 const API_URL = process.env.SMOKE_API_URL ?? 'https://api.amprealize.ai';
+const SMOKE_ORIGIN = process.env.SMOKE_ORIGIN ?? 'console';
 
 test.describe('amprealize.ai public preview (M1)', () => {
+  test.skip(
+    SMOKE_ORIGIN !== 'marketing',
+    'Public-preview wiki smoke only applies to the marketing/wiki deployment.',
+  );
+
   test('root redirects to /wiki/infra', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.waitForURL(/\/wiki\/infra/);
@@ -48,12 +54,11 @@ test.describe('amprealize.ai public preview (M1)', () => {
     expect(res.status()).toBe(200);
   });
 
-  test('api /api/v1/wiki/infra returns the infra domain', async ({ request }) => {
-    // The wiki_api endpoint for a domain manifest / listing. Exact path is
-    // `/api/v1/wiki/{domain}` (see amprealize/services/wiki_api.py).
-    const res = await request.get(`${API_URL}/api/v1/wiki/infra`);
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body).toBeTruthy();
+  test('api wiki endpoint stays gated while marketing preview serves static wiki', async ({ request }) => {
+    // The marketing site ships a static wiki shell. The production API stays
+    // authenticated (AMPREALIZE_PUBLIC_PREVIEW=0 in fly.api.toml), so smoke
+    // should assert the API is intentionally gated rather than public.
+    const res = await request.get(`${API_URL}/api/v1/wiki/infra/status`);
+    expect(res.status()).toBe(401);
   });
 });

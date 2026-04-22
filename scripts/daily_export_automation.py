@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -123,7 +123,7 @@ class DailyExportJob:
     def execute(self) -> ExportJob:
         """Run the daily export pipeline."""
         job_id = str(uuid.uuid4())
-        start_time = datetime.now(UTC).isoformat()
+        start_time = datetime.now(timezone.utc).isoformat()
 
         logging.info(f"Starting daily export job {job_id}")
         logging.info(f"Config: {self.config}")
@@ -166,7 +166,7 @@ class DailyExportJob:
             self.job.backups_deleted = deleted_backups
 
             # Step 4: Mark job complete
-            end_time = datetime.now(UTC).isoformat()
+            end_time = datetime.now(timezone.utc).isoformat()
             self.job.end_time = end_time
             self.job.status = ExportJobStatus.COMPLETE
             self._update_job_status(ExportJobStatus.COMPLETE, "Export complete")
@@ -183,7 +183,7 @@ class DailyExportJob:
         except Exception as e:
             logging.exception(f"Job {job_id} failed: {e}")
             self.job.error_message = str(e)
-            self.job.end_time = datetime.now(UTC).isoformat()
+            self.job.end_time = datetime.now(timezone.utc).isoformat()
             self.job.status = ExportJobStatus.FAILED
             self._update_job_status(ExportJobStatus.FAILED, str(e))
 
@@ -204,7 +204,7 @@ class DailyExportJob:
                 logging.info("No existing SQLite file to backup")
                 return None
 
-            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             backup_filename = f"telemetry_sqlite_{timestamp}.db"
             backup_path = Path(self.config.backup_dir) / backup_filename
 
@@ -284,7 +284,7 @@ class DailyExportJob:
         """Remove backup files older than retention policy."""
         try:
             backup_dir = Path(self.config.backup_dir)
-            cutoff_date = datetime.now(UTC) - timedelta(days=self.config.retention_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.config.retention_days)
 
             if not backup_dir.exists():
                 return 0
@@ -293,7 +293,7 @@ class DailyExportJob:
             for backup_file in backup_dir.glob("telemetry_sqlite_*.db"):
                 try:
                     # Get file modification time
-                    file_time = datetime.fromtimestamp(backup_file.stat().st_mtime, UTC)
+                    file_time = datetime.fromtimestamp(backup_file.stat().st_mtime, timezone.utc)
 
                     if file_time < cutoff_date:
                         logging.info(f"Deleting old backup: {backup_file.name}")
@@ -322,7 +322,7 @@ class DailyExportJob:
 
         self.job.status = status
         if status in {ExportJobStatus.COMPLETE, ExportJobStatus.FAILED}:
-            self.job.end_time = datetime.now(UTC).isoformat()
+            self.job.end_time = datetime.now(timezone.utc).isoformat()
 
         logging.info(f"Job {self.job.job_id} status: {status} - {message}")
 

@@ -382,7 +382,7 @@ class AmprealizeNotifyService:
                     input_data=details,
                     metadata={
                         "service": "notify",
-                        "started_at": datetime.now(UTC).isoformat(),
+                        "started_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
             )

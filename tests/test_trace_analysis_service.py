@@ -13,7 +13,7 @@ Target: >90% code coverage
 
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -368,8 +368,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Step A", "Step B", "Step C"],
             frequency=10,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(10)],
             metadata={},
         )
@@ -402,8 +402,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Common step 1", "Common step 2"],
             frequency=50,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(50)],
             metadata={},
         )
@@ -427,8 +427,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Universal step"],
             frequency=10,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(10)],
             metadata={},
         )
@@ -452,8 +452,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["This is a very long detailed step number " + str(i) for i in range(200)],  # 200 steps × ~10 words = ~2600 tokens
             frequency=80,  # Very high frequency
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(80)],
             metadata={},
         )
@@ -475,8 +475,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Rare step"],
             frequency=2,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(2)],
             metadata={},
         )
@@ -500,8 +500,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Step 1", "Step 2"],
             frequency=15,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(15)],
             metadata={},
         )
@@ -538,8 +538,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Never seen"],
             frequency=0,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[],
             metadata={},
         )
@@ -557,8 +557,8 @@ class TestReusabilityScoring:
             pattern_id=str(uuid.uuid4()),
             sequence=["Very common"],
             frequency=10,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(10)],
             metadata={},
         )

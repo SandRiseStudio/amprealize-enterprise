@@ -40,7 +40,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -308,7 +308,7 @@ def benchmark_model(
             "latency_ms": latency,
             "quality": quality,
             "model_info": model_info,
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as exc:
@@ -411,7 +411,7 @@ def main() -> int:
     # Write results
     output_data = {
         "benchmark_metadata": {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "models": models,
             "num_queries": len(queries),
             "skip_quality": args.skip_quality,

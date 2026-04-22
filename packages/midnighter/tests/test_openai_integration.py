@@ -13,7 +13,6 @@ fine-tuning jobs have per-token costs based on the base model.
 import json
 import os
 import pytest
-from datetime import datetime, UTC
 from typing import Generator
 
 # Skip entire module if no API key or not running integration tests
