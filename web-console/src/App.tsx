@@ -20,7 +20,7 @@
 import { lazy, Suspense, useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { AuthProvider } from './auth';
+import { AuthProvider, useIsLoggedIn } from './auth';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/workspace/AppLayout';
 import { useModules } from './api/modules';
@@ -127,7 +127,8 @@ function App() {
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const { isModuleEnabled } = useModules();
+  const isLoggedIn = useIsLoggedIn();
+  const { isModuleEnabled } = useModules({ enabled: isLoggedIn });
   const previewMode = isPublicPreview();
   usePageviewTracking();
 
