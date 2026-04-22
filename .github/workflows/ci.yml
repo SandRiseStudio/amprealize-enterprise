@@ -216,8 +216,8 @@ jobs:
       AMPREALIZE_PG_USER_AUTH: amprealize_behavior
       AMPREALIZE_PG_PASS_AUTH: behavior_test_pass
       AMPREALIZE_PG_DB_AUTH: amprealize_behavior
-      AMPREALIZE_COMPLIANCE_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior?options=-csearch_path%3Dconsent,auth,execution,board,behavior,workflow,audit,public
-      AMPREALIZE_TELEMETRY_PG_DSN: postgresql://amprealize_telemetry:telemetry_test_pass@localhost:6438/amprealize_telemetry
+      AMPREALIZE_COMPLIANCE_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior?options=-csearch_path%3Dcompliance,auth,execution,board,behavior,workflow,audit,public  # pragma: allowlist secret
+      AMPREALIZE_TELEMETRY_PG_DSN: postgresql://amprealize_telemetry:telemetry_test_pass@localhost:6438/amprealize_telemetry  # pragma: allowlist secret
       AMPREALIZE_PG_HOST_TELEMETRY: localhost
       AMPREALIZE_PG_PORT_TELEMETRY: "6438"
       AMPREALIZE_PG_USER_TELEMETRY: amprealize_telemetry
@@ -392,8 +392,13 @@ jobs:
       AMPREALIZE_PG_USER_AUTH: amprealize_behavior
       AMPREALIZE_PG_PASS_AUTH: behavior_test_pass
       AMPREALIZE_PG_DB_AUTH: amprealize_behavior
-      AMPREALIZE_COMPLIANCE_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior?options=-csearch_path%3Dconsent,auth,execution,board,behavior,workflow,audit,public
-      AMPREALIZE_TELEMETRY_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior?options=-csearch_path%3Dauth,execution,board,behavior,workflow,consent,audit,public
+      AMPREALIZE_COMPLIANCE_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior?options=-csearch_path%3Dcompliance,auth,execution,board,behavior,workflow,audit,public  # pragma: allowlist secret
+      AMPREALIZE_TELEMETRY_PG_DSN: postgresql://amprealize_telemetry:telemetry_test_pass@localhost:6438/amprealize_telemetry  # pragma: allowlist secret
+      AMPREALIZE_PG_HOST_TELEMETRY: localhost
+      AMPREALIZE_PG_PORT_TELEMETRY: "6438"
+      AMPREALIZE_PG_USER_TELEMETRY: amprealize_telemetry
+      AMPREALIZE_PG_PASS_TELEMETRY: telemetry_test_pass
+      AMPREALIZE_PG_DB_TELEMETRY: amprealize_telemetry
 
     services:
       postgres-behavior:
@@ -404,6 +409,21 @@ jobs:
           POSTGRES_DB: amprealize_behavior
         ports:
           - 6433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      postgres-telemetry:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_telemetry
+          POSTGRES_PASSWORD: telemetry_test_pass
+          POSTGRES_DB: amprealize_telemetry
+        ports:
+          - 6438:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -446,8 +466,10 @@ jobs:
 
       - name: Wait for services to be ready
         run: |
-          echo "Waiting for PostgreSQL..."
-          timeout 30 bash -c "until pg_isready -h localhost -p 6433; do sleep 1; done" || exit 1
+          echo "Waiting for PostgreSQL (modulith + telemetry)..."
+          for port in 6433 6438; do
+            timeout 30 bash -c "until pg_isready -h localhost -p $port; do sleep 1; done" || exit 1
+          done
           echo "Waiting for Redis..."
           timeout 30 bash -c "until redis-cli -h localhost -p 6479 ping; do sleep 1; done" || exit 1
           echo "All services ready!"

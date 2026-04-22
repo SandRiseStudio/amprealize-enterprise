@@ -1296,7 +1296,11 @@ class BehaviorRetriever:
 
             query_vec = np.asarray(query_vec, dtype="float32")
         query_vec_2d = query_vec.reshape(1, -1)  # pragma: no cover
-        scores, indices = self._index.search(query_vec_2d, k)  # pragma: no cover - heavy path
+        search_result = self._index.search(query_vec_2d, k)  # pragma: no cover - heavy path
+        if not isinstance(search_result, tuple) or len(search_result) != 2:
+            logger.warning("Semantic index returned unexpected search result shape; falling back to no semantic matches")
+            return []
+        scores, indices = search_result
         scores_list = scores[0].tolist()
         index_list = indices[0].tolist()
 
