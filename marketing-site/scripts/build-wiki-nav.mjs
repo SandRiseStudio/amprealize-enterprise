@@ -64,7 +64,7 @@ function main() {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(
       outFile,
-      JSON.stringify({ domains: [], defaultDomain: 'infra', defaultPath: null }, null, 2),
+      `${JSON.stringify({ domains: [], defaultDomain: 'infra', defaultPath: null }, null, 2)}\n`,
       'utf8',
     );
     return;
@@ -97,7 +97,7 @@ function main() {
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(
     outFile,
-    JSON.stringify({ domains, defaultDomain, defaultPath }, null, 2),
+    `${JSON.stringify({ domains, defaultDomain, defaultPath }, null, 2)}\n`,
     'utf8',
   );
   console.log(`[build-wiki-nav] Wrote ${path.relative(root, outFile)} (${domains.length} domains)`);

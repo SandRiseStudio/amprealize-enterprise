@@ -316,6 +316,9 @@ jobs:
       - name: Pages deploy
         uses: cloudflare/wrangler-action@v3
         with:
+          # The repo root contains pnpm metadata for unrelated packages, which makes
+          # wrangler-action infer pnpm unless we pin npm explicitly.
+          packageManager: npm
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-

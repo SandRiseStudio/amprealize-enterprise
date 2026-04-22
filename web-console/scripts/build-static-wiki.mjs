@@ -104,7 +104,7 @@ function ensureDir(dir) {
 
 function writeJson(filePath, data) {
   ensureDir(dirname(filePath));
-  writeFileSync(filePath, JSON.stringify(data));
+  writeFileSync(filePath, `${JSON.stringify(data)}\n`);
 }
 
 function mtimeIso(filePath) {

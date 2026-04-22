@@ -46,7 +46,7 @@ jobs:
       fly_config: fly.api.toml
       pages_project: amprealize-web
       pages_branch: main
-      ghcr_image: amprealize/amprealize-api
+      ghcr_image: sandrisestudio/amprealize-api
       vite_api_base_url: https://api.amprealize.ai
       # Public wiki shell on the amprealize-web Pages project (pages.dev or custom domain).
       # Apex amprealize.ai is the Astro marketing site — smoke hits the wiki origin directly.

@@ -42,7 +42,7 @@ function main() {
   }
 
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  fs.writeFileSync(outFile, JSON.stringify({ entries }), 'utf8');
+  fs.writeFileSync(outFile, `${JSON.stringify({ entries })}\n`, 'utf8');
   console.log(`[build-wiki-search-index] Wrote ${path.relative(root, outFile)} (${entries.length} pages)`);
 }
 

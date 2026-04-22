@@ -1267,6 +1267,10 @@ def create_app(
         "/api/v1/auth/device/token",      # Device flow poll (JSON)
         "/api/v1/auth/device/lookup",     # Device code lookup for activation UI
         "/api/v1/auth/device/refresh",    # Refresh-token grant
+        "/api/v1/auth/status",            # Local token-bundle status (integration tests)
+        "/api/v1/auth/refresh",           # Local refresh alias backed by token store
+        "/api/v1/auth/token/refresh",     # Web-console refresh alias
+        "/api/v1/auth/logout",            # Local token-store cleanup endpoint
         "/api/v1/activate",          # Activation page
         "/api/v1/auth/oauth",        # OAuth flow endpoints
     }
