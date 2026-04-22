@@ -330,6 +330,8 @@ class CollaborationService:
         return CollaborationMetrics(
             workspace_id=workspace_id,
             active_collaborators=len(active_members),
+            total_members=len([m for m in self._members.values() if m.workspace_id == workspace_id]),
+            total_documents=len([d for d in self._documents.values() if d.workspace_id == workspace_id]),
             total_edits_today=len(todays_operations),
             comments_added=len(todays_comments),
             average_response_time_seconds=30.0,  # Simulated

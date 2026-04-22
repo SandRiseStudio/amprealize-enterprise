@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os as _os
+import sys as _sys
+
 # Load environment variables from .env files before anything else
 from pathlib import Path as _Path
 from dotenv import load_dotenv as _load_dotenv
@@ -13,11 +16,15 @@ for _env_file in [".env", ".env.github-oauth", ".env.google-oauth"]:
         _load_dotenv(_env_path)
 
 # Apply active context DSN(s) to environment after loading .env.
-# This overrides hardcoded localhost DSNs in .env with the active context's
-# DSN (e.g., Neon cloud DB), ensuring API services connect to the right DB.
+# In normal runtime we force the active context to win over localhost .env
+# defaults. During pytest/breakeramp runs, the test harness has already
+# prepared isolated DSNs and those must not be clobbered by a developer's
+# active local context (for example a Neon cloud DSN with sslmode=require).
 try:
     from amprealize.context import apply_context_to_environment as _apply_ctx
-    _apply_ctx(force=True)
+    _is_pytest_runtime = "pytest" in _sys.modules or "PYTEST_CURRENT_TEST" in _os.environ
+    _is_test_infra = _os.environ.get("AMPREALIZE_TEST_INFRA_MODE", "").lower() == "breakeramp"
+    _apply_ctx(force=not (_is_pytest_runtime or _is_test_infra))
 except Exception:
     pass  # Context bridge is best-effort; don't block API startup
 

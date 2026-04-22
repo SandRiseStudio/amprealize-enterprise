@@ -420,6 +420,7 @@ if [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ]; then
     unset AMPREALIZE_METRICS_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_AUTH_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_BOARD_PG_DSN 2>/dev/null || true
+    unset AMPREALIZE_REFLECTION_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_ORG_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_AGENT_REGISTRY_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN 2>/dev/null || true
@@ -574,6 +575,7 @@ export AMPREALIZE_COMPLIANCE_PG_DSN="${AMPREALIZE_COMPLIANCE_PG_DSN:-$(amprealiz
 export AMPREALIZE_AUTH_PG_DSN="${AMPREALIZE_AUTH_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
 export AMPREALIZE_TELEMETRY_PG_DSN="${AMPREALIZE_TELEMETRY_PG_DSN:-postgresql://${AMPREALIZE_PG_USER_TELEMETRY}:${AMPREALIZE_PG_PASS_TELEMETRY}@${AMPREALIZE_PG_HOST_TELEMETRY}:${AMPREALIZE_PG_PORT_TELEMETRY}/${AMPREALIZE_PG_DB_TELEMETRY}${DSN_QUERY_PARAMS}}"
 export AMPREALIZE_METRICS_PG_DSN="${AMPREALIZE_METRICS_PG_DSN:-postgresql://${AMPREALIZE_PG_USER_METRICS}:${AMPREALIZE_PG_PASS_METRICS}@${AMPREALIZE_PG_HOST_METRICS}:${AMPREALIZE_PG_PORT_METRICS}/${AMPREALIZE_PG_DB_METRICS}${DSN_QUERY_PARAMS}}"
+export AMPREALIZE_REFLECTION_PG_DSN="${AMPREALIZE_REFLECTION_PG_DSN:-$AMPREALIZE_BEHAVIOR_PG_DSN}"
 export AMPREALIZE_TRACE_ANALYSIS_PG_DSN="${AMPREALIZE_TRACE_ANALYSIS_PG_DSN:-$AMPREALIZE_BEHAVIOR_PG_DSN}"
 export AMPREALIZE_AGENTAUTH_PG_DSN="${AMPREALIZE_AGENTAUTH_PG_DSN:-$AMPREALIZE_TELEMETRY_PG_DSN}"
 export DATABASE__POSTGRES_URL="${DATABASE__POSTGRES_URL:-$AMPREALIZE_AGENTAUTH_PG_DSN}"
@@ -581,6 +583,7 @@ export AMPREALIZE_TASK_PG_DSN="${AMPREALIZE_TASK_PG_DSN:-$AMPREALIZE_TELEMETRY_P
 
 # Additional DSNs for services that share the modular monolith DB
 export AMPREALIZE_BOARD_PG_DSN="${AMPREALIZE_BOARD_PG_DSN:-$(amprealize_service_dsn BEHAVIOR board)}"
+export AMPREALIZE_COLLABORATION_PG_DSN="${AMPREALIZE_COLLABORATION_PG_DSN:-$AMPREALIZE_BOARD_PG_DSN}"
 export AMPREALIZE_ORG_PG_DSN="${AMPREALIZE_ORG_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
 export AMPREALIZE_AGENT_REGISTRY_PG_DSN="${AMPREALIZE_AGENT_REGISTRY_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
 export AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN="${AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR execution)}"
@@ -1439,6 +1442,18 @@ ensure_all_schemas() {
                 print_error "Alembic upgrade failed"
                 exit 1
             fi
+
+            # PostgresActionService still uses the dedicated `action` schema via
+            # AMPREALIZE_ACTION_PG_DSN search_path. In modular-monolith test
+            # mode, provision that schema explicitly so unqualified ActionService
+            # SQL resolves to action.actions/action.replays instead of falling
+            # through to execution.actions.
+            print_info "Applying ActionService schema migrations…"
+            if ! "$AMPREALIZE_PYTHON_BIN" "$REPO_ROOT/scripts/run_postgres_action_migration.py" >/dev/null; then
+                print_error "ActionService schema migration failed"
+                exit 1
+            fi
+
             export AMPREALIZE_ALEMBIC_SCHEMA_READY=1
         else
             # Legacy: separate Postgres per service — raw SQL migration scripts when present

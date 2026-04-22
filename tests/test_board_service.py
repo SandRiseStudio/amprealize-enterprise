@@ -13,8 +13,8 @@ Tests verify:
 Following `behavior_design_test_strategy` (Student).
 
 Infrastructure requirements:
-- PostgreSQL (WORKFLOW_DB) - port 5434 in test environment
-- Uses AMPREALIZE_WORKFLOW_PG_DSN from environment
+- PostgreSQL (board schema in modular-monolith test DB)
+- Uses AMPREALIZE_BOARD_PG_DSN from environment
 
 Run with: ./scripts/run_tests.sh --breakeramp --env test tests/test_board_service.py
 """
@@ -141,9 +141,16 @@ def _ensure_board_test_references(dsn: str) -> None:
 @pytest.fixture
 def dsn() -> str:
     """Get PostgreSQL DSN from environment."""
-    dsn = os.environ.get("AMPREALIZE_WORKFLOW_PG_DSN") or os.environ.get("AMPREALIZE_RUN_PG_DSN")
+    dsn = (
+        os.environ.get("AMPREALIZE_BOARD_PG_DSN")
+        or os.environ.get("AMPREALIZE_WORKFLOW_PG_DSN")
+        or os.environ.get("AMPREALIZE_RUN_PG_DSN")
+    )
     if not dsn:
-        pytest.skip("AMPREALIZE_WORKFLOW_PG_DSN or AMPREALIZE_RUN_PG_DSN not set; skipping PostgreSQL tests")
+        pytest.skip(
+            "AMPREALIZE_BOARD_PG_DSN, AMPREALIZE_WORKFLOW_PG_DSN, or AMPREALIZE_RUN_PG_DSN not set; "
+            "skipping PostgreSQL tests"
+        )
     return dsn
 
 

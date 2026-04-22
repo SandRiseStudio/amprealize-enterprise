@@ -85,18 +85,22 @@ def main() -> int:
 
     # Step 3b: Apply replays metadata extension migration
     migration_007_file = Path(__file__).parent.parent / "schema" / "migrations" / "007_extend_replays_metadata.sql"
-    print(f"Applying replays extension from: {migration_007_file}")
+    if migration_007_file.exists():
+        print(f"Applying replays extension from: {migration_007_file}")
 
-    try:
-        sql = load_migration(migration_007_file)
-        statements = split_sql_statements(sql)
-        print(f"  Executing {len(statements)} SQL statements...")
-        execute_statements(dsn, statements, connect_timeout=5)
-        print("✅ Replays metadata extension applied successfully")
-    except Exception as e:
-        print(f"❌ Replays extension failed: {e}")
-        return 1
-    print()
+        try:
+            sql = load_migration(migration_007_file)
+            statements = split_sql_statements(sql)
+            print(f"  Executing {len(statements)} SQL statements...")
+            execute_statements(dsn, statements, connect_timeout=5)
+            print("✅ Replays metadata extension applied successfully")
+        except Exception as e:
+            print(f"❌ Replays extension failed: {e}")
+            return 1
+        print()
+    else:
+        print(f"Skipping optional replays extension (not found): {migration_007_file}")
+        print()
 
     # Step 4: Verify tables and indexes
     print("Verifying schema objects...")

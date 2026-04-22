@@ -10,7 +10,6 @@ Note: These tests don't require database infrastructure.
 """
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -161,23 +160,17 @@ def test_write_file_no_overwrite(sample_file: Path):
     assert "overwrite" in result["error"].lower()
 
 
-@patch("amprealize.mcp.handlers.file_handlers.WriteTargetResolver")
-def test_write_file_scope_resolution(mock_resolver, temp_workspace: Path):
-    """Test write scope resolution."""
+def test_write_file_scope_resolution(temp_workspace: Path):
+    """Test inherited write scope resolves from project defaults."""
     file_path = temp_workspace / "scoped.txt"
 
-    # Mock the resolver to return local_only
-    mock_resolver_instance = MagicMock()
-    mock_resolver_instance.resolve.return_value = ["local"]
-    mock_resolver.return_value = mock_resolver_instance
-
-    # Test local_only scope (default)
     result = handle_write_file(
         None,
         {
             "path": str(file_path),
             "content": "Test",
-            "write_scope": "local_only",
+            "write_scope": "inherit",
+            "project_write_scope": "local_only",
         },
     )
 

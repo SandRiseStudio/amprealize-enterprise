@@ -211,6 +211,42 @@ class PostgresCollaborationService(CollaborationService):
                         "Collaboration tables not found. Run migration 021_create_collaboration_service.sql"
                     )
 
+    def _ensure_user_exists(
+        self,
+        conn: Any,
+        user_id: str,
+        *,
+        email: Optional[str] = None,
+        display_name: Optional[str] = None,
+    ) -> None:
+        """Ensure an auth.users row exists for collaboration FK constraints."""
+        normalized_email = email or f"{user_id}@collaboration.local"
+        normalized_name = display_name or user_id
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM auth.users WHERE id = %s", (user_id,))
+            if cur.fetchone():
+                return
+
+            cur.execute(
+                """
+                INSERT INTO auth.users (id, email, display_name, is_active, email_verified)
+                VALUES (%s, %s, %s, true, true)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (user_id, normalized_email, normalized_name),
+            )
+
+    def close(self) -> None:
+        """Release underlying storage resources."""
+        self._pool.close()
+
+    def __enter__(self) -> PostgresCollaborationService:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
     # ========================================================================
     # Workspace Operations (Override parent with persistence)
     # ========================================================================
@@ -218,11 +254,14 @@ class PostgresCollaborationService(CollaborationService):
     def create_workspace(self, request: CreateWorkspaceRequest) -> Workspace:
         """Create a new collaborative workspace with PostgreSQL persistence."""
         workspace_id = f"ws_{uuid4().hex[:12]}"
+        owner_member_id = f"mem_{uuid4().hex[:12]}"
         now = datetime.now(timezone.utc)
 
         workspace_type = "shared" if getattr(request, "is_shared", False) else "private"
 
         def _execute(conn):
+            self._ensure_user_exists(conn, request.owner_id)
+
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # Create workspace
                 cur.execute("""
@@ -245,14 +284,13 @@ class PostgresCollaborationService(CollaborationService):
                 ws_row = cur.fetchone()
 
                 # Add owner as member
-                member_id = f"mem_{uuid4().hex[:12]}"
                 cur.execute("""
                     INSERT INTO workspace_members (
                         member_id, workspace_id, user_id, role, permissions,
                         joined_at, last_active_at, is_active
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    member_id,
+                    owner_member_id,
                     workspace_id,
                     request.owner_id,
                     "owner",
@@ -283,6 +321,16 @@ class PostgresCollaborationService(CollaborationService):
         get_cache().invalidate_service(self.CACHE_SERVICE)
 
         workspace = self._row_to_workspace(row)
+        self._workspaces[workspace.workspace_id] = workspace
+        self._members[owner_member_id] = WorkspaceMember(
+            member_id=owner_member_id,
+            workspace_id=workspace.workspace_id,
+            user_id=request.owner_id,
+            role=CollaborationRole.OWNER,
+            joined_at=now,
+            last_active=now,
+            permissions=["read", "write", "admin", "invite"],
+        )
 
         self._emit_telemetry("workspace_created", {
             "workspace_id": workspace_id,
@@ -313,6 +361,7 @@ class PostgresCollaborationService(CollaborationService):
             return None
 
         workspace = self._row_to_workspace(row)
+        self._workspaces[workspace.workspace_id] = workspace
         # Cache the workspace data
         cache.set(cache_key, {
             "workspace_id": workspace.workspace_id,
@@ -347,6 +396,9 @@ class PostgresCollaborationService(CollaborationService):
         now = datetime.now(timezone.utc)
 
         def _execute(conn):
+            self._ensure_user_exists(conn, request.user_id, email=request.email)
+            self._ensure_user_exists(conn, request.invited_by)
+
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # Check workspace exists
                 cur.execute(
@@ -405,7 +457,15 @@ class PostgresCollaborationService(CollaborationService):
         row = self._pool.run_transaction("invite_user", executor=_execute)
         get_cache().invalidate_service(self.CACHE_SERVICE)
 
-        return self._row_to_member(row)
+        member = self._row_to_member(row)
+        self._members[member.member_id] = member
+
+        workspace = self._workspaces.get(request.workspace_id)
+        if workspace is not None:
+            workspace.member_count += 1
+            workspace.updated_at = now
+
+        return member
 
     # ========================================================================
     # Document Operations
@@ -417,6 +477,8 @@ class PostgresCollaborationService(CollaborationService):
         now = datetime.now(timezone.utc)
 
         def _execute(conn):
+            self._ensure_user_exists(conn, request.created_by)
+
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # Check workspace exists
                 cur.execute(
@@ -487,6 +549,7 @@ class PostgresCollaborationService(CollaborationService):
         get_cache().invalidate_service(self.CACHE_SERVICE)
 
         document = self._row_to_document(row)
+        self._documents[document.document_id] = document
 
         self._emit_telemetry("document_created", {
             "document_id": document_id,
@@ -517,6 +580,7 @@ class PostgresCollaborationService(CollaborationService):
             return None
 
         document = self._row_to_document(row)
+        self._documents[document.document_id] = document
         return document
 
     def get_workspace_documents(self, workspace_id: str) -> List[Document]:
@@ -543,6 +607,8 @@ class PostgresCollaborationService(CollaborationService):
         now = datetime.now(timezone.utc)
 
         def _execute(conn):
+            self._ensure_user_exists(conn, edited_by)
+
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # Get current version
                 cur.execute(
@@ -586,7 +652,9 @@ class PostgresCollaborationService(CollaborationService):
         row = self._pool.run_transaction("update_document", executor=_execute)
         get_cache().delete(f"document:{document_id}")
 
-        return self._row_to_document(row)
+        document = self._row_to_document(row)
+        self._documents[document.document_id] = document
+        return document
 
     def get_document_versions(
         self,
@@ -639,6 +707,8 @@ class PostgresCollaborationService(CollaborationService):
         color = self._get_user_color(user_id)
 
         def _execute(conn):
+            self._ensure_user_exists(conn, user_id)
+
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # Upsert cursor position
                 cur.execute("""
@@ -781,6 +851,10 @@ class PostgresCollaborationService(CollaborationService):
 
         if result:
             get_cache().delete(f"document:{document_id}")
+            document = self._documents.get(document_id)
+            if document is not None:
+                document.is_locked = True
+                document.lock_owner = user_id
             self._logger.info(f"Document {document_id} locked by {user_id}")
 
         return result
@@ -800,6 +874,10 @@ class PostgresCollaborationService(CollaborationService):
 
         if result:
             get_cache().delete(f"document:{document_id}")
+            document = self._documents.get(document_id)
+            if document is not None:
+                document.is_locked = False
+                document.lock_owner = None
             self._logger.info(f"Document {document_id} unlocked by {user_id}")
 
         return result
@@ -846,6 +924,8 @@ class PostgresCollaborationService(CollaborationService):
         now = datetime.now(timezone.utc)
 
         def _execute(conn):
+            self._ensure_user_exists(conn, user_id)
+
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO collaboration_events (
@@ -895,6 +975,13 @@ class PostgresCollaborationService(CollaborationService):
                 """, (workspace_id,))
                 total_members = cur.fetchone()["count"]
 
+                # Total documents
+                cur.execute("""
+                    SELECT COUNT(*) FROM collaboration_documents
+                    WHERE workspace_id = %s
+                """, (workspace_id,))
+                total_documents = cur.fetchone()["count"]
+
                 # Edits today
                 cur.execute("""
                     SELECT COUNT(*) FROM collaboration_events
@@ -933,6 +1020,8 @@ class PostgresCollaborationService(CollaborationService):
         return CollaborationMetrics(
             workspace_id=workspace_id,
             active_collaborators=active_count,
+            total_members=total_members,
+            total_documents=total_documents,
             total_edits_today=edits_today,
             comments_added=comments_today,
             average_response_time_seconds=30.0,  # Would need more data to calculate

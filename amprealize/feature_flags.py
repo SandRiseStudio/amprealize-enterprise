@@ -160,7 +160,18 @@ _E4_FLAGS: List[FeatureFlag] = [
     ),
 ]
 
-DEFAULT_FLAGS: List[FeatureFlag] = _MIGRATED_FLAGS + _E4_FLAGS
+# Whiteboard flags.
+_WHITEBOARD_FLAGS: List[FeatureFlag] = [
+    FeatureFlag(
+        name="feature.whiteboard",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "false").lower() == "true",
+        description="Enable collaborative brainstorm whiteboard canvas",
+        metadata={"work_item": "GUIDEAI-971"},
+    ),
+]
+
+DEFAULT_FLAGS: List[FeatureFlag] = _MIGRATED_FLAGS + _E4_FLAGS + _WHITEBOARD_FLAGS
 
 
 # ---------------------------------------------------------------------------

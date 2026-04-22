@@ -1,7 +1,7 @@
 """Data contracts for Collaboration Features - shared workspaces and real-time co-editing."""
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -124,6 +124,15 @@ class Document:
         if not hasattr(self, 'metadata') or not self.metadata:
             self.metadata = {}
 
+    @property
+    def doc_type(self) -> str:
+        """Backward-compatible alias for older callers/tests."""
+        return self.document_type
+
+    @doc_type.setter
+    def doc_type(self, value: str) -> None:
+        self.document_type = value
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "document_id": self.document_id,
@@ -230,8 +239,8 @@ class ActivityLog:
 class CreateWorkspaceRequest:
     """Request to create a new workspace."""
     name: str
-    description: str
     owner_id: str
+    description: str = ""
     settings: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     is_shared: bool = False
@@ -243,8 +252,9 @@ class InviteUserRequest:
     workspace_id: str
     user_id: str
     role: CollaborationRole
-    permissions: List[str]
-    invited_by: str
+    permissions: List[str] = field(default_factory=list)
+    invited_by: str = "system"
+    email: Optional[str] = None
 
 
 @dataclass
@@ -253,9 +263,23 @@ class CreateDocumentRequest:
     workspace_id: str
     title: str
     content: str
-    document_type: str
-    created_by: str
+    document_type: Optional[str] = None
+    created_by: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    doc_type: Optional[str] = None
+    creator_id: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.doc_type and not self.document_type:
+            self.document_type = self.doc_type.value if hasattr(self.doc_type, "value") else self.doc_type
+        if self.creator_id and not self.created_by:
+            self.created_by = self.creator_id
+        if hasattr(self.document_type, "value"):
+            self.document_type = self.document_type.value
+        if not self.document_type:
+            self.document_type = "markdown"
+        if not self.created_by:
+            raise ValueError("created_by is required")
 
 
 @dataclass
@@ -266,7 +290,7 @@ class RealTimeEditRequest:
     operation_type: EditOperationType
     position: int
     content: str
-    version: int
+    version: int = 0
     session_id: Optional[str] = None
 
 
@@ -307,6 +331,8 @@ class CollaborationMetrics:
     """Metrics for collaboration performance and usage."""
     workspace_id: str
     active_collaborators: int
+    total_members: int
+    total_documents: int
     total_edits_today: int
     comments_added: int
     average_response_time_seconds: float
@@ -318,6 +344,8 @@ class CollaborationMetrics:
         return {
             "workspace_id": self.workspace_id,
             "active_collaborators": self.active_collaborators,
+            "total_members": self.total_members,
+            "total_documents": self.total_documents,
             "total_edits_today": self.total_edits_today,
             "comments_added": self.comments_added,
             "average_response_time_seconds": self.average_response_time_seconds,

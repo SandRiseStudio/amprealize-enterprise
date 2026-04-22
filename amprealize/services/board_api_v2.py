@@ -279,6 +279,18 @@ def create_board_routes(
             item_id, org_id=org_id, project_id=project_id,
         )
 
+    def _normalize_work_item(item: Any) -> WorkItem:
+        """Normalize service-layer work items into this router's contract model."""
+        if isinstance(item, WorkItem):
+            return item
+        if hasattr(item, "model_dump"):
+            return WorkItem.model_validate(item.model_dump(by_alias=True))
+        return WorkItem.model_validate(item, from_attributes=True)
+
+    def _normalize_work_items(items: List[Any]) -> List[WorkItem]:
+        """Normalize collections of work items for response validation."""
+        return [_normalize_work_item(item) for item in items]
+
     def _post_comment_with_author_type(
         *,
         work_item_id: str,
@@ -539,7 +551,7 @@ def create_board_routes(
         # GWS title validation is enforced by BoardService.create_work_item()
         try:
             item = board_service.create_work_item(body, actor, org_id=org_id)
-            return WorkItemResponse(item=item)
+            return WorkItemResponse(item=_normalize_work_item(item))
         except BoardNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         except WorkItemNotFoundError as e:
@@ -616,7 +628,7 @@ def create_board_routes(
         has_more = offset + len(items) < total
 
         return WorkItemListResponse(
-            items=items,
+            items=_normalize_work_items(items),
             total=total,
             page=offset // limit + 1 if limit else 1,
             page_size=limit,
@@ -640,7 +652,7 @@ def create_board_routes(
         missing_ids = [item_id for item_id in body.item_ids if item_id not in found_ids]
 
         return WorkItemBatchResponse(
-            items=items,
+            items=_normalize_work_items(items),
             total=len(items),
             missing_ids=missing_ids,
         )
@@ -660,7 +672,7 @@ def create_board_routes(
 
         try:
             item = board_service.get_work_item(item_id, org_id=org_id)
-            return WorkItemResponse(item=item)
+            return WorkItemResponse(item=_normalize_work_item(item))
         except WorkItemNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -690,7 +702,7 @@ def create_board_routes(
                 offset=offset,
             )
             return WorkItemListResponse(
-                items=items,
+                items=_normalize_work_items(items),
                 total=len(items),
                 page=offset // limit + 1 if limit else 1,
                 page_size=limit,
@@ -776,7 +788,7 @@ def create_board_routes(
         # GWS title validation is enforced by BoardService.update_work_item()
         try:
             item = board_service.update_work_item(item_id, body, actor, org_id=org_id)
-            return WorkItemResponse(item=item)
+            return WorkItemResponse(item=_normalize_work_item(item))
         except WorkItemNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         except WorkItemTransitionError as e:
@@ -830,7 +842,7 @@ def create_board_routes(
 
         try:
             item = board_service.move_work_item(item_id, body, actor, org_id=org_id)
-            return WorkItemResponse(item=item)
+            return WorkItemResponse(item=_normalize_work_item(item))
         except WorkItemNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         except ColumnNotFoundError as e:
@@ -930,7 +942,7 @@ def create_board_routes(
         try:
             item = board_service.assign_work_item(item_id, body, actor, org_id=org_id)
             return AssignmentResponse(
-                item=item,
+                item=_normalize_work_item(item),
                 message=f"Assigned to {body.assignee_type.value} {body.assignee_id}",
             )
         except WorkItemNotFoundError as e:
@@ -961,7 +973,7 @@ def create_board_routes(
 
         try:
             item = board_service.unassign_work_item(item_id, actor, reason=reason, org_id=org_id)
-            return AssignmentResponse(item=item, message="Work item unassigned")
+            return AssignmentResponse(item=_normalize_work_item(item), message="Work item unassigned")
         except WorkItemNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         except BoardServiceError as e:

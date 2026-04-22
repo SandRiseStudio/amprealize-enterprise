@@ -765,6 +765,37 @@ def _run_legacy_per_service_migration_scripts() -> None:
                 )
 
 
+def _run_action_schema_migration_script() -> None:
+    """Ensure the dedicated action schema exists for PostgresActionService.
+
+    In modular-monolith test mode the ActionService still uses the legacy
+    ``action`` schema via ``AMPREALIZE_ACTION_PG_DSN`` search_path. Alembic does
+    not always provision that schema in the active revision chain, so run the
+    canonical action migration script explicitly.
+    """
+    import subprocess
+
+    script = REPO_ROOT / "scripts" / "run_postgres_action_migration.py"
+    if not script.is_file():
+        return
+
+    try:
+        subprocess.run(
+            [sys.executable, str(script)],
+            env=os.environ.copy(),
+            check=True,
+            timeout=120,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        combined = "\n".join(x for x in (e.stderr, e.stdout) if x).strip() or "(no output)"
+        pytest.exit(
+            f"Failed to initialize ActionService schema:\n{combined}",
+            returncode=1,
+        )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def initialize_test_schemas(request):
     """Ensure Postgres schemas exist once per session (Alembic or legacy SQL scripts).
@@ -818,6 +849,8 @@ def initialize_test_schemas(request):
             f"Alembic upgrade failed:\n{combined}",
             returncode=1,
         )
+
+    _run_action_schema_migration_script()
 
 
 @pytest.fixture(scope="session", autouse=True)

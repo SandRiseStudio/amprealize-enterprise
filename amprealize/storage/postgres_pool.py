@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
+from urllib.parse import parse_qs, unquote_plus, urlparse
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -32,6 +33,43 @@ _APP_SEARCH_PATH = "board, auth, execution, behavior, workflow, consent, complia
 
 _POOL_CACHE: Dict[Tuple[str, int, int, int, int, int], Engine] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def _dsn_search_path(dsn: str) -> Optional[str]:
+    """Extract an explicit search_path from a DSN's options query parameter.
+
+    Service-specific DSNs often encode PostgreSQL startup options like
+    ``options=-csearch_path=action,execution,public``. When present, that
+    search_path should take precedence over the generic application default.
+    """
+
+    parsed = urlparse(dsn)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    option_values = query.get("options") or []
+
+    for raw_option in option_values:
+        decoded = unquote_plus(raw_option)
+        for token in decoded.split("-c"):
+            token = token.strip()
+            if not token.startswith("search_path="):
+                continue
+
+            value = token.split("=", 1)[1].strip()
+            if not value:
+                continue
+
+            # Keep only simple schema identifiers and commas/spaces to avoid
+            # executing arbitrary SQL via DSN-provided options.
+            schemas = []
+            for schema in value.split(","):
+                cleaned = schema.strip()
+                if cleaned and all(ch.isalnum() or ch == "_" for ch in cleaned):
+                    schemas.append(cleaned)
+
+            if schemas:
+                return ", ".join(schemas)
+
+    return None
 
 
 def _int_env(name: str, default: int) -> int:
@@ -88,6 +126,7 @@ def _get_engine(dsn: str) -> Engine:
         engine = _POOL_CACHE.get(key)
         if engine is None:
             pool_size, max_overflow, pool_timeout, pool_recycle, connect_timeout = config
+            search_path = _dsn_search_path(dsn) or _APP_SEARCH_PATH
             engine = create_engine(
                 dsn,
                 pool_size=pool_size,
@@ -105,7 +144,7 @@ def _get_engine(dsn: str) -> Engine:
             @event.listens_for(engine, "connect")
             def _set_search_path(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
-                cursor.execute(f"SET search_path = {_APP_SEARCH_PATH}")
+                cursor.execute(f"SET search_path = {search_path}")
                 cursor.close()
                 dbapi_conn.commit()
 

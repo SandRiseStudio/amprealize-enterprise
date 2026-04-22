@@ -6,7 +6,9 @@ regardless of which surface invokes them (CLI, REST API, MCP tools).
 
 from __future__ import annotations
 
+import fcntl
 import os
+from pathlib import Path
 from typing import Any, Dict, Generator
 
 try:
@@ -25,12 +27,30 @@ from amprealize.workflow_service import WorkflowService
 
 
 NONEXISTENT_TEMPLATE_ID = "00000000-0000-0000-0000-000000000001"
+_WORKFLOW_TEST_LOCK = Path("/tmp/amprealize-workflow-tests.lock")
+
+
+class _WorkflowTestLock:
+    """Serialize workflow DB tests across xdist workers.
+
+    These tests truncate shared workflow tables, so they must not overlap with
+    other workflow test modules that do the same cleanup in parallel workers.
+    """
+
+    def __enter__(self) -> None:
+        _WORKFLOW_TEST_LOCK.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = _WORKFLOW_TEST_LOCK.open("w")
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
 
 
 def _truncate_workflow_tables(dsn: str) -> None:
     """Clear workflow tables to maintain test isolation."""
     from conftest import safe_truncate
-    safe_truncate(dsn, ["workflow_runs", "workflow_templates"])
+    safe_truncate(dsn, ["workflow_runs", "workflow_template_versions", "workflow_templates"])
 
 
 @pytest.fixture
@@ -40,16 +60,21 @@ def workflow_service() -> Generator[WorkflowService, None, None]:
     if not dsn:
         pytest.skip("AMPREALIZE_WORKFLOW_PG_DSN not set; skipping PostgreSQL parity tests")
 
-    _truncate_workflow_tables(dsn)
-    service = WorkflowService(dsn=dsn)
+    from amprealize.storage.redis_cache import get_cache
 
-    try:
-        yield service
-    finally:
+    with _WorkflowTestLock():
         _truncate_workflow_tables(dsn)
-        conn = getattr(service, "_conn", None)
-        if conn is not None and getattr(conn, "closed", 1) == 0:
-            conn.close()
+        get_cache().invalidate_service("workflow")
+        service = WorkflowService(dsn=dsn)
+
+        try:
+            yield service
+        finally:
+            _truncate_workflow_tables(dsn)
+            get_cache().invalidate_service("workflow")
+            conn = getattr(service, "_conn", None)
+            if conn is not None and getattr(conn, "closed", 1) == 0:
+                conn.close()
 
 
 @pytest.fixture

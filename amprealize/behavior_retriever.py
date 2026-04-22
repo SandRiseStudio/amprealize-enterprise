@@ -7,6 +7,7 @@ import importlib.util
 import json
 import logging
 import os
+import sys
 import threading
 import time
 from dataclasses import replace
@@ -21,7 +22,11 @@ from typing import Any, Dict, List, Optional, Sequence
 # so the API starts in <1 s without pulling gigabytes of weights into memory.
 # ---------------------------------------------------------------------------
 def _pkg_available(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ValueError, AttributeError):
+        module = sys.modules.get(name)
+        return module is not None
 
 _NUMPY_AVAILABLE = _pkg_available("numpy")
 _SENTENCE_TRANSFORMERS_AVAILABLE = _pkg_available("sentence_transformers")

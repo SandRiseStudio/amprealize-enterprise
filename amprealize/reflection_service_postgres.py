@@ -217,6 +217,26 @@ class PostgresReflectionService(ReflectionService):
                         "Reflection tables not found. Run migration 020_create_reflection_service.sql"
                     )
 
+    @staticmethod
+    def _decode_json_value(value: Any) -> Any:
+        """Normalize JSON/JSONB values returned by psycopg.
+
+        PostgreSQL JSONB columns may come back as already-decoded Python
+        objects (for example dict/list) or as serialized JSON strings,
+        depending on driver/cursor configuration. Accept both forms.
+        """
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, (str, bytes, bytearray)):
+            return json.loads(value)
+        return value
+
+    def close(self) -> None:
+        """Release underlying storage resources."""
+        self._pool.close()
+
     # ========================================================================
     # Override reflect() to persist results
     # ========================================================================
@@ -568,7 +588,11 @@ class PostgresReflectionService(ReflectionService):
                     (candidate_id,)
                 )
                 existing = cur.fetchone()
-                metadata = json.loads(existing["metadata"]) if existing and existing["metadata"] else {}
+                metadata = (
+                    self._decode_json_value(existing["metadata"])
+                    if existing and existing["metadata"]
+                    else {}
+                )
                 if reason:
                     metadata["rejection_reason"] = reason
 
@@ -795,8 +819,8 @@ class PostgresReflectionService(ReflectionService):
             description=row["description"],
             frequency=row.get("frequency", 1),
             confidence=float(row.get("confidence", 0.5)),
-            context=json.loads(row["context"]) if row.get("context") else None,
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            context=self._decode_json_value(row.get("context")),
+            metadata=self._decode_json_value(row.get("metadata")),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -814,14 +838,11 @@ class PostgresReflectionService(ReflectionService):
             status=row.get("status", "proposed"),
             role=row.get("role", "student"),
             keywords=row.get("keywords") or [],
-            historical_validation=(
-                json.loads(row["historical_validation"])
-                if row.get("historical_validation") else None
-            ),
+            historical_validation=self._decode_json_value(row.get("historical_validation")),
             reviewed_by=row.get("reviewed_by"),
             reviewed_at=row.get("reviewed_at"),
             merged_behavior_id=row.get("merged_behavior_id"),
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            metadata=self._decode_json_value(row.get("metadata")),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -838,7 +859,7 @@ class PostgresReflectionService(ReflectionService):
             file_path=row.get("file_path"),
             line_range=row.get("line_range"),
             observed_at=row["observed_at"],
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            metadata=self._decode_json_value(row.get("metadata")),
         )
 
 

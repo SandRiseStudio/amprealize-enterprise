@@ -8,6 +8,8 @@ Validates:
 - Role-specific execution paths
 """
 
+import fcntl
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,6 +23,22 @@ from amprealize.workflow_service import (
 )
 from amprealize.behavior_service import BehaviorService
 from amprealize.adapters import CLIWorkflowServiceAdapter
+
+
+_WORKFLOW_TEST_LOCK = Path("/tmp/amprealize-workflow-tests.lock")
+
+
+class _WorkflowTestLock:
+    """Serialize workflow DB tests across xdist workers."""
+
+    def __enter__(self) -> None:
+        _WORKFLOW_TEST_LOCK.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = _WORKFLOW_TEST_LOCK.open("w")
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
 
 
 @pytest.fixture
@@ -43,12 +61,13 @@ def clean_workflow_db(postgres_dsn_workflow):
     from conftest import safe_truncate
     from amprealize.storage.redis_cache import get_cache
 
-    safe_truncate(postgres_dsn_workflow, ["workflow_runs", "workflow_template_versions", "workflow_templates"])
+    with _WorkflowTestLock():
+        safe_truncate(postgres_dsn_workflow, ["workflow_runs", "workflow_template_versions", "workflow_templates"])
 
-    cache = get_cache()
-    cache.invalidate_service("workflow")
-    yield
-    cache.invalidate_service("workflow")
+        cache = get_cache()
+        cache.invalidate_service("workflow")
+        yield
+        cache.invalidate_service("workflow")
 
 
 @pytest.fixture

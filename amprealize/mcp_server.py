@@ -53,10 +53,14 @@ from typing import Any, Dict, List, Literal, Optional, Set, TYPE_CHECKING, Union
 from .mcp_tools_dir import get_mcp_tools_directory
 
 # Apply active context DSN(s) to environment early, before any service reads
-# env vars. This ensures MCP server respects ``amprealize context use <name>``.
+# env vars. During pytest/breakeramp runs, preserve the isolated DSNs that the
+# test harness already configured instead of force-overwriting them with a
+# developer's active context.
 try:
     from .context import apply_context_to_environment as _apply_ctx
-    _apply_ctx(force=True)
+    _is_pytest_runtime = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
+    _is_test_infra = os.environ.get("AMPREALIZE_TEST_INFRA_MODE", "").lower() == "breakeramp"
+    _apply_ctx(force=not (_is_pytest_runtime or _is_test_infra))
 except Exception as _ctx_exc:
     import sys as _sys
     print(f"[mcp_server] context bridge failed: {_ctx_exc}", file=_sys.stderr)

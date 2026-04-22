@@ -434,12 +434,46 @@ class BCIService:
         if request.format == TraceFormat.JSON_STEPS:
             try:
                 parsed = json.loads(request.trace_text)
+                if isinstance(parsed, dict):
+                    parsed = (
+                        parsed.get("steps")
+                        or parsed.get("entries")
+                        or parsed.get("events")
+                        or parsed.get("items")
+                        or [parsed]
+                    )
+                if not isinstance(parsed, list):
+                    parsed = [parsed]
                 steps = [
-                    TraceStep(index=index, text=item.get("text", json.dumps(item)), metadata={k: v for k, v in item.items() if k != "text"})
+                    TraceStep(
+                        index=index,
+                        text=(
+                            item.get("text")
+                            if isinstance(item, dict) and item.get("text")
+                            else (
+                                ": ".join(
+                                    part
+                                    for part in (
+                                        item.get("action"),
+                                        item.get("result"),
+                                    )
+                                    if part
+                                )
+                                if isinstance(item, dict)
+                                else str(item)
+                            )
+                        )
+                        or (json.dumps(item) if isinstance(item, dict) else str(item)),
+                        metadata=(
+                            {k: v for k, v in item.items() if k != "text"}
+                            if isinstance(item, dict)
+                            else None
+                        ),
+                    )
                     for index, item in enumerate(parsed)
                 ]
                 return SegmentTraceResponse(steps=steps)
-            except json.JSONDecodeError:
+            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
                 pass  # Fall back to manual parsing
         if request.format == TraceFormat.PLAN_MARKDOWN:
             lines = [line.strip("- ") for line in request.trace_text.splitlines() if line.strip()]

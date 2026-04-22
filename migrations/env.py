@@ -27,7 +27,14 @@ import sys
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool, text
-from alembic import context
+
+# Tests may inject a lightweight ``alembic.context`` mock directly into
+# ``sys.modules`` so this module can be imported without booting the entire
+# Alembic runtime. Prefer that injected module when present.
+if "alembic.context" in sys.modules:
+    context = sys.modules["alembic.context"]
+else:
+    from alembic import context
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

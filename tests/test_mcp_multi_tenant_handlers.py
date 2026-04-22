@@ -54,7 +54,6 @@ from amprealize.mcp.handlers.project_handlers import (
     handle_update_project,
     handle_delete_project,
     handle_archive_project,
-    handle_get_usage,
 )
 
 from amprealize.mcp.handlers.org_agent_handlers import (
@@ -978,7 +977,7 @@ class TestBillingHandlers:
             "agents": 5,
         }
 
-        result = await handle_get_usage(
+        result = await handle_get_billing_usage(
             mock_billing_service,
             {
                 "user_id": "user-123",
