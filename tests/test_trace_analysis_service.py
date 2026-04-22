@@ -644,7 +644,7 @@ class TestStorageIntegration:
         job = ExtractionJob(
             job_id=str(uuid.uuid4()),
             status=ExtractionJobStatus.PENDING,
-            start_time=datetime.now(UTC).isoformat(),
+            start_time=datetime.now(timezone.utc).isoformat(),
             metadata={"test": "data"},
         )
 
@@ -673,7 +673,7 @@ class TestStorageIntegration:
             runs_analyzed=100,
             patterns_found=15,
             candidates_generated=5,
-            end_time=datetime.now(UTC).isoformat(),
+            end_time=datetime.now(timezone.utc).isoformat(),
         )
         completed = postgres_storage.get_extraction_job(job_id)
 
@@ -690,8 +690,8 @@ class TestStorageIntegration:
             pattern_id=str(uuid.uuid4()),
             sequence=["Test step 1", "Test step 2"],
             frequency=5,
-            first_seen=datetime.now(UTC).isoformat(),
-            last_seen=datetime.now(UTC).isoformat(),
+            first_seen=datetime.now(timezone.utc).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=[str(uuid.uuid4()) for _ in range(5)],
             metadata={},
         )
@@ -709,7 +709,7 @@ class TestStorageIntegration:
             sequence=pattern.sequence,
             frequency=10,  # Updated frequency
             first_seen=pattern.first_seen,
-            last_seen=datetime.now(UTC).isoformat(),
+            last_seen=datetime.now(timezone.utc).isoformat(),
             extracted_from_runs=pattern.extracted_from_runs + [str(uuid.uuid4()) for _ in range(5)],
             metadata=pattern.metadata,
         )
