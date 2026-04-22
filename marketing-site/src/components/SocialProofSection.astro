@@ -1,42 +1,63 @@
-<section class="section" aria-label="Social proof">
-  <div class="container">
-    <div class="card" data-animate>
-      <p class="quote">
-        “Amprealize made our agent work feel cumulative. We stopped re-learning the same lessons every run.”
+---
+---
+
+<section class="proof" aria-label="Social proof">
+  <figure class="proof-quote" data-animate>
+    <blockquote cite="https://amprealize.ai">
+      <p>
+        Amprealize made our agent work feel cumulative. We stopped re-learning the same lessons every run.
       </p>
-      <p class="byline">— Private preview user</p>
-    </div>
-  </div>
+    </blockquote>
+    <figcaption>Private preview user</figcaption>
+  </figure>
 </section>
 
 <style>
-  .section {
+  .proof {
     width: 100%;
-    padding-top: var(--space-12);
+    padding-top: var(--landing-section-y, clamp(48px, 7vw, 88px));
   }
-  .container {
-    width: 100%;
-    max-width: var(--content-max);
-  }
-  .card {
-    border-radius: var(--radius-2xl);
-    border: 1px solid var(--color-border-subtle);
-    background: rgba(255, 255, 255, 0.64);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    padding: var(--space-10);
-  }
-  .quote {
+
+  .proof-quote {
     margin: 0;
-    font-size: clamp(1.05rem, 1.8vw, 1.25rem);
-    letter-spacing: -0.02em;
-    line-height: 1.4;
-    color: var(--color-text-primary);
-    max-width: 70ch;
+    padding: var(--space-8) var(--space-8) var(--space-8) var(--space-7);
+    border-left: 4px solid var(--color-accent);
+    border-radius: 0 var(--radius-2xl) var(--radius-2xl) 0;
+    background: rgba(255, 255, 255, 0.55);
+    border-top: 1px solid var(--color-border-subtle);
+    border-right: 1px solid var(--color-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
   }
-  .byline {
-    margin: var(--space-4) 0 0;
-    color: var(--color-text-tertiary);
+
+  .proof-quote blockquote {
+    margin: 0;
+    padding: 0;
+  }
+
+  .proof-quote blockquote p {
+    margin: 0;
+    font-size: clamp(1.2rem, 2vw + 0.6rem, 1.65rem);
+    letter-spacing: -0.025em;
+    line-height: 1.35;
+    font-weight: var(--font-semibold);
+    color: var(--color-text-primary);
+    max-width: 36rem;
+  }
+
+  .proof-quote figcaption {
+    margin-top: var(--space-5);
     font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    color: var(--color-text-tertiary);
+  }
+
+  .proof-quote figcaption::before {
+    content: '— ';
+  }
+
+  @media (max-width: 520px) {
+    .proof-quote {
+      padding: var(--space-6);
+    }
   }
 </style>

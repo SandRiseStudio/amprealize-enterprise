@@ -1,122 +1,221 @@
-<section class="section" id="features">
-  <div class="container">
-    <header class="header" data-animate>
-      <h2>Built for behavioral leverage</h2>
-      <p>
-        Capture what works, coordinate agents, and reuse behaviors across teams — with a design that stays calm under load.
-      </p>
-    </header>
+---
+---
 
-    <div class="grid" data-animate style="transition-delay: 60ms">
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">◎</div>
+<section class="features" id="features" aria-labelledby="features-heading">
+  <header class="features-head" data-animate>
+    <p class="kicker">Product</p>
+    <h2 id="features-heading">Built for behavioral leverage</h2>
+    <p class="sub">
+      Capture what works, coordinate agents, and reuse behaviors across teams — with a design that stays calm under load.
+    </p>
+  </header>
+
+  <div class="bento" data-animate style="transition-delay: 60ms">
+    <article class="tile tile--wide pressable">
+      <div class="tile-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M12 4v4M12 16v4M4 12h4M16 12h4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+          <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.75"></circle>
+        </svg>
+      </div>
+      <div class="tile-body">
         <h3>Capture behaviors from traces</h3>
         <p>Extract patterns that work from any reasoning run — then turn them into reusable building blocks.</p>
-      </article>
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">⟡</div>
-        <h3>Coordinate agents as a team</h3>
-        <p>Projects, boards, and role-scoped behaviors that keep execution aligned without micromanagement.</p>
-      </article>
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">⎔</div>
-        <h3>Reuse what works</h3>
-        <p>A behavior library you can version, fork, and compose across projects — the same way you treat code.</p>
-      </article>
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">≋</div>
-        <h3>Cut inference spend</h3>
-        <p>Behavioral playbooks reduce redundant exploration and keep agents from repeating expensive dead-ends.</p>
-      </article>
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">⌁</div>
-        <h3>MCP-native from day one</h3>
-        <p>Every agent action has an equivalent tool call — automation and auditability are first-class.</p>
-      </article>
-      <article class="card pressable">
-        <div class="icon" aria-hidden="true">⌘</div>
-        <h3>Works with your IDE</h3>
-        <p>Use it from the CLI, VS Code, or API — and keep the tight loop you already like.</p>
-      </article>
-    </div>
+      </div>
+    </article>
+
+    <article class="tile pressable">
+      <div class="tile-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M7 8h10M7 12h6M7 16h8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+          <rect x="4.5" y="5" width="15" height="14" rx="2" stroke="currentColor" stroke-width="1.75"></rect>
+        </svg>
+      </div>
+      <h3>Coordinate agents as a team</h3>
+      <p>Projects, boards, and role-scoped behaviors that keep execution aligned without micromanagement.</p>
+    </article>
+
+    <article class="tile pressable">
+      <div class="tile-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M8 8h8v8H8V8Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+          <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <h3>Reuse what works</h3>
+      <p>A behavior library you can version, fork, and compose across projects — the same way you treat code.</p>
+    </article>
+
+    <article class="tile pressable">
+      <div class="tile-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M6 16c2-4 4-6 6-6s4 2 6 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+          <path d="M8 18h8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <h3>Cut inference spend</h3>
+      <p>Behavioral playbooks reduce redundant exploration and keep agents from repeating expensive dead-ends.</p>
+    </article>
+
+    <article class="tile tile--accent pressable">
+      <div class="tile-icon tile-icon--invert" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M6 7h12M6 12h8M6 17h10" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
+          <path d="M9 4.5h6l1.5 2v13H7.5v-13L9 4.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+        </svg>
+      </div>
+      <h3>MCP-native from day one</h3>
+      <p>Every agent action has an equivalent tool call — automation and auditability are first-class.</p>
+    </article>
+
+    <article class="tile pressable">
+      <div class="tile-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M8 6.5h8v11H8v-11Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"></path>
+          <path d="M10 9h4M10 12h4M10 15h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <h3>Works with your IDE</h3>
+      <p>Use it from the CLI, VS Code, or API — and keep the tight loop you already like.</p>
+    </article>
   </div>
 </section>
 
 <style>
-  .section {
+  .features {
     width: 100%;
-    padding-top: var(--space-12);
+    padding-top: var(--landing-section-y, clamp(48px, 7vw, 88px));
   }
-  .container {
-    width: 100%;
-    max-width: var(--content-max);
+
+  .features-head {
+    max-width: 40rem;
+    margin-bottom: var(--space-8);
   }
-  .header h2 {
+
+  .kicker {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: var(--font-bold);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+  }
+
+  .features-head h2 {
     margin: 0 0 var(--space-3);
-    letter-spacing: -0.03em;
-    font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+    letter-spacing: -0.035em;
+    font-size: clamp(1.65rem, 2.4vw + 0.5rem, 2.35rem);
     line-height: var(--leading-tight);
+    font-weight: var(--font-bold);
   }
-  .header p {
+
+  .sub {
     margin: 0;
     color: var(--color-text-secondary);
-    max-width: 72ch;
     font-size: var(--text-lg);
+    line-height: var(--leading-relaxed);
   }
-  .grid {
-    margin-top: var(--space-8);
+
+  .bento {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: var(--space-4);
   }
-  .card {
+
+  .tile {
+    grid-column: span 4;
     border-radius: var(--radius-2xl);
     border: 1px solid rgba(70, 108, 140, 0.18);
     background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
     padding: var(--space-6);
+    display: grid;
+    gap: var(--space-3);
+    align-content: start;
+    min-height: 0;
     transition:
       transform var(--duration-normal) var(--ease-spring-gentle),
       border-color var(--duration-normal) var(--ease-out-quart),
       background var(--duration-normal) var(--ease-out-quart);
     will-change: transform;
   }
-  .card:hover {
-    transform: translateY(-3px);
+
+  .tile:hover {
+    transform: translateY(-2px);
     border-color: var(--color-border-hover);
-    background: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.86);
   }
-  .icon {
-    width: 38px;
-    height: 38px;
+
+  .tile--accent:hover {
+    background: rgba(34, 118, 210, 0.12);
+  }
+
+  .tile--wide {
+    grid-column: span 8;
+    grid-row: span 1;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  .tile--accent {
+    border-color: rgba(34, 118, 210, 0.35);
+    background: rgba(34, 118, 210, 0.08);
+  }
+
+  .tile-icon {
+    width: 44px;
+    height: 44px;
     display: grid;
     place-items: center;
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border-subtle);
-    background: rgba(255, 255, 255, 0.7);
-    color: var(--color-accent-secondary);
-    font-weight: var(--font-bold);
-    margin-bottom: var(--space-4);
-    user-select: none;
+    background: rgba(34, 118, 210, 0.1);
+    color: var(--color-accent);
+    flex-shrink: 0;
   }
-  h3 {
+
+  .tile-icon--invert {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+  }
+
+  .tile-body {
+    min-width: 0;
+  }
+
+  .tile h3 {
     margin: 0 0 var(--space-2);
     letter-spacing: -0.02em;
-    font-size: 1.02rem;
+    font-size: 1.05rem;
+    font-weight: var(--font-semibold);
   }
-  .card p {
+
+  .tile p {
     margin: 0;
     color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.58;
   }
-  @media (max-width: 980px) {
-    .grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+
+  @media (max-width: 1024px) {
+    .tile,
+    .tile--wide {
+      grid-column: span 6;
+    }
+
+    .tile--wide {
+      grid-template-columns: 1fr;
     }
   }
-  @media (max-width: 580px) {
-    .grid {
-      grid-template-columns: 1fr;
+
+  @media (max-width: 640px) {
+    .tile,
+    .tile--wide {
+      grid-column: span 12;
     }
   }
 </style>

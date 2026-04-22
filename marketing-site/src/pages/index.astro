@@ -1,4 +1,5 @@
 ---
+import '../styles/marketing-landing.css';
 import Layout from '../layouts/Layout.astro';
 import AppShell from '../components/AppShell.astro';
 import HeroSection from '../components/HeroSection.astro';
@@ -31,11 +32,13 @@ const jsonLd = {
 >
   <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} slot="head" />
   <AppShell>
-    <HeroSection />
-    <FeaturesSection />
-    <HowItWorksSection />
-    <PersonaSection />
-    <SocialProofSection />
-    <CTASection />
+    <div class="marketing-landing">
+      <HeroSection />
+      <FeaturesSection />
+      <HowItWorksSection />
+      <PersonaSection />
+      <SocialProofSection />
+      <CTASection />
+    </div>
   </AppShell>
 </Layout>

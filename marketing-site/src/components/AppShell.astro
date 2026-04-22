@@ -34,10 +34,29 @@ function groupWikiHref(domainId: string, group: WikiGroup): string {
 
 const normalizedActive = activeSlug?.replace(/^\/+|\/+$/g, '') ?? '';
 
-function isGroupActive(domainId: string, folder: string, allGroups: WikiGroup[]) {
+/** Folder key for the group whose first page is the domain default (same as pickFirstPagePathForDomain). */
+function overviewFolderForDomain(domain: WikiDomain): string | null {
+  const firstPath = pickFirstPagePathForDomain(nav, domain.id);
+  if (!firstPath) return null;
+  for (const g of domain.groups) {
+    if ((g.pages ?? []).some((p) => p.path === firstPath)) {
+      return g.folder ?? '';
+    }
+  }
+  return null;
+}
+
+function isGroupActive(
+  domainId: string,
+  folder: string,
+  allGroups: WikiGroup[],
+  domainOverviewFolder: string | null,
+) {
   if (!normalizedActive) return false;
   if (!normalizedActive.startsWith(`${domainId}/`) && normalizedActive !== domainId) return false;
-  if (normalizedActive === domainId) return !folder;
+  if (normalizedActive === domainId) {
+    return domainOverviewFolder !== null && folder === domainOverviewFolder;
+  }
   const rest = normalizedActive.slice(domainId.length + 1);
   if (folder) {
     return rest === folder || rest.startsWith(`${folder}/`);
@@ -96,10 +115,7 @@ function isGroupActive(domainId: string, folder: string, allGroups: WikiGroup[])
           </a>
           {
             nav.domains.map((domain) => {
-              const domainFirstPath = pickFirstPagePathForDomain(nav, domain.id);
-              const domainOverviewActive =
-                domainFirstPath != null &&
-                (normalizedActive === `${domain.id}/${domainFirstPath}` || normalizedActive === domain.id);
+              const overviewFolder = overviewFolderForDomain(domain);
               return (
               <details class="sidebar-section marketing-wiki-domain-block" open data-domain={domain.id}>
                 <summary class="sidebar-section-toggle marketing-wiki-domain-summary">
@@ -118,39 +134,10 @@ function isGroupActive(domainId: string, folder: string, allGroups: WikiGroup[])
                 </summary>
                 <div class="sidebar-section-body">
                   <div class="sidebar-section-body-inner">
-                    <a
-                      class:list={[
-                        'sidebar-nav-item',
-                        'nested',
-                        { active: domainOverviewActive },
-                      ]}
-                      href={`/wiki/${domain.id}`}
-                    >
-                      <span class="sidebar-nav-item-leading">
-                        <span class="sidebar-nav-icon-wrap">
-                          <svg class="sidebar-nav-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path
-                              d="M3 3.5h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"
-                              stroke="currentColor"
-                              stroke-width="1.5"></path>
-                            <path d="M8 4.5h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H8" stroke="currentColor" stroke-width="1.5"></path>
-                            <path
-                              d="M4.5 6.5h2M4.5 8.5h2M10 7h2.5M10 9h2.5"
-                              stroke="currentColor"
-                              stroke-width="1"
-                              stroke-linecap="round"
-                              opacity="0.5"></path>
-                          </svg>
-                        </span>
-                        <span class="sidebar-nav-copy">
-                          <span class="sidebar-nav-label">Domain overview</span>
-                        </span>
-                      </span>
-                    </a>
                     {domain.groups.map((group) => {
                       const folder = group.folder ?? '';
                       const href = groupWikiHref(domain.id, group);
-                      const isActive = isGroupActive(domain.id, folder, domain.groups);
+                      const isActive = isGroupActive(domain.id, folder, domain.groups, overviewFolder);
                       return (
                         <a class:list={['sidebar-nav-item', 'nested', { active: isActive }]} href={href}>
                           <span class="sidebar-nav-item-leading">
@@ -277,7 +264,7 @@ function isGroupActive(domainId: string, folder: string, allGroups: WikiGroup[])
     width: 100%;
   }
   .marketing-app-main--wiki {
-    background: rgba(255, 255, 255, 0.5);
+    background: #f0f6fb;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
   }

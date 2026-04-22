@@ -279,7 +279,9 @@ export function LoginPage() {
     const redirectUri = `${window.location.origin}/auth/callback`;
     const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
     const apiBaseUrl = rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl}/api`;
-    const usePopup = provider === 'google';
+    // Full-window OAuth for both providers: popup navigations to the API can hit
+    // flaky proxy/TLS paths (e.g. Cloudflare 520) while top-level redirects match GitHub.
+    const usePopup = false;
     const state = createOAuthState({
       provider,
       returnTo: from,

@@ -1,0 +1,32 @@
+/**
+ * Landing page shell — scoped to `.marketing-landing` only.
+ * Flat fills, borders, and blur only (no gradients or shadows).
+ */
+
+.marketing-landing {
+  --landing-pad-x: clamp(16px, 4vw, 32px);
+  --landing-section-y: clamp(48px, 7vw, 88px);
+  --landing-container: min(1180px, 100%);
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-6) var(--landing-pad-x) var(--space-12);
+  box-sizing: border-box;
+  background: var(--color-bg-app);
+}
+
+.marketing-landing > * {
+  width: 100%;
+  max-width: var(--landing-container);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-landing .hero-showcase,
+  .marketing-landing .showcase-stack {
+    animation: none !important;
+  }
+}

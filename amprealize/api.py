@@ -6616,6 +6616,8 @@ def create_app(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
                 detail=f"OAuth provider '{provider}' does not support authorization code flow",
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.error("Error in oauth_authorize: %s", exc, exc_info=True)
             raise HTTPException(
