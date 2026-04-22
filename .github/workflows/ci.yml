@@ -166,7 +166,7 @@ jobs:
       - name: Validate wheel version matches .amprealize-version
         run: |
           /tmp/amprealize-wheel-venv/bin/pip install packaging
-          /tmp/amprealize-wheel-venv/bin/python scripts/check_oss_version.py --strict
+          /tmp/amprealize-wheel-venv/bin/python scripts/check_oss_version.py --package amprealize-enterprise --strict
 
   # ============================================================================
   # Python Test Matrix (3.10, 3.11, 3.12) with Service Containers
