@@ -290,6 +290,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install -e ./packages/billing
           pip install -e ./packages/breakeramp[cli]
           pip install -e ./packages/midnighter
           pip install opensearch-py
@@ -310,6 +311,9 @@ jobs:
 
       - name: Run Alembic migrations
         run: python scripts/run_alembic_migrations.py
+
+      - name: Run telemetry warehouse migration
+        run: python scripts/run_postgres_telemetry_migration.py
 
       - name: Check for raw TRUNCATE in tests
         run: bash scripts/check_no_raw_truncate.sh

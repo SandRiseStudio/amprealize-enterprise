@@ -407,7 +407,7 @@ class RunService:
         Raises:
             RunNotFoundError: If run does not exist.
         """
-        from datetime import datetime, UTC
+        from datetime import datetime, timezone
         from .run_contracts import RunLogEntry, RunLogsResponse
 
         # Verify run exists (also enforces access control at caller level)
@@ -430,7 +430,7 @@ class RunService:
                 if end_time:
                     end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
                 else:
-                    end_dt = datetime.now(UTC)
+                    end_dt = datetime.now(timezone.utc)
 
                 # Map level string to LogLevel if provided
                 level_filter = None

@@ -10,7 +10,7 @@ import os
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime, UTC, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -672,7 +672,7 @@ class BehaviorRetriever:
         result = self.build_index()
         result.setdefault("mode", self.mode)
         result.setdefault("status", "ready" if result.get("mode") == "semantic" else "degraded")
-        result["timestamp"] = datetime.now(UTC).isoformat()
+        result["timestamp"] = datetime.now(timezone.utc).isoformat()
         return result
 
     # ------------------------------------------------------------------
@@ -1067,7 +1067,7 @@ class BehaviorRetriever:
             "model": self._model_name,
             "behavior_ids": self._behavior_ids,
             "behaviors": self._behavior_cache,
-            "updated_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         with self._metadata_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)

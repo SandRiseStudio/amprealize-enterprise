@@ -12,7 +12,7 @@ NOTE: The standalone notify package is REQUIRED. Install with:
 
 from typing import Optional, Dict, Any, List
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 # Import from standalone notify package (required)
 from notify import (
