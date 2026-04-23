@@ -8,34 +8,36 @@
         <span class="dot" aria-hidden="true"></span>
         Private preview
       </div>
-      <h1 id="hero-heading">Turn every agent run into a reusable behavior.</h1>
+      <h1 id="hero-heading">Where work, agents, and what works ship together.</h1>
       <p class="lede">
-        Amprealize helps teams capture what works, coordinate agents as a system, and reuse behaviors across projects.
-        Less thrash. Lower inference spend. A calmer way to ship.
+        Plan and track real work. Run AI agents as teammates on actual tasks. Capture the patterns worth keeping so every sprint starts smarter than the last.
       </p>
       <ul class="proof-strip" aria-label="Product highlights">
         <li>
           <span class="proof-ico" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
-              <path d="M8 2v3M8 11v3M2 8h3M11 8h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-              <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.5"></circle>
+            <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4"></rect>
+              <path d="M2 6h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+              <path d="M6 3v3M10 3v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
             </svg>
           </span>
-          MCP-native tools
+          Project boards
         </li>
         <li>
           <span class="proof-ico" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
-              <path d="M3 12V4l5-2 5 2v8l-5 2-5-2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
-              <path d="M8 2v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+            <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+              <circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4"></circle>
+              <path d="M3 13c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+              <circle cx="13" cy="5" r="1.75" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.2"></circle>
             </svg>
           </span>
-          CLI + VS Code
+          Agent teammates
         </li>
         <li>
           <span class="proof-ico" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
-              <path d="M8 2.5 13 5.75v4.5L8 13.5 3 10.25v-4.5L8 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
+            <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+              <path d="M8 2.5 13 5.75v4.5L8 13.5 3 10.25v-4.5L8 2.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
+              <path d="M8 2.5v11M3 5.75l5 3.25 5-3.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
             </svg>
           </span>
           Behavior library
@@ -49,65 +51,101 @@
     </div>
 
     <div class="hero-showcase" data-animate style="transition-delay: 50ms" aria-hidden="true">
-      <div class="showcase-stack">
-        <div class="panel panel--window">
-          <div class="win-chrome">
-            <span class="win-dots"><span></span><span></span><span></span></span>
-            <span class="win-title">Trace · extraction run</span>
+      <div class="board-mockup">
+        <div class="board-bar">
+          <div class="board-bar-left">
+            <svg viewBox="0 0 12 12" fill="none" width="10" height="10" class="board-back-ico">
+              <path d="M7.5 2L4 6l3.5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+            <span class="board-crumb">GuideAI</span>
+            <span class="board-sep">·</span>
+            <span class="board-title">Board</span>
           </div>
-          <div class="win-body">
-            <div class="trace-line">
-              <span class="trace-label">User</span>
-              <span class="trace-msg">Ship the billing retry behavior with guardrails.</span>
-            </div>
-            <div class="trace-line trace-line--agent">
-              <span class="trace-label">Agent</span>
-              <span class="trace-msg">Drafted behavior v0.3 — reduced redundant tool calls by 38%.</span>
-            </div>
-            <div class="trace-meta">
-              <span class="pill pill--ok">Passed eval</span>
-              <span class="pill">Latency 1.2s</span>
-            </div>
+          <div class="board-bar-right">
+            <span class="board-filter">TYPE</span>
+            <span class="board-filter">PRIORITY</span>
           </div>
         </div>
-        <div class="panel panel--card">
-          <div class="card-head">
-            <span class="card-badge">Behavior</span>
-            <span class="card-ver">v0.3</span>
+        <div class="board-body">
+          <div class="board-col">
+            <div class="col-label">
+              Backlog
+              <span class="col-count">5</span>
+            </div>
+            <div class="bcard">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--goal">Goal</span>
+              </div>
+              <p class="bcard-name">Metacognitive self-improvement for behavior lifecycle</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar"></span>
+                <span class="bcard-assignee">Unassigned</span>
+              </div>
+            </div>
+            <div class="bcard">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--task">Task</span>
+              </div>
+              <p class="bcard-name">Add meta column via Alembic migration</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar"></span>
+                <span class="bcard-assignee">Unassigned</span>
+              </div>
+            </div>
           </div>
-          <p class="card-title">billing-retry-safe</p>
-          <p class="card-desc">Reusable playbook for bounded retries + escalation.</p>
-          <div class="card-tags">
-            <span class="tag">MCP</span>
-            <span class="tag">Guardrails</span>
-            <span class="tag">Audit</span>
+
+          <div class="board-col">
+            <div class="col-label">
+              In Progress
+              <span class="col-count">11</span>
+            </div>
+            <div class="bcard bcard--active">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--feature">Feature</span>
+              </div>
+              <p class="bcard-name">SaaS Production Launch — M1 + Lanes B–D</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar bcard-avatar--agent">A</span>
+                <span class="bcard-assignee bcard-assignee--agent">AI Research Ag…</span>
+              </div>
+            </div>
+            <div class="bcard">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--bug">Bug</span>
+              </div>
+              <p class="bcard-name">Board load time pretty slow</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar"></span>
+                <span class="bcard-assignee">Unassigned</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="panel panel--rail">
-          <div class="rail-row rail-row--active">
-            <span class="rail-ico">
-              <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-                <path d="M3 6.5 8 2.5 13 6.5V12a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 12V6.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
-              </svg>
-            </span>
-            <span>Studio</span>
-          </div>
-          <div class="rail-row">
-            <span class="rail-ico">
-              <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-                <path d="M4 3.5h8v9H4v-9Z" stroke="currentColor" stroke-width="1.5"></path>
-                <path d="M4 6.5h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-              </svg>
-            </span>
-            <span>Boards</span>
-          </div>
-          <div class="rail-row">
-            <span class="rail-ico">
-              <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-                <path d="M4 2.5h8l1 2v9H3v-9l1-2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
-              </svg>
-            </span>
-            <span>Wiki</span>
+
+          <div class="board-col board-col--fade">
+            <div class="col-label">
+              In Review
+              <span class="col-count">6</span>
+            </div>
+            <div class="bcard">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--feature">Feature</span>
+              </div>
+              <p class="bcard-name">Login Screen Update</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar"></span>
+                <span class="bcard-assignee">Unassigned</span>
+              </div>
+            </div>
+            <div class="bcard">
+              <div class="bcard-top">
+                <span class="bcard-type bcard-type--goal">Goal</span>
+              </div>
+              <p class="bcard-name">Implement Scalable Whiteboard Architecture</p>
+              <div class="bcard-foot">
+                <span class="bcard-avatar bcard-avatar--nick">N</span>
+                <span class="bcard-assignee">Nick Sanders</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -124,8 +162,8 @@
 
   .hero-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
-    gap: clamp(28px, 5vw, 56px);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 1fr);
+    gap: clamp(24px, 4vw, 48px);
     align-items: center;
   }
 
@@ -146,18 +184,18 @@
   }
 
   .dot {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: var(--radius-full);
     background: var(--color-accent-tertiary);
-    outline: 6px solid rgba(31, 182, 166, 0.1);
+    outline: 5px solid rgba(31, 182, 166, 0.12);
   }
 
   h1 {
     margin: 0 0 var(--space-4);
-    letter-spacing: -0.045em;
-    line-height: 1.04;
-    font-size: clamp(2.15rem, 4.2vw + 0.6rem, 3.35rem);
+    letter-spacing: -0.038em;
+    line-height: 1.07;
+    font-size: clamp(1.75rem, 3vw + 0.5rem, 2.55rem);
     font-weight: var(--font-bold);
     color: var(--color-text-primary);
     text-wrap: balance;
@@ -166,14 +204,14 @@
   .lede {
     margin: 0;
     color: var(--color-text-secondary);
-    font-size: clamp(1rem, 1.1vw + 0.85rem, 1.125rem);
+    font-size: clamp(0.9375rem, 0.9vw + 0.8rem, 1.0625rem);
     line-height: var(--leading-relaxed);
-    max-width: 38rem;
+    max-width: 36rem;
   }
 
   .proof-strip {
     list-style: none;
-    margin: var(--space-6) 0 0;
+    margin: var(--space-5) 0 0;
     padding: 0;
     display: flex;
     flex-wrap: wrap;
@@ -183,13 +221,13 @@
   .proof-strip li {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 7px;
+    padding: 6px 12px;
     border-radius: var(--radius-full);
     border: 1px solid var(--color-border-subtle);
     background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     font-size: var(--text-sm);
     font-weight: var(--font-medium);
     color: var(--color-text-secondary);
@@ -205,7 +243,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-3);
-    margin-top: var(--space-8);
+    margin-top: var(--space-7);
     align-items: center;
   }
 
@@ -213,7 +251,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 14px 22px;
+    padding: 12px 20px;
     border-radius: var(--radius-full);
     font-weight: var(--font-semibold);
     font-size: var(--text-sm);
@@ -248,250 +286,241 @@
     cursor: pointer;
   }
 
-  /* Product showcase composition */
+  /* ── Board mockup ─────────────────────────────────────── */
   .hero-showcase {
     position: relative;
-    min-height: 280px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  .showcase-stack {
-    position: relative;
+  .board-mockup {
     width: 100%;
-    max-width: 420px;
-    display: grid;
-    gap: var(--space-3);
-    animation: hero-float 7s var(--ease-in-out-quart) infinite;
+    border-radius: var(--radius-2xl);
+    border: 1px solid rgba(70, 108, 140, 0.22);
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    overflow: hidden;
+    animation: hero-float 8s var(--ease-in-out-quart) infinite;
   }
 
   @keyframes hero-float {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-6px);
-    }
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
   }
 
-  .panel {
-    border-radius: var(--radius-2xl);
-    border: 1px solid rgba(70, 108, 140, 0.2);
-    background: rgba(255, 255, 255, 0.78);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-  }
-
-  .panel--window {
-    overflow: hidden;
-  }
-
-  .win-chrome {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--color-border-subtle);
-    background: rgba(248, 252, 255, 0.85);
-  }
-
-  .win-dots {
-    display: inline-flex;
-    gap: 5px;
-  }
-
-  .win-dots span {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    background: rgba(100, 116, 139, 0.28);
-  }
-
-  .win-dots span:first-child {
-    background: rgba(215, 75, 69, 0.55);
-  }
-  .win-dots span:nth-child(2) {
-    background: rgba(201, 133, 23, 0.55);
-  }
-  .win-dots span:nth-child(3) {
-    background: rgba(22, 131, 79, 0.5);
-  }
-
-  .win-title {
-    font-size: 11px;
-    font-weight: var(--font-semibold);
-    letter-spacing: 0.04em;
-    color: var(--color-text-tertiary);
-    text-transform: uppercase;
-  }
-
-  .win-body {
-    padding: var(--space-4);
-    display: grid;
-    gap: var(--space-3);
-  }
-
-  .trace-line {
-    display: grid;
-    gap: 4px;
-    padding: 10px 10px;
-    border-radius: var(--radius-lg);
-    background: rgba(248, 250, 252, 0.9);
-    border: 1px solid rgba(73, 112, 146, 0.12);
-  }
-
-  .trace-line--agent {
-    border-color: rgba(34, 118, 210, 0.22);
-    background: rgba(34, 118, 210, 0.06);
-  }
-
-  .trace-label {
-    font-size: 10px;
-    font-weight: var(--font-semibold);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-text-tertiary);
-  }
-
-  .trace-msg {
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-    line-height: 1.45;
-  }
-
-  .trace-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .pill {
-    font-size: 11px;
-    font-weight: var(--font-semibold);
-    padding: 4px 10px;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--color-border-subtle);
-    color: var(--color-text-tertiary);
-    background: rgba(255, 255, 255, 0.65);
-  }
-
-  .pill--ok {
-    border-color: rgba(22, 131, 79, 0.35);
-    color: var(--color-success);
-    background: rgba(22, 131, 79, 0.08);
-  }
-
-  .panel--card {
-    padding: var(--space-4);
-    margin-left: var(--space-6);
-    transform: translateY(-4px);
-  }
-
-  .card-head {
+  .board-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
+    gap: var(--space-3);
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: rgba(248, 252, 255, 0.9);
   }
 
-  .card-badge {
-    font-size: 10px;
-    font-weight: var(--font-bold);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
-    background: var(--color-accent-subtle);
-    border: 1px solid rgba(34, 118, 210, 0.2);
-  }
-
-  .card-ver {
-    font-size: var(--text-xs);
-    font-weight: var(--font-semibold);
-    color: var(--color-text-tertiary);
-    font-family: var(--font-mono);
-  }
-
-  .card-title {
-    margin: 0 0 6px;
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    font-weight: var(--font-semibold);
-    color: var(--color-text-primary);
-    letter-spacing: -0.02em;
-  }
-
-  .card-desc {
-    margin: 0 0 var(--space-3);
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-  }
-
-  .card-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .tag {
-    font-size: 10px;
-    font-weight: var(--font-semibold);
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--color-border-subtle);
-    color: var(--color-text-tertiary);
-    background: rgba(255, 255, 255, 0.6);
-  }
-
-  .panel--rail {
-    position: absolute;
-    right: -6px;
-    top: 50%;
-    transform: translateY(-42%);
-    width: 132px;
-    padding: var(--space-2);
-    display: grid;
-    gap: 4px;
-    opacity: 0.96;
-  }
-
-  .rail-row {
+  .board-bar-left {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: var(--radius-lg);
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .board-back-ico {
+    color: var(--color-text-tertiary);
+    flex-shrink: 0;
+  }
+
+  .board-crumb {
     font-size: 11px;
     font-weight: var(--font-semibold);
     color: var(--color-text-tertiary);
+    white-space: nowrap;
   }
 
-  .rail-row--active {
+  .board-sep {
+    font-size: 11px;
+    color: var(--color-text-disabled);
+  }
+
+  .board-title {
+    font-size: 11px;
+    font-weight: var(--font-bold);
     color: var(--color-text-primary);
-    background: rgba(34, 118, 210, 0.1);
-    border: 1px solid rgba(34, 118, 210, 0.18);
+    white-space: nowrap;
   }
 
-  .rail-ico {
+  .board-bar-right {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+
+  .board-filter {
+    font-size: 9px;
+    font-weight: var(--font-bold);
+    letter-spacing: 0.07em;
+    color: var(--color-text-tertiary);
+    padding: 3px 7px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.7);
+  }
+
+  .board-body {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--color-border-subtle);
+    padding: 0;
+  }
+
+  .board-col {
+    background: rgba(246, 250, 253, 0.8);
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .board-col--fade {
+    opacity: 0.72;
+  }
+
+  .col-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: var(--font-bold);
+    letter-spacing: 0.04em;
+    color: var(--color-text-tertiary);
+    padding: 0 2px 4px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    margin-bottom: 2px;
+  }
+
+  .col-count {
+    font-size: 9px;
+    font-weight: var(--font-semibold);
+    padding: 1px 5px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-subtle);
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--color-text-tertiary);
+  }
+
+  .bcard {
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(70, 108, 140, 0.16);
+    background: rgba(255, 255, 255, 0.88);
+    padding: 8px 8px 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .bcard--active {
+    border-color: rgba(34, 118, 210, 0.26);
+    background: rgba(34, 118, 210, 0.04);
+  }
+
+  .bcard-top {
+    display: flex;
+    align-items: center;
+  }
+
+  .bcard-type {
+    font-size: 9px;
+    font-weight: var(--font-bold);
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+  }
+
+  .bcard-type--goal {
+    color: #92400e;
+    background: rgba(217, 119, 6, 0.1);
+    border: 1px solid rgba(217, 119, 6, 0.22);
+  }
+
+  .bcard-type--feature {
+    color: #1e40af;
+    background: rgba(34, 118, 210, 0.1);
+    border: 1px solid rgba(34, 118, 210, 0.22);
+  }
+
+  .bcard-type--task {
+    color: var(--color-text-tertiary);
+    background: rgba(100, 116, 139, 0.08);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+  }
+
+  .bcard-type--bug {
+    color: #991b1b;
+    background: rgba(215, 75, 69, 0.08);
+    border: 1px solid rgba(215, 75, 69, 0.2);
+  }
+
+  .bcard-name {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.4;
+    font-weight: var(--font-medium);
+    color: var(--color-text-primary);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .bcard-foot {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 1px;
+  }
+
+  .bcard-avatar {
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-full);
+    background: rgba(100, 116, 139, 0.18);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    flex-shrink: 0;
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-md);
-    background: rgba(255, 255, 255, 0.75);
-    border: 1px solid var(--color-border-subtle);
+    font-size: 7px;
+    font-weight: var(--font-bold);
+    color: var(--color-text-tertiary);
+  }
+
+  .bcard-avatar--agent {
+    background: rgba(34, 118, 210, 0.15);
+    border-color: rgba(34, 118, 210, 0.3);
     color: var(--color-accent);
   }
 
-  .rail-row--active .rail-ico {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: #fff;
+  .bcard-avatar--nick {
+    background: rgba(16, 152, 173, 0.15);
+    border-color: rgba(16, 152, 173, 0.3);
+    color: var(--color-accent-secondary);
+  }
+
+  .bcard-assignee {
+    font-size: 9px;
+    color: var(--color-text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .bcard-assignee--agent {
+    color: var(--color-accent);
   }
 
   @media (max-width: 960px) {
@@ -501,34 +530,11 @@
 
     .hero-showcase {
       order: -1;
-      min-height: 0;
       margin-bottom: var(--space-2);
     }
 
-    .showcase-stack {
-      max-width: 100%;
-      animation-duration: 9s;
-    }
-
-    .panel--card {
-      margin-left: 0;
-      transform: none;
-    }
-
-    .panel--rail {
-      position: relative;
-      right: auto;
-      top: auto;
-      transform: none;
-      width: 100%;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .rail-row {
-      flex-direction: column;
-      text-align: center;
-      font-size: 10px;
-      padding: var(--space-2) var(--space-1);
+    .board-mockup {
+      animation: none;
     }
   }
 
@@ -540,7 +546,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .showcase-stack {
+    .board-mockup {
       animation: none;
     }
   }

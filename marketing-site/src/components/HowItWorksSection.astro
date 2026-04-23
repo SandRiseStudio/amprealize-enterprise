@@ -3,31 +3,31 @@
 
 <section class="how" id="how" aria-labelledby="how-heading">
   <header class="how-head" data-animate>
-    <p class="kicker">Flow</p>
-    <h2 id="how-heading">How it works</h2>
-    <p class="sub">Three steps from “agents ran” to “behaviors we can reuse.”</p>
+    <p class="kicker">Getting started</p>
+    <h2 id="how-heading">Up and running in an afternoon.</h2>
+    <p class="sub">No new workflow to invent. Amprealize fits around how your team already moves.</p>
   </header>
 
   <ol class="timeline" data-animate style="transition-delay: 60ms">
     <li class="timeline-item">
       <span class="step-num" aria-hidden="true">1</span>
       <div class="step-body">
-        <h3>Install &amp; connect</h3>
-        <p><code>npx @amprealize/cli wizard</code> wires your repo in minutes.</p>
+        <h3>Connect your workspace</h3>
+        <p>Set up projects and boards, bring in your team, and wire agents with <code>npx @amprealize/cli wizard</code>. Done in minutes.</p>
       </div>
     </li>
     <li class="timeline-item">
       <span class="step-num" aria-hidden="true">2</span>
       <div class="step-body">
-        <h3>Agents run, behaviors surface</h3>
-        <p>The platform observes traces and extracts behavioral patterns that actually work.</p>
+        <h3>Work flows between humans and agents</h3>
+        <p>Assign tasks to teammates — human or AI. Agents run, post results to the board, and hand off to a human the moment judgment is needed.</p>
       </div>
     </li>
     <li class="timeline-item">
       <span class="step-num" aria-hidden="true">3</span>
       <div class="step-body">
-        <h3>Coordinate and reuse</h3>
-        <p>Share behaviors across agents, projects, and teams — then iterate fast.</p>
+        <h3>Patterns become team assets</h3>
+        <p>Good runs get extracted into versioned behaviors. Your library grows sprint over sprint, so every future project starts with everything you already know.</p>
       </div>
     </li>
   </ol>
@@ -41,7 +41,7 @@
 
   .how-head {
     max-width: 36rem;
-    margin-bottom: var(--space-10);
+    margin-bottom: var(--space-8);
   }
 
   .kicker {
@@ -55,8 +55,8 @@
 
   .how-head h2 {
     margin: 0 0 var(--space-3);
-    letter-spacing: -0.035em;
-    font-size: clamp(1.65rem, 2.4vw + 0.5rem, 2.35rem);
+    letter-spacing: -0.03em;
+    font-size: clamp(1.25rem, 1.6vw + 0.4rem, 1.7rem);
     line-height: var(--leading-tight);
     font-weight: var(--font-bold);
   }
@@ -64,7 +64,7 @@
   .sub {
     margin: 0;
     color: var(--color-text-secondary);
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
     line-height: var(--leading-relaxed);
   }
 
@@ -84,7 +84,7 @@
     top: 12px;
     bottom: 12px;
     width: 2px;
-    background: rgba(73, 112, 146, 0.22);
+    background: rgba(73, 112, 146, 0.2);
     border-radius: 1px;
   }
 
@@ -93,7 +93,7 @@
     display: grid;
     grid-template-columns: 40px 1fr;
     gap: var(--space-5);
-    padding: var(--space-5) 0 var(--space-5) 0;
+    padding: var(--space-5) 0;
     border-bottom: 1px solid var(--color-border-subtle);
   }
 
@@ -116,6 +116,7 @@
     background: var(--color-accent);
     border: 2px solid var(--color-bg-app);
     box-sizing: border-box;
+    flex-shrink: 0;
   }
 
   .timeline-item:nth-child(2) .step-num {
@@ -134,7 +135,7 @@
   .step-body h3 {
     margin: 0 0 var(--space-2);
     letter-spacing: -0.02em;
-    font-size: 1.08rem;
+    font-size: 0.9375rem;
     font-weight: var(--font-semibold);
   }
 
@@ -142,13 +143,13 @@
     margin: 0;
     color: var(--color-text-secondary);
     font-size: var(--text-sm);
-    line-height: 1.58;
+    line-height: 1.6;
   }
 
   code {
     font-family: var(--font-mono);
-    font-size: 0.92em;
-    padding: 2px 8px;
+    font-size: 0.9em;
+    padding: 2px 7px;
     border-radius: var(--radius-full);
     border: 1px solid var(--color-border-subtle);
     background: rgba(255, 255, 255, 0.85);
