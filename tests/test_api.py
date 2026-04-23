@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 
 from amprealize.api import create_app
 
-# Avoid picking up a host ACTION / telemetry PG sink from .env so ActionService stays in-memory.
+# Avoid picking up a host ACTION PG sink from .env so ActionService stays in-memory.
+# DATABASE_URL is also cleared because resolve_optional_postgres_dsn falls through
+# to it when all ACTION-specific vars are absent, causing PostgresActionService to
+# connect to the main DB (which has an old public.actions table without action_id).
 _ACTION_PG_ENV_KEYS = (
     "AMPREALIZE_ACTION_PG_DSN",
     "AMPREALIZE_PG_HOST_ACTION",
@@ -19,6 +22,7 @@ _ACTION_PG_ENV_KEYS = (
     "AMPREALIZE_PG_PASS_ACTION",
     "AMPREALIZE_PG_DB_ACTION",
     "AMPREALIZE_PG_PARAMS_ACTION",
+    "DATABASE_URL",
 )
 
 

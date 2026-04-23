@@ -96,7 +96,11 @@ def mock_sentence_transformer():
     """
     # Mock the SentenceTransformer class before any imports
     mock_model = MagicMock()
-    mock_model.encode.return_value = [[0.1] * 384]  # Fake embedding vector
+    # Return one 384-d vector per input text so batch encode calls don't crash
+    # when _rebuild_index or retrieve_batch encodes more than one text at a time.
+    mock_model.encode.side_effect = (
+        lambda texts, **kwargs: [[0.1] * 384] * (len(texts) if isinstance(texts, (list, tuple)) else 1)
+    )
 
     # Patch at module level
     sys.modules['sentence_transformers'] = MagicMock()
