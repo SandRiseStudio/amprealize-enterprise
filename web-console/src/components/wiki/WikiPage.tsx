@@ -243,7 +243,7 @@ export const WikiPage = memo(function WikiPage() {
           />
         )}
 
-        <aside className={`wiki-local-nav ${sidebarOpen ? 'open' : ''}`}>
+        <nav aria-label="Wiki navigation" className={`wiki-local-nav ${sidebarOpen ? 'open' : ''}`}>
           <div className="wiki-local-nav-mobile-header">
             <span className="wiki-local-nav-mobile-title">Browse</span>
             <button
@@ -262,7 +262,7 @@ export const WikiPage = memo(function WikiPage() {
             domain={domain}
             onSelect={handlePageSelect}
           />
-        </aside>
+        </nav>
 
         <div className="wiki-main-stage">
           {activePath ? (

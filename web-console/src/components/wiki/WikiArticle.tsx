@@ -236,7 +236,7 @@ export const WikiArticle = memo(function WikiArticle({
 
   if (isLoading) {
     return (
-      <div className="wiki-article-pane">
+      <main className="wiki-article-pane">
         <div className="wiki-article-shell">
           <div className="wiki-article-inner">
             <div className="wiki-skeleton wiki-skeleton-title" />
@@ -247,7 +247,7 @@ export const WikiArticle = memo(function WikiArticle({
             <div className="wiki-skeleton wiki-skeleton-line narrow" />
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -271,7 +271,7 @@ export const WikiArticle = memo(function WikiArticle({
   const relatedPages = buildRelatedPages(pages, path, tags);
 
   return (
-    <div className="wiki-article-pane" ref={scrollRef} key={`${domain}/${path}`}>
+    <main className="wiki-article-pane" ref={scrollRef} key={`${domain}/${path}`}>
       <div className="wiki-article-shell">
         <div className="wiki-article-with-toc">
           <div className="wiki-article-inner">
@@ -459,6 +459,6 @@ export const WikiArticle = memo(function WikiArticle({
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 });
