@@ -19,14 +19,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System deps: libpq5 for psycopg2, curl for healthchecks.
-# build-essential / libpq-dev only needed when compiling native extensions;
-# we remove them after pip install to keep the image slim.
+# System deps:
+#   libpq5           — psycopg2 runtime
+#   curl             — healthcheck in HEALTHCHECK directive
+#   nginx            — production gateway (see config/nginx/nginx.prod.conf)
+#   supervisor       — process manager for nginx + uvicorn
+#   build-essential / libpq-dev — compile-time only; purged after pip install
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         libpq5 \
+        nginx \
+        supervisor \
         build-essential \
         libpq-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -71,6 +76,18 @@ COPY migrations_telemetry ./migrations_telemetry
 COPY config ./config
 COPY scripts ./scripts
 
+# ---------------------------------------------------------------------------
+# Gateway configuration (nginx + supervisord).
+# Installed as root before the USER directive so nginx can bind :8080 and
+# write its pid file at runtime; uvicorn is dropped to amprealize by
+# supervisord's user= directive.
+# ---------------------------------------------------------------------------
+COPY config/nginx/nginx.prod.conf /etc/nginx/nginx.conf
+COPY infra/supervisord.conf /etc/supervisord.conf
+COPY infra/entrypoint.prod.sh /entrypoint.prod.sh
+RUN chmod +x /entrypoint.prod.sh \
+    && mkdir -p /var/log/supervisor
+
 # Strip build-time deps to slim the final image.
 RUN apt-get purge -y --auto-remove build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -80,16 +97,16 @@ RUN apt-get purge -y --auto-remove build-essential libpq-dev \
 # ---------------------------------------------------------------------------
 RUN useradd --system --uid 1001 --home /app --shell /usr/sbin/nologin amprealize \
     && chown -R amprealize:amprealize /app
-USER amprealize
+# NOTE: No USER directive here — supervisord must run as root so nginx can
+# bind :8080 and write its pid file.  uvicorn is dropped to the amprealize
+# user by the [program:uvicorn] user= directive in supervisord.conf.
 
-EXPOSE 8000
+EXPOSE 8080
 
+# Health check via nginx-local endpoint — no upstream dependency, so the
+# container reports healthy as soon as nginx is up even if uvicorn is still
+# warming its connection pool.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:8080/nginx-health || exit 1
 
-CMD ["uvicorn", "amprealize.api:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--workers", "1", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*"]
+CMD ["/entrypoint.prod.sh"]

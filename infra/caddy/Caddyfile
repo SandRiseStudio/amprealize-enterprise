@@ -10,9 +10,17 @@
 {env.AMPREALIZE_DOMAIN} {
 	encode zstd gzip
 
-	# API + wiki
-	reverse_proxy /api/* api:8000
-	reverse_proxy /health api:8000
+	# API routes — all path prefixes used by the FastAPI backend.
+	reverse_proxy /api/*    api:8000
+	reverse_proxy /v1/*     api:8000
+	reverse_proxy /ws/*     api:8000
+	reverse_proxy /sse/*    api:8000
+	reverse_proxy /mcp/*    api:8000
+
+	# Health / observability endpoints
+	reverse_proxy /health   api:8000
+	reverse_proxy /ready    api:8000
+	reverse_proxy /metrics  api:8000
 
 	# Static frontend shipped inside the API image (future). For now the
 	# single-node stack points at the API and the customer hosts the SPA
