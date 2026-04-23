@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Sparkles } from 'lucide-react';
+import { BrandLogo } from '../branding/BrandLogo';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import './AuthStage.css';
 
@@ -34,10 +34,10 @@ export function AuthStage({
         <header className="auth-stage-header">
           <div className="auth-stage-brand">
             <div className="auth-stage-brand-mark" aria-hidden="true">
-              <Sparkles size={18} strokeWidth={2} />
+              <BrandLogo variant="icon" decorative className="auth-stage-brand-icon" />
             </div>
             <div className="auth-stage-brand-copy">
-              <span className="auth-stage-brand-name">{PRODUCT_DISPLAY_NAME}</span>
+              <BrandLogo variant="wordmark" alt={PRODUCT_DISPLAY_NAME} className="auth-stage-brand-wordmark" />
               <span className="auth-stage-brand-meta">Behavior engine</span>
             </div>
           </div>

@@ -31,6 +31,7 @@ import { orgContextStore, useOrgContext } from '../../store/orgContextStore';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { ProfileMenu } from './ProfileMenu';
+import { BrandLogo } from '../branding/BrandLogo';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import { useApiPlatformRuntime } from '../../api/platformRuntime';
 import './WorkspaceShell.css';
@@ -170,12 +171,7 @@ const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: Sidebar
         </button>
         {!collapsed && (
           <div className="sidebar-brand animate-fade-in-up">
-            <span className="sidebar-brand-mark" aria-hidden="true">
-              <span className="sidebar-brand-mark-core" />
-            </span>
-            <span className="sidebar-brand-copy">
-              <span className="sidebar-title">{PRODUCT_DISPLAY_NAME}</span>
-            </span>
+            <BrandLogo variant="wordmark" alt={PRODUCT_DISPLAY_NAME} className="sidebar-brand-wordmark" />
           </div>
         )}
       </div>

@@ -1,0 +1,27 @@
+name = "amprealize-whiteboard-do"
+main = "dist/index.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["WhiteboardDO"]
+
+[vars]
+# Amprealize Python API base URL (set per environment via wrangler secrets)
+# PYTHON_API_BASE = "https://api.amprealize.com/api/v1"
+# WHITEBOARD_SERVICE_TOKEN = "<set via wrangler secret>"
+
+# Snapshot storage: "do" = Durable Object storage (default) | "r2" = R2 bucket
+SNAPSHOT_STORAGE = "do"
+
+[env.staging]
+name = "amprealize-whiteboard-do-staging"
+
+[env.production]
+name = "amprealize-whiteboard-do-prod"

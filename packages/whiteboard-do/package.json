@@ -1,0 +1,29 @@
+{
+  "name": "@amprealize/whiteboard-do",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@tldraw/sync": "^4.5.9",
+    "@tldraw/store": "^4.5.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241224.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.99.0"
+  }
+}
