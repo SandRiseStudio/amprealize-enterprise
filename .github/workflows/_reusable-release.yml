@@ -311,6 +311,7 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ inputs.vite_api_base_url }}
           VITE_PUBLIC_PREVIEW: ${{ inputs.vite_public_preview }}
+          VITE_STATIC_WIKI: ${{ inputs.vite_public_preview }}
           VITE_APP_ORIGIN: ${{ inputs.vite_app_origin }}
           VITE_APP_ENV: ${{ inputs.environment }}
           # Observability — PostHog key is a secret; host is optional public config.
