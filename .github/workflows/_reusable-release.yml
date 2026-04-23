@@ -260,11 +260,23 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          # Pull the image from private GHCR onto the runner.
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull "ghcr.io/${{ inputs.ghcr_image }}:${{ github.sha }}"
+
+          # Re-tag and push to Fly's own registry so the Fly API can pull it
+          # without needing GHCR credentials. flyctl auth docker configures
+          # the Docker client to authenticate to registry.fly.io via FLY_API_TOKEN.
+          flyctl auth docker
+          docker tag \
+            "ghcr.io/${{ inputs.ghcr_image }}:${{ github.sha }}" \
+            "registry.fly.io/${{ inputs.fly_app }}:${{ github.sha }}"
+          docker push "registry.fly.io/${{ inputs.fly_app }}:${{ github.sha }}"
+
           flyctl deploy \
             --app "${{ inputs.fly_app }}" \
             --config "${{ inputs.fly_config }}" \
-            --image "ghcr.io/${{ inputs.ghcr_image }}:${{ github.sha }}" \
+            --image "registry.fly.io/${{ inputs.fly_app }}:${{ github.sha }}" \
             --strategy rolling \
             --wait-timeout 300
       - name: Smoke /health
