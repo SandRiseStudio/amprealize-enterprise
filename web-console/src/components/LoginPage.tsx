@@ -241,7 +241,7 @@ export function LoginPage() {
     const redirectUri = `${window.location.origin}/auth/callback`;
     const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
     const apiBaseUrl = rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl}/api`;
-    // Google: popup (original UX). GitHub: full-window redirect.
+    // Google: popup. GitHub: full-window redirect.
     const usePopup = provider === 'google';
     const state = createOAuthState({
       provider,
@@ -255,9 +255,6 @@ export function LoginPage() {
       return;
     }
 
-    // Open a same-origin blank document synchronously (required for pop-up blockers),
-    // then fetch the provider URL via CORS and navigate the popup there. Avoids a
-    // cross-origin document navigation to the API (intermittent Cloudflare 520).
     const width = 520;
     const height = 720;
     const left = window.screenX + Math.max((window.outerWidth - width) / 2, 0);
@@ -334,18 +331,19 @@ export function LoginPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mode, handleCopyCode]);
 
-  let panelEyebrow = 'Welcome back';
-  let panelTitle = `Sign in to ${PRODUCT_DISPLAY_NAME}`;
-  let panelSubtitle = 'Capture what works from reasoning traces. Coordinate agents, plan multi-step workflows, and cut inference costs as your behavioral playbook evolves.';
+  let panelEyebrow = 'Sign in';
+  let panelTitle = 'Welcome back';
+  let panelSubtitle =
+    'Pick up where you left off — boards, agent-backed tasks, and behaviors your team can reuse.';
 
   if (mode === 'device-flow') {
     panelEyebrow = 'Device flow';
     panelTitle = 'Authorize this session';
-    panelSubtitle = 'Finish in the browser, then return here.';
+    panelSubtitle = 'Approve the code in your browser, then this tab continues automatically.';
   } else if (mode === 'agent-credentials') {
-    panelEyebrow = 'Service access';
-    panelTitle = 'Sign in with client credentials';
-    panelSubtitle = 'For service accounts and automation.';
+    panelEyebrow = 'Automation';
+    panelTitle = 'Client credentials';
+    panelSubtitle = 'For CI, services, and agents that authenticate without a browser.';
   }
 
   return (
@@ -408,7 +406,7 @@ export function LoginPage() {
               data-install-method="npx"
             >
               <p className="login-install-desc">
-                Add {PRODUCT_DISPLAY_NAME} to the repo you’re in with the setup wizard.
+                From your repo root, run the wizard to wire CLI, IDE hooks, and this console.
               </p>
               <div className="login-install-command-row">
                 <button
@@ -467,7 +465,7 @@ export function LoginPage() {
                   </span>
                   <span className="login-social-copy">
                     <strong>Continue with GitHub</strong>
-                    <span>Use your GitHub identity and connect repos when needed.</span>
+                    <span>Same identity you use for repos, PRs, and checks.</span>
                   </span>
                   <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
@@ -484,7 +482,7 @@ export function LoginPage() {
                   </span>
                   <span className="login-social-copy">
                     <strong>Continue with Google</strong>
-                    <span>{googlePopupPending ? 'Waiting…' : `Use your Google identity with ${PRODUCT_DISPLAY_NAME}`}</span>
+                    <span>{googlePopupPending ? 'Complete sign-in in the popup…' : 'Google Workspace or personal — your choice.'}</span>
                   </span>
                   <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
                 </button>

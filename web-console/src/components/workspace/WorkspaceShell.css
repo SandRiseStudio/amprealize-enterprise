@@ -259,13 +259,28 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
-.sidebar-brand-wordmark {
+/* Lockup PNG uses real alpha (see web-console/scripts/refresh_brand_web_assets.py). */
+.sidebar-lockup-surface {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  background: transparent;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sidebar-brand-lockup {
   display: block;
   width: auto;
-  height: 48px;
+  max-width: 100%;
+  height: 28px;
   object-fit: contain;
+  object-position: left center;
+  vertical-align: top;
 }
 
 

@@ -111,6 +111,18 @@
               "folder": "concepts"
             },
             {
+              "path": "concepts/a2a.md",
+              "title": "Agent-to-Agent Protocol (A2A)",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/agents.md",
+              "title": "AI Agents: What They Are and How They Work",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
               "path": "concepts/attention.md",
               "title": "Attention Mechanism",
               "pageType": "concept",
@@ -147,6 +159,12 @@
               "folder": "concepts"
             },
             {
+              "path": "concepts/mcp.md",
+              "title": "Model Context Protocol (MCP)",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
               "path": "concepts/multi-agent.md",
               "title": "Multi-Agent Orchestration",
               "pageType": "concept",
@@ -161,6 +179,18 @@
             {
               "path": "concepts/rag.md",
               "title": "RAG (Retrieval-Augmented Generation)",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/semantic-layer.md",
+              "title": "Semantic Layer & NL-to-Data Architecture",
+              "pageType": "concept",
+              "folder": "concepts"
+            },
+            {
+              "path": "concepts/ai-ecosystem-map.md",
+              "title": "The AI Ecosystem Map: Labs, Models, Apps, Tools & Frameworks",
               "pageType": "concept",
               "folder": "concepts"
             },
@@ -217,6 +247,18 @@
               "title": "Context Composition in Amprealize",
               "pageType": "in-practice",
               "folder": "in-practice"
+            }
+          ]
+        },
+        {
+          "folder": "patterns",
+          "label": "Patterns",
+          "pages": [
+            {
+              "path": "patterns/agent-design-patterns.md",
+              "title": "6 Agent Design Patterns",
+              "pageType": "pattern",
+              "folder": "patterns"
             }
           ]
         },
