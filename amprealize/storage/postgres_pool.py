@@ -202,6 +202,7 @@ class PostgresPool:
             resolved_dsn = dsn
 
         self._dsn = resolved_dsn
+        self._search_path = _dsn_search_path(resolved_dsn) or _APP_SEARCH_PATH
         self._engine = _get_engine(resolved_dsn)
         self._service_name = service_name or "postgres"
         self._schema = schema  # Reserved for future multi-schema support
@@ -224,9 +225,13 @@ class PostgresPool:
             try:
                 if hasattr(raw, "autocommit"):
                     raw.autocommit = autocommit
-                # search_path is set once per physical connection via the
-                # SQLAlchemy "connect" event (see _get_engine), so we do
-                # NOT need to SET it on every checkout.
+                # Set search_path on every checkout. Neon/pgbouncer-style
+                # poolers and raw DBAPI usage can reset session state between
+                # requests, so relying only on SQLAlchemy's physical
+                # connection "connect" event leaves production requests with
+                # "$user", public and breaks unqualified legacy table names.
+                with raw.cursor() as cur:
+                    cur.execute(f"SET search_path = {self._search_path}")
                 yield raw
                 # Always commit before returning connection to pool
                 # Even in autocommit mode, ensure any pending statements are flushed
