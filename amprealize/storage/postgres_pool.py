@@ -79,6 +79,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.lower() not in ("0", "false", "no", "off")
+
+
 def _is_cloud_dsn(dsn: str) -> bool:
     """Detect if DSN points to a known serverless/cloud PostgreSQL host."""
     cloud_hosts = ("neon.tech", "supabase.co", "timescaledb.io", "cockroachlabs.cloud")
@@ -203,6 +210,7 @@ class PostgresPool:
 
         self._dsn = resolved_dsn
         self._search_path = _dsn_search_path(resolved_dsn) or _APP_SEARCH_PATH
+        self._set_search_path_on_checkout = _bool_env("AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT", True)
         self._engine = _get_engine(resolved_dsn)
         self._service_name = service_name or "postgres"
         self._schema = schema  # Reserved for future multi-schema support
@@ -225,13 +233,13 @@ class PostgresPool:
             try:
                 if hasattr(raw, "autocommit"):
                     raw.autocommit = autocommit
-                # Set search_path on every checkout. Neon/pgbouncer-style
-                # poolers and raw DBAPI usage can reset session state between
-                # requests, so relying only on SQLAlchemy's physical
-                # connection "connect" event leaves production requests with
-                # "$user", public and breaks unqualified legacy table names.
-                with raw.cursor() as cur:
-                    cur.execute(f"SET search_path = {self._search_path}")
+                # Keep checkout SET enabled by default for Neon/pgbouncer-style
+                # poolers. Production can disable it with
+                # AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT=false after DSN
+                # startup options are proven reliable.
+                if self._set_search_path_on_checkout:
+                    with raw.cursor() as cur:
+                        cur.execute(f"SET search_path = {self._search_path}")
                 yield raw
                 # Always commit before returning connection to pool
                 # Even in autocommit mode, ensure any pending statements are flushed

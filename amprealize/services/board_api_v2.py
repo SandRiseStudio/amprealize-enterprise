@@ -53,11 +53,13 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum
 from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from amprealize.multi_tenant.board_contracts import (
     # Board models
@@ -105,6 +107,18 @@ from amprealize.services.board_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _log_board_timing(event: str, started_at: float, **fields: Any) -> None:
+    """Emit structured board-load timings that are easy to grep in Fly logs."""
+    logger.info(
+        "board_load_timing",
+        extra={
+            "event": event,
+            "duration_ms": round((time.perf_counter() - started_at) * 1000, 1),
+            **fields,
+        },
+    )
 
 # =============================================================================
 # Response Models
@@ -230,6 +244,17 @@ class WorkItemProgressRollupListResponse(BaseModel):
     """Response for board-level progress rollup list."""
     rollups: List[WorkItemProgressRollup]
     total: int
+
+
+class BoardBootstrapResponse(BaseModel):
+    """Bundled board load payload for reducing first-render request fanout."""
+    board: BoardWithColumns
+    items: List[WorkItem]
+    total: int
+    page: int = 1
+    page_size: int = 100
+    has_more: bool = False
+    rollups: List[WorkItemProgressRollup] = Field(default_factory=list)
 
 
 class CompleteWithDescendantsResponse(BaseModel):
@@ -369,9 +394,25 @@ def create_board_routes(
         offset: int = Query(0, ge=0, description="Boards to skip"),
     ) -> BoardListResponse:
         org_id = _get_org_id(request)
+        started_at = time.perf_counter()
 
         try:
-            boards = board_service.list_boards(project_id=project_id, org_id=org_id, limit=limit, offset=offset)
+            boards = await run_in_threadpool(
+                board_service.list_boards,
+                project_id=project_id,
+                org_id=org_id,
+                limit=limit,
+                offset=offset,
+            )
+            _log_board_timing(
+                "boards.list",
+                started_at,
+                project_id=project_id,
+                org_id=org_id,
+                item_count=len(boards),
+                limit=limit,
+                offset=offset,
+            )
             return BoardListResponse(boards=boards, total=len(boards))
         except Exception as e:
             logger.exception("Board list failed", extra={"project_id": project_id, "org_id": org_id})
@@ -391,10 +432,92 @@ def create_board_routes(
         board_id: str,
     ) -> BoardWithColumnsResponse:
         org_id = _get_org_id(request)
+        started_at = time.perf_counter()
 
         try:
-            board = board_service.get_board_with_columns(board_id, org_id=org_id)
+            board = await run_in_threadpool(board_service.get_board_with_columns, board_id, org_id=org_id)
+            _log_board_timing(
+                "boards.get",
+                started_at,
+                board_id=board_id,
+                org_id=org_id,
+                column_count=len(board.columns) if getattr(board, "columns", None) else 0,
+            )
             return BoardWithColumnsResponse(board=board)
+        except BoardNotFoundError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    @router.get(
+        "/v1/boards/{board_id}/bootstrap",
+        response_model=BoardBootstrapResponse,
+        summary="Bootstrap board page",
+        description="Fetch board metadata, first work-item page, and rollups in one request.",
+    )
+    async def get_board_bootstrap(
+        request: Request,
+        board_id: str,
+        limit: int = Query(100, ge=1, le=250, description="Max first-page work items to return"),
+        offset: int = Query(0, ge=0, description="Work items to skip"),
+        include_rollups: bool = Query(True, description="Include board progress rollups"),
+    ) -> BoardBootstrapResponse:
+        org_id = _get_org_id(request)
+        started_at = time.perf_counter()
+
+        try:
+            board_started_at = time.perf_counter()
+            board = await run_in_threadpool(board_service.get_board_with_columns, board_id, org_id=org_id)
+            board_ms = round((time.perf_counter() - board_started_at) * 1000, 1)
+
+            items_started_at = time.perf_counter()
+            maybe_items = await run_in_threadpool(
+                board_service.list_work_items,
+                board_id=board_id,
+                org_id=org_id,
+                limit=limit,
+                offset=offset,
+                include_total=True,
+            )
+            if isinstance(maybe_items, tuple):
+                items, total = maybe_items
+            else:
+                items = maybe_items
+                total = len(items)
+            items_ms = round((time.perf_counter() - items_started_at) * 1000, 1)
+
+            rollups: List[WorkItemProgressRollup] = []
+            rollups_ms = 0.0
+            if include_rollups:
+                rollups_started_at = time.perf_counter()
+                rollups = await run_in_threadpool(
+                    board_service.list_board_progress_rollups,
+                    board_id,
+                    org_id=org_id,
+                )
+                rollups_ms = round((time.perf_counter() - rollups_started_at) * 1000, 1)
+
+            _log_board_timing(
+                "boards.bootstrap",
+                started_at,
+                board_id=board_id,
+                org_id=org_id,
+                board_ms=board_ms,
+                items_ms=items_ms,
+                rollups_ms=rollups_ms,
+                item_count=len(items),
+                rollup_count=len(rollups),
+                limit=limit,
+                offset=offset,
+                has_more=offset + len(items) < total,
+            )
+            return BoardBootstrapResponse(
+                board=board,
+                items=_normalize_work_items(items),
+                total=total,
+                page=offset // limit + 1 if limit else 1,
+                page_size=limit,
+                has_more=offset + len(items) < total,
+                rollups=rollups,
+            )
         except BoardNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -582,50 +705,84 @@ def create_board_routes(
         due_after: Optional[str] = Query(None, description="Items due on or after this ISO date"),
         sort_by: Optional[str] = Query(None, description="Sort field: position, priority, created_at, updated_at, due_date, title, points"),
         order: Optional[str] = Query(None, description="Sort order: asc or desc (default asc)"),
+        include_total: bool = Query(
+            True,
+            description="When false, skip exact total count and over-fetch one row to reduce DB latency.",
+        ),
         limit: int = Query(50, ge=1, le=250, description="Max items to return"),
         offset: int = Query(0, ge=0, description="Items to skip"),
     ) -> WorkItemListResponse:
         org_id = _get_org_id(request)
+        started_at = time.perf_counter()
 
-        total = board_service.count_work_items(
-            project_id=project_id,
-            board_id=board_id,
-            item_types=item_type,
-            parent_id=parent_id,
-            status=status_filter,
-            priorities=priority,
-            assignee_id=assignee_id,
-            assignee_type=assignee_type,
-            labels=labels,
-            sprint_id=sprint_id,
-            title_search=title_search,
-            due_before=due_before,
-            due_after=due_after,
-            org_id=org_id,
-        )
-
-        items = board_service.list_work_items(
-            project_id=project_id,
-            board_id=board_id,
-            item_types=item_type,
-            parent_id=parent_id,
-            status=status_filter,
-            priorities=priority,
-            assignee_id=assignee_id,
-            assignee_type=assignee_type,
-            sprint_id=sprint_id,
-            labels=labels,
-            title_search=title_search,
-            due_before=due_before,
-            due_after=due_after,
-            sort_by=sort_by,
-            order=order,
-            org_id=org_id,
-            limit=limit,
-            offset=offset,
-        )
+        if include_total:
+            maybe_items = await run_in_threadpool(
+                board_service.list_work_items,
+                project_id=project_id,
+                board_id=board_id,
+                item_types=item_type,
+                parent_id=parent_id,
+                status=status_filter,
+                priorities=priority,
+                assignee_id=assignee_id,
+                assignee_type=assignee_type,
+                sprint_id=sprint_id,
+                labels=labels,
+                title_search=title_search,
+                due_before=due_before,
+                due_after=due_after,
+                sort_by=sort_by,
+                order=order,
+                org_id=org_id,
+                limit=limit,
+                offset=offset,
+                include_total=True,
+            )
+            if isinstance(maybe_items, tuple):
+                items, total = maybe_items
+            else:
+                items = maybe_items
+                total = len(items)
+        else:
+            items_plus_one = await run_in_threadpool(
+                board_service.list_work_items,
+                project_id=project_id,
+                board_id=board_id,
+                item_types=item_type,
+                parent_id=parent_id,
+                status=status_filter,
+                priorities=priority,
+                assignee_id=assignee_id,
+                assignee_type=assignee_type,
+                sprint_id=sprint_id,
+                labels=labels,
+                title_search=title_search,
+                due_before=due_before,
+                due_after=due_after,
+                sort_by=sort_by,
+                order=order,
+                org_id=org_id,
+                limit=limit + 1,
+                offset=offset,
+            )
+            items = items_plus_one[:limit]
+            has_more = len(items_plus_one) > limit
+            total = offset + len(items) + (1 if has_more else 0)
 
         has_more = offset + len(items) < total
+        _log_board_timing(
+            "work_items.list",
+            started_at,
+            board_id=board_id,
+            project_id=project_id,
+            org_id=org_id,
+            item_count=len(items),
+            total=total,
+            include_total=include_total,
+            limit=limit,
+            offset=offset,
+            has_more=has_more,
+        )
 
         return WorkItemListResponse(
             items=_normalize_work_items(items),
@@ -756,13 +913,24 @@ def create_board_routes(
         ),
     ) -> WorkItemProgressRollupListResponse:
         org_id = _get_org_id(request)
+        started_at = time.perf_counter()
 
         try:
-            rollups = board_service.list_board_progress_rollups(
+            rollups = await run_in_threadpool(
+                board_service.list_board_progress_rollups,
                 board_id,
                 item_type=item_type,
                 include_incomplete_descendants=include_incomplete_descendants,
                 org_id=org_id,
+            )
+            _log_board_timing(
+                "progress_rollups.list",
+                started_at,
+                board_id=board_id,
+                org_id=org_id,
+                item_type=item_type.value if item_type else None,
+                rollup_count=len(rollups),
+                include_incomplete_descendants=include_incomplete_descendants,
             )
             return WorkItemProgressRollupListResponse(rollups=rollups, total=len(rollups))
         except BoardNotFoundError as e:

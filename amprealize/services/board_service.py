@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from amprealize.multi_tenant.board_contracts import (
     AcceptanceCriterion,
@@ -1835,7 +1836,8 @@ class BoardService:
         limit: int = 100,
         offset: int = 0,
         skip_child_aggregation: bool = False,
-    ) -> List[WorkItem]:
+        include_total: bool = False,
+    ) -> Union[List[WorkItem], Tuple[List[WorkItem], int]]:
         """
         List work items with filters.
 
@@ -1855,7 +1857,10 @@ class BoardService:
             order: Sort direction — asc or desc (default asc).
             skip_child_aggregation: When True, skip ``_enrich_child_aggregation`` (avoids
                 recursion when enrichment needs a full-board fetch for subtree progress).
+            include_total: When True, compute total count with COUNT(*) OVER() and return
+                ``(items, total)`` without a separate count round-trip.
         """
+        started_at = time.perf_counter()
         # Allow-list for sort columns to prevent SQL injection
         SORT_COLUMNS = {
             "position": "w.position",
@@ -1932,22 +1937,40 @@ class BoardService:
 
             values.extend([limit, offset])
 
+            child_agg_lateral = """LEFT JOIN LATERAL (
+                    SELECT COUNT(*)::int AS child_count,
+                           COUNT(*) FILTER (WHERE status IN ('done'))::int AS completed_child_count
+                    FROM work_items children
+                    WHERE children.parent_id = w.id
+                ) ca ON TRUE"""
+            total_col = ", COUNT(*) OVER()::bigint AS _total" if include_total else ""
+
             with conn.cursor() as cur:
                 # Always join boards→projects to get the slug for display_id
                 # in a single round-trip (eliminates _enrich_display_ids query).
                 if needs_board_join:
                     cur.execute(
-                        f"""SELECT w.*, p.slug AS _project_slug FROM work_items w
+                        f"""SELECT w.*, p.slug AS _project_slug,
+                                   ca.child_count AS _child_count,
+                                   ca.completed_child_count AS _completed_child_count
+                                   {total_col}
+                            FROM work_items w
                             JOIN boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
+                            {child_agg_lateral}
                             {where} {order_clause} LIMIT %s OFFSET %s""",
                         values
                     )
                 else:
                     cur.execute(
-                        f"""SELECT w.*, p.slug AS _project_slug FROM work_items w
+                        f"""SELECT w.*, p.slug AS _project_slug,
+                                   ca.child_count AS _child_count,
+                                   ca.completed_child_count AS _completed_child_count
+                                   {total_col}
+                            FROM work_items w
                             LEFT JOIN boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
+                            {child_agg_lateral}
                             {where} {order_clause} LIMIT %s OFFSET %s""",
                         values
                     )
@@ -1959,14 +1982,36 @@ class BoardService:
         )
         items = [self._row_to_work_item(r) for r in results]
 
-        # Build display_id from the slug returned by the inline JOIN (no extra query)
+        # Build display and child summary fields from inline JOIN columns.
         for item, row in zip(items, results):
             slug = row.get("_project_slug")
             if slug and item.display_number and not item.display_id:
                 item.display_id = f"{slug}-{item.display_number}"
+            total_children = row.get("_child_count") or 0
+            completed_children = row.get("_completed_child_count") or 0
+            item.child_count = total_children
+            item.completed_child_count = completed_children
+            item.progress_percent = round((completed_children / total_children) * 100, 1) if total_children > 0 else 0.0
 
-        if not skip_child_aggregation:
-            self._enrich_child_aggregation(items, org_id=org_id)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        logger.info(
+            "board_service_timing",
+            extra={
+                "event": "work_items.list",
+                "duration_ms": duration_ms,
+                "board_id": board_id,
+                "project_id": project_id,
+                "item_count": len(items),
+                "include_total": include_total,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+        if include_total:
+            total_count = int(results[0]["_total"]) if results else 0
+            return items, total_count
+
         return items
 
     def count_work_items(
@@ -2301,6 +2346,7 @@ class BoardService:
         Fetches all items once and computes rollups in-memory (O(1) DB calls
         regardless of root count).
         """
+        started_at = time.perf_counter()
         self.get_board(board_id, include_columns=False, org_id=org_id)
         all_items = self.list_work_items(board_id=board_id, org_id=org_id, limit=10000, offset=0)
         if item_type is not None:
@@ -2308,12 +2354,24 @@ class BoardService:
         else:
             roots = [i for i in all_items if i.parent_id is None]
 
-        return [
+        rollups = [
             self._compute_rollup_from_items(
                 root, all_items, include_incomplete_descendants=include_incomplete_descendants,
             )
             for root in roots
         ]
+        logger.info(
+            "board_service_timing",
+            extra={
+                "event": "progress_rollups.list",
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 1),
+                "board_id": board_id,
+                "item_count": len(all_items),
+                "root_count": len(roots),
+                "rollup_count": len(rollups),
+            },
+        )
+        return rollups
 
     # =========================================================================
     # Assignment
