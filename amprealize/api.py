@@ -9050,13 +9050,20 @@ def create_app(
     # Add CORS middleware last so it wraps everything (outermost layer)
     # This ensures CORS headers are present even on 500 errors from inner layers
     #
+    _cors_allow_headers = (
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-Tenant-Id",
+        "X-Web-Perf-Session",
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=merged_cors_origins,
         allow_origin_regex=cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=list(_cors_allow_headers),
     )
 
     return app

@@ -1035,12 +1035,15 @@
     inset: 0 auto 0 0;
     z-index: var(--z-modal);
     border-right: 1px solid var(--color-border-default);
+    outline: 1px solid rgba(255, 255, 255, 0.45);
+    outline-offset: -1px;
   }
 
   .workspace-sidebar.collapsed {
     transform: translateX(calc(-1 * var(--sidebar-width)));
     width: var(--sidebar-width);
     min-width: var(--sidebar-width);
+    pointer-events: none;
   }
 
   .workspace-sidebar,
@@ -1049,5 +1052,73 @@
       transform var(--duration-slow) var(--ease-out-expo),
       width var(--duration-slow) var(--ease-out-expo),
       min-width var(--duration-slow) var(--ease-out-expo);
+  }
+
+  .workspace-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-modal) - 1);
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: rgba(15, 23, 42, 0.38);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .workspace-mobile-sidebar-trigger {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: calc(var(--z-modal) - 2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--color-border-default) 88%, var(--glass-outline));
+    background: rgba(248, 252, 255, 0.92);
+    color: var(--color-text-secondary);
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.12);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .workspace-mobile-sidebar-trigger:hover {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.96);
+  }
+}
+
+.workspace-header-mobile-nav-trigger {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .workspace-header-mobile-nav-trigger {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-right: var(--space-2);
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--color-border-default) 88%, var(--glass-outline));
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .workspace-header-mobile-nav-trigger:hover {
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--color-text-primary);
+  }
+
+  .header-left {
+    gap: var(--space-1);
   }
 }

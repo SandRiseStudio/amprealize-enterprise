@@ -2,7 +2,8 @@
  * Reverse-proxy static wiki JSON and Vite assets from the marketing apex to the
  * wiki Pages deployment when those paths are requested directly (e.g. bookmarks).
  * Marketing `/wiki/*` HTML is served by Astro (no iframe); `/_wiki/*` may still be
- * fetched by other clients hitting this origin.
+ * fetched by other clients hitting this origin. Static paths like `/favicon.png` stay
+ * on this deployment so the marketing favicon is not replaced by the wiki upstream.
  *
  * Set `WIKI_UPSTREAM` in the Cloudflare Pages project (e.g. https://amprealize-web.pages.dev).
  */
@@ -14,7 +15,8 @@ function upstreamBase(env) {
 }
 
 function shouldProxy(pathname) {
-  if (pathname === '/favicon.png') return true;
+  // Do not proxy /favicon.png: marketing `public/favicon.png` must be served here.
+  // Proxying it to the wiki upstream replaced the tab icon with the web-console favicon.
   if (pathname.startsWith('/assets/')) return true;
   if (pathname.startsWith('/_wiki/')) return true;
   return false;

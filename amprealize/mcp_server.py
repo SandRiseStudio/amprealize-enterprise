@@ -74,6 +74,10 @@ if TYPE_CHECKING:
     from .storage.postgres_pool import PostgresPool
     from .utils.dsn import apply_host_overrides
     from .knowledge_pack.activation_service import ActivationService
+    from .tenant.permissions import OrgPermission, ProjectPermission
+
+
+_MCP_PERMISSION_SERVICE_UNSET = object()
 
 
 def _ensure_dsn_param(dsn: str, key: str, value: str) -> str:
@@ -362,6 +366,34 @@ class MCPServiceRegistry:
         # internally caches engines by DSN, so multiple services with the same DSN
         # will share the same underlying connection pool (via _POOL_CACHE).
         self._pools: Dict[str, PostgresPool] = {}
+        self._permission_service_cache: Any = _MCP_PERMISSION_SERVICE_UNSET
+
+    def permission_service(self) -> Optional[Any]:
+        """Lazy singleton ``AsyncPermissionService`` when an auth/org DSN is configured."""
+        if self._permission_service_cache is not _MCP_PERMISSION_SERVICE_UNSET:
+            return self._permission_service_cache  # type: ignore[return-value]
+
+        resolved: Optional[Any] = None
+        try:
+            from .tenant.permissions import AsyncPermissionService
+            from .utils.dsn import apply_host_overrides
+
+            raw = (
+                os.environ.get("AMPREALIZE_AUTH_PG_DSN")
+                or os.environ.get("AMPREALIZE_ORG_PG_DSN")
+                or os.environ.get("AMPREALIZE_MULTI_TENANT_PG_DSN")
+                or os.environ.get("AMPREALIZE_PG_DSN")
+            )
+            dsn = apply_host_overrides(raw, "AUTH") if raw else None
+            if dsn:
+                resolved = AsyncPermissionService(dsn=dsn)
+                self._logger.info("Initialized AsyncPermissionService for MCP RBAC")
+        except Exception as exc:
+            self._logger.debug("MCP permission_service unavailable: %s", exc)
+            resolved = None
+
+        self._permission_service_cache = resolved
+        return resolved
 
     def _get_pool(self, dsn: str, service_name: str) -> PostgresPool:
         """
@@ -2169,6 +2201,36 @@ class MCPServer:
                             "missing_scopes": list(missing),
                         }
                     )
+
+            # ====================================================================
+            # RBAC: org/project permissions (mcp_permission_registry; guideai-1183)
+            # ====================================================================
+            from .mcp_permission_registry import mcp_tool_rbac_requirement
+
+            rbac_req = mcp_tool_rbac_requirement(internal_tool_name)
+            if rbac_req and session_context and session_context.user_id:
+                perm_for_rbac = self._services.permission_service()
+                if perm_for_rbac:
+                    enriched_rbac = self._inject_session_context(dict(tool_params))
+                    org_for_rbac = enriched_rbac.get("org_id") or session_context.org_id
+                    proj_for_rbac = enriched_rbac.get("project_id") or session_context.project_id
+                    allowed = await self._check_permission(
+                        session_context.user_id,
+                        org_for_rbac if org_for_rbac else None,
+                        proj_for_rbac if proj_for_rbac else None,
+                        rbac_req.org_permission,
+                        rbac_req.project_permission,
+                    )
+                    if not allowed:
+                        self._logger.warning(
+                            f"[{trace_id}] RBAC_FAIL: tool={internal_tool_name} user={session_context.user_id}"
+                        )
+                        return self._error_response(
+                            request_id,
+                            self.ACCESS_DENIED,
+                            "Access denied: insufficient organization or project permissions for this tool.",
+                            data={"tool": internal_tool_name},
+                        )
 
             # ====================================================================
             # Tenant-Aware Rate Limiting (Phase 5: MCP_AUTH_IMPLEMENTATION_PLAN.md)
@@ -6464,25 +6526,61 @@ class MCPServer:
                 "error_code": "SERVER_ERROR",
             }
 
-    def _get_permission_service(self):
-        """Get the AsyncPermissionService if available."""
-        try:
-            # Try to get from services registry
-            from .tenant.permissions import AsyncPermissionService
+    def _get_permission_service(self) -> Optional[Any]:
+        """Return cached ``AsyncPermissionService`` from ``MCPServiceRegistry``."""
+        return self._services.permission_service()
 
-            dsn = os.environ.get("AMPREALIZE_AUTH_PG_DSN")
-            if dsn:
-                return AsyncPermissionService(dsn=dsn)
-
-            # Fallback to pool-based DSN
-            dsn = os.environ.get("AMPREALIZE_PG_DSN")
-            if dsn:
-                return AsyncPermissionService(dsn=dsn)
-
-            return None
-        except Exception as e:
-            self._logger.debug(f"Could not initialize permission service: {e}")
-            return None
+    async def _check_permission(
+        self,
+        user_id: str,
+        org_id: Optional[str],
+        project_id: Optional[str],
+        org_permission: Optional[Any],
+        project_permission: Optional[Any],
+    ) -> bool:
+        """Verify org/project RBAC for MCP tool dispatch (see ``mcp_permission_registry``)."""
+        if not user_id:
+            return False
+        svc = self._services.permission_service()
+        if svc is None:
+            return True
+        if org_permission is None and project_permission is None:
+            return True
+        if org_permission is not None:
+            if not org_id:
+                self._logger.warning(
+                    "MCP RBAC: org permission %s required but org_id is missing",
+                    getattr(org_permission, "value", org_permission),
+                )
+                return False
+            res = await svc.has_org_permission(user_id, org_id, org_permission)
+            if not res.allowed:
+                self._logger.warning(
+                    "MCP RBAC denied org: user=%s org=%s perm=%s reason=%s",
+                    user_id,
+                    org_id,
+                    getattr(org_permission, "value", org_permission),
+                    res.reason,
+                )
+                return False
+        if project_permission is not None:
+            if not project_id:
+                self._logger.warning(
+                    "MCP RBAC: project permission %s required but project_id is missing",
+                    getattr(project_permission, "value", project_permission),
+                )
+                return False
+            res = await svc.has_project_permission(user_id, project_id, project_permission)
+            if not res.allowed:
+                self._logger.warning(
+                    "MCP RBAC denied project: user=%s project=%s perm=%s reason=%s",
+                    user_id,
+                    project_id,
+                    getattr(project_permission, "value", project_permission),
+                    res.reason,
+                )
+                return False
+        return True
 
     def _inject_session_context(self, tool_params: Dict[str, Any]) -> Dict[str, Any]:
         """

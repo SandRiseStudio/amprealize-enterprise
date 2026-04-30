@@ -13,7 +13,7 @@
  * - Optimized rendering via memo + refs
  */
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCollabStore, collabStore, usePresenceList } from '../../store/collabStore';
 import { useAuth } from '../../auth';
@@ -36,6 +36,9 @@ import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import { useApiPlatformRuntime } from '../../api/platformRuntime';
 import { AmprealizeChatDock } from '../conversations/AmprealizeChatDock';
 import './WorkspaceShell.css';
+
+/** Matches `WorkspaceShell.css` mobile drawer rules for `.workspace-sidebar`. */
+const MOBILE_SHELL_DRAWER_MAX_PX = 560;
 
 function formatVersionLabel(raw: string): string {
   const t = raw.trim();
@@ -205,9 +208,17 @@ interface HeaderProps {
   documentTitle?: string;
   connectionState: string;
   presenceList: ShellPresenceParticipant[];
+  showMobileNavTrigger?: boolean;
+  onOpenMobileNav?: () => void;
 }
 
-const Header = memo(function Header({ documentTitle, connectionState, presenceList }: HeaderProps) {
+const Header = memo(function Header({
+  documentTitle,
+  connectionState,
+  presenceList,
+  showMobileNavTrigger,
+  onOpenMobileNav,
+}: HeaderProps) {
   const { actor, logout, isAuthenticated } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -431,6 +442,21 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
   return (
     <header className="workspace-header">
       <div className="header-left">
+        {showMobileNavTrigger && onOpenMobileNav && (
+          <button
+            type="button"
+            className="workspace-header-mobile-nav-trigger pressable"
+            onClick={onOpenMobileNav}
+            aria-label="Open navigation menu"
+            data-haptic="light"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M3 5H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M3 9H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M3 13H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
         <div className="header-context">
           <div className="header-scope-panel" aria-label={CURRENT_SCOPE_LABEL}>
             <span className="header-scope-kicker">{CURRENT_SCOPE_LABEL}</span>
@@ -670,6 +696,8 @@ export interface WorkspaceShellProps {
 
 export function WorkspaceShell({ children, sidebarContent, documentTitle, mode = 'default' }: WorkspaceShellProps) {
   const { sidebarCollapsed, connectionState, activeDocumentId, documents } = useCollabStore();
+  const location = useLocation();
+  const [isMobileShellDrawer, setIsMobileShellDrawer] = useState(false);
   const collabPresence = usePresenceList();
   const activeDocument = activeDocumentId ? documents.get(activeDocumentId) : null;
   const { projectId } = useParams();
@@ -737,9 +765,36 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
     return PERSONAL_SCOPE_LABEL;
   }, [currentOrgId, project?.org_id]);
 
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia(`(max-width: ${MOBILE_SHELL_DRAWER_MAX_PX}px)`);
+    const syncViewport = () => {
+      const next = mq.matches;
+      setIsMobileShellDrawer(next);
+      if (next) {
+        collabStore.setSidebarCollapsed(true);
+      } else {
+        collabStore.setSidebarCollapsed(false);
+      }
+    };
+    syncViewport();
+    mq.addEventListener('change', syncViewport);
+    return () => mq.removeEventListener('change', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileShellDrawer) return;
+    collabStore.setSidebarCollapsed(true);
+  }, [location.pathname, isMobileShellDrawer]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isMobileShellDrawer && !sidebarCollapsed) {
+        e.preventDefault();
+        collabStore.setSidebarCollapsed(true);
+        return;
+      }
       // ⌘K / Ctrl+K → Command palette
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
@@ -754,7 +809,7 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isMobileShellDrawer, sidebarCollapsed]);
 
   return (
     <div className="workspace-shell">
@@ -765,12 +820,39 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
         {sidebarContent}
       </Sidebar>
 
+      {isMobileShellDrawer && !sidebarCollapsed && (
+        <button
+          type="button"
+          className="workspace-sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => collabStore.setSidebarCollapsed(true)}
+        />
+      )}
+
+      {mode === 'board' && isMobileShellDrawer && sidebarCollapsed && (
+        <button
+          type="button"
+          className="workspace-mobile-sidebar-trigger pressable"
+          onClick={() => collabStore.setSidebarCollapsed(false)}
+          aria-label="Open navigation menu"
+          data-haptic="light"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M3 5H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M3 9H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M3 13H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+
       <div className={`workspace-content${mode === 'board' ? ' board-mode' : ''}`}>
         {mode !== 'board' && (
           <Header
             documentTitle={documentTitle ?? activeDocument?.title ?? activeScopeLabel}
             connectionState={resolvedConnectionState}
             presenceList={livePresenceList}
+            showMobileNavTrigger={isMobileShellDrawer && sidebarCollapsed}
+            onOpenMobileNav={() => collabStore.setSidebarCollapsed(false)}
           />
         )}
         <MainContent>{children}</MainContent>
