@@ -23,6 +23,12 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        ALTER TABLE board.work_items
+        ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES board.work_items(id) ON DELETE SET NULL
+        """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_board_work_items_parent_id
         ON board.work_items (parent_id)
         WHERE parent_id IS NOT NULL

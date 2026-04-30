@@ -48,12 +48,17 @@ type Phase = 'entering' | 'open' | 'closing';
 
 export type UnifiedConversationInitialTarget =
   | { mode: 'conversation'; conversationId: string }
-  | { mode: 'firstProjectRoom' };
+  | { mode: 'firstProjectRoom' }
+  | { mode: 'none' };
+
+export type UnifiedConversationContextKind = 'global' | 'project';
 
 export interface UnifiedConversationWindowProps {
-  projectId: string;
+  projectId?: string | null;
   orgId?: string | null;
   currentUserId?: string;
+  contextKind?: UnifiedConversationContextKind;
+  contextLabel?: string;
   /** Applied when the window mounts or when this reference changes (see initialTargetKey). */
   initialTarget: UnifiedConversationInitialTarget;
   /** Bump to re-apply initialTarget (e.g. new DM from dock). */
@@ -106,18 +111,16 @@ function useFloatingDrag() {
     let nextY = dragRef.current.offsetY + dy;
 
     const panel = panelRef.current;
-    const parent = panel?.parentElement;
-    if (panel && parent) {
-      const pRect = parent.getBoundingClientRect();
+    if (panel) {
       const elRect = panel.getBoundingClientRect();
-      const maxX = pRect.width - elRect.width;
-      const maxY = pRect.height - elRect.height;
-      nextX = Math.max(-maxX, Math.min(0, nextX));
-      nextY = Math.max(-maxY, Math.min(0, nextY));
+      const baseLeft = elRect.left - position.x;
+      const baseTop = elRect.top - position.y;
+      nextX = Math.max(-baseLeft, Math.min(window.innerWidth - baseLeft - elRect.width, nextX));
+      nextY = Math.max(-baseTop, Math.min(window.innerHeight - baseTop - elRect.height, nextY));
     }
 
     setPosition({ x: nextX, y: nextY });
-  }, []);
+  }, [position.x, position.y]);
 
   const handlePointerUp = useCallback((e: ReactPointerEvent<HTMLElement>) => {
     if (!dragRef.current.active) return;
@@ -152,14 +155,12 @@ function useFloatingDrag() {
       let nextX = prev.x + dx;
       let nextY = prev.y + dy;
       const panel = panelRef.current;
-      const parent = panel?.parentElement;
-      if (panel && parent) {
-        const pRect = parent.getBoundingClientRect();
+      if (panel) {
         const elRect = panel.getBoundingClientRect();
-        const maxX = pRect.width - elRect.width;
-        const maxY = pRect.height - elRect.height;
-        nextX = Math.max(-maxX, Math.min(0, nextX));
-        nextY = Math.max(-maxY, Math.min(0, nextY));
+        const baseLeft = elRect.left - prev.x;
+        const baseTop = elRect.top - prev.y;
+        nextX = Math.max(-baseLeft, Math.min(window.innerWidth - baseLeft - elRect.width, nextX));
+        nextY = Math.max(-baseTop, Math.min(window.innerHeight - baseTop - elRect.height, nextY));
       }
       return { x: nextX, y: nextY };
     });
@@ -207,6 +208,8 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   projectId,
   orgId,
   currentUserId,
+  contextKind = 'project',
+  contextLabel,
   initialTarget,
   initialTargetKey,
   onClose,
@@ -222,7 +225,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
 
   const { position, panelRef, isDragging, dragHandlers } = useFloatingDrag();
 
-  const { data: convList } = useConversations({ projectId, enabled: !!projectId });
+  const { data: convList } = useConversations({ projectId, enabled: contextKind === 'project' && !!projectId });
   const { data: activeConv } = useConversation(activeConversationId ?? undefined);
 
   const { connectionState } = useConversationSocket(activeConversationId ?? undefined, currentUserId);
@@ -230,9 +233,19 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   const headerTitle = useMemo(() => {
     if (!activeConversationId) return 'Messages';
     if (activeConv?.title) return activeConv.title;
-    if (activeConv?.scope === ConversationScope.ProjectRoom) return 'Project room';
+    if (activeConv?.scope === ConversationScope.GlobalUserHome) return 'Global chat';
+    if (activeConv?.scope === ConversationScope.ProjectRoom || activeConv?.scope === ConversationScope.ProjectSpace) {
+      return 'Project room';
+    }
+    if (activeConv?.scope === ConversationScope.GroupChat) return 'Group chat';
     return 'Direct message';
   }, [activeConversationId, activeConv?.title, activeConv?.scope]);
+
+  const contextDisplay = contextLabel ?? (contextKind === 'global' ? 'Global home' : 'Project space');
+  const contextHint =
+    contextKind === 'global'
+      ? 'Across accessible orgs, projects, boards, runs, files, and agents'
+      : 'Inside this project workspace';
 
   useEffect(() => {
     queueMicrotask(() => setSearchOpen(false));
@@ -254,7 +267,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
 
   // Pick first project room once list loads (only after first-room entry cleared selection)
   useEffect(() => {
-    if (initialTarget.mode !== 'firstProjectRoom') return;
+    if (contextKind !== 'project' || initialTarget.mode !== 'firstProjectRoom') return;
     const rooms =
       convList?.items.filter((c) => c.scope === ConversationScope.ProjectRoom) ?? [];
     if (rooms[0]) {
@@ -262,7 +275,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
         setActiveConversationId((prev) => prev ?? rooms[0]!.id);
       });
     }
-  }, [initialTarget.mode, convList?.items]);
+  }, [contextKind, initialTarget.mode, convList?.items]);
 
   useLayoutEffect(() => {
     if (phase === 'entering') {
@@ -354,15 +367,15 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
         <MessageSearch conversationId={activeConversationId} onClose={() => setSearchOpen(false)} />
       )}
       <MessageList conversationId={activeConversationId} currentUserId={currentUserId} />
-      <MessageComposer conversationId={activeConversationId} />
+      <MessageComposer conversationId={activeConversationId} currentUserId={currentUserId} />
     </div>
   ) : (
     <div className="conversation-panel-empty">
       <ChatIcon />
       <span className="conversation-panel-empty-label">
-        Select a conversation
+        {contextKind === 'global' ? 'Ask across your accessible work' : 'Select a conversation'}
         <br />
-        or start a new one
+        {contextKind === 'global' ? 'or jump into a project space' : 'or start a new one'}
       </span>
     </div>
   );
@@ -371,6 +384,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
     <ConversationSidebar
       projectId={projectId}
       orgId={orgId}
+      contextKind={contextKind}
       activeConversationId={activeConversationId}
       onSelect={setActiveConversationId}
     />
@@ -402,12 +416,12 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   const desktopShell = (
     <div
       ref={bindShellRef}
-      className={`conversation-floating unified-conversation-floating ${phaseClass} ${draggingClass}`}
+      className={`conversation-floating unified-conversation-floating unified-conversation-floating--${contextKind} ${phaseClass} ${draggingClass}`}
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
       }}
       role="dialog"
-      aria-label={`Messages — ${headerTitle}`}
+      aria-label={`Amprealize Chat — ${contextDisplay} — ${headerTitle}`}
       aria-modal="false"
       tabIndex={-1}
       onKeyDown={handlePanelKeyDown}
@@ -421,6 +435,12 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
         aria-label="Messages window — drag to reposition"
       >
         <div className="conversation-floating-header-text unified-conversation-header-text">
+          <span className="unified-conversation-context-row">
+            <span className={`unified-conversation-context-pill unified-conversation-context-pill--${contextKind}`}>
+              {contextDisplay}
+            </span>
+            <span className="unified-conversation-context-hint">{contextHint}</span>
+          </span>
           <span className="conversation-floating-name">{headerTitle}</span>
           <span className="conversation-floating-status">
             {activeConversationId
@@ -474,7 +494,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
 
   if (isMobile) {
     return (
-      <BottomSheet onRequestClose={requestMobileClose} title="Messages" maxHeight="90vh">
+      <BottomSheet onRequestClose={requestMobileClose} title={contextDisplay} maxHeight="90vh">
         <div className="conversation-panel-mobile unified-conversation-mobile">
           {activeConversationId ? (
             <>

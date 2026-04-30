@@ -24,8 +24,17 @@ from ...multi_tenant.board_contracts import (
     CreateWorkItemRequest,
     UpdateWorkItemRequest,
     MoveWorkItemRequest,
+    CreateLabelRequest,
+    LabelColor,
+    UpdateLabelRequest,
+    SuggestAgentRequest,
     normalize_item_type,
 )
+from ...services.assignment_service import AssignmentService
+
+
+class BoardToolValidationError(ValueError):
+    """Raised when a board/work item MCP tool is missing required runtime arguments."""
 
 
 # ==============================================================================
@@ -72,10 +81,28 @@ def _work_item_to_dict(item: WorkItem) -> Dict[str, Any]:
 
 def _get_actor(arguments: Dict[str, Any]) -> Actor:
     """Extract actor from arguments or create default."""
-    user_id = arguments.get("user_id", "mcp-user")
+    session = arguments.get("_session", {})
+    user_id = arguments.get("user_id") or session.get("user_id") or "mcp-user"
     role = arguments.get("actor_role", "user")
     surface = arguments.get("actor_surface", "mcp")
     return Actor(id=user_id, role=role, surface=surface)
+
+
+def _mcp_coalesce_points(arguments: Dict[str, Any]) -> Optional[int]:
+    """Resolve MCP `points` / legacy `story_points`; preserve 0 (avoid truthiness bugs)."""
+    if arguments.get("points") is not None:
+        return arguments["points"]
+    if arguments.get("story_points") is not None:
+        return arguments["story_points"]
+    return None
+
+
+def _require(arguments: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not arguments.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise BoardToolValidationError(f"Missing required {label}: {', '.join(missing)}")
 
 
 def _resolve_id(
@@ -89,6 +116,120 @@ def _resolve_id(
     return service.resolve_work_item_id(
         identifier, org_id=org_id, project_id=project_id,
     )
+
+
+def _looks_like_agent_author(arguments: Dict[str, Any], author_id: Optional[str]) -> bool:
+    """Infer agent comments when MCP agent role/surface metadata is present."""
+    actor_role = str(arguments.get("actor_role", "")).lower()
+    actor_surface = str(arguments.get("actor_surface", "")).lower()
+    user_id = str(author_id or arguments.get("user_id", "")).lower()
+    return (
+        actor_role in {"agent", "student", "teacher", "metacognitive strategist", "strategist"}
+        or actor_surface in {"agent", "mcp-agent"}
+        or user_id.endswith("-agent")
+        or user_id.startswith("agent_")
+    )
+
+
+# ==============================================================================
+# Board Label, Filter, and Assignment Helpers
+# ==============================================================================
+
+
+def handle_list_labels(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """List labels for a project."""
+    _require(arguments, "project_id")
+    response = service.list_labels(
+        project_id=arguments["project_id"],
+        org_id=arguments.get("org_id"),
+        limit=arguments.get("limit", 100),
+        offset=arguments.get("offset", 0),
+    )
+    return {
+        "success": True,
+        "labels": [label.model_dump(mode="json") for label in response.labels],
+        "total": response.total,
+    }
+
+
+def handle_create_label(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a project label."""
+    _require(arguments, "project_id", "name")
+    request = CreateLabelRequest(
+        name=arguments["name"],
+        color=LabelColor(arguments.get("color", "gray")),
+        description=arguments.get("description"),
+    )
+    label = service.create_label(arguments["project_id"], request, _get_actor(arguments), org_id=arguments.get("org_id"))
+    return {"success": True, "label": label.model_dump(mode="json")}
+
+
+def handle_update_label(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Update a label."""
+    _require(arguments, "label_id")
+    color = arguments.get("color")
+    request = UpdateLabelRequest(
+        name=arguments.get("name"),
+        color=LabelColor(color) if color is not None else None,
+        description=arguments.get("description"),
+    )
+    label = service.update_label(arguments["label_id"], request, _get_actor(arguments), org_id=arguments.get("org_id"))
+    return {"success": True, "label": label.model_dump(mode="json")}
+
+
+def handle_delete_label(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Delete a label."""
+    _require(arguments, "label_id")
+    result = service.delete_label(arguments["label_id"], _get_actor(arguments), org_id=arguments.get("org_id"))
+    return {"success": True, "deleted_id": result.deleted_id}
+
+
+def handle_filter_items(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Filter work items using BoardService's canonical list query."""
+    limit = arguments.get("limit", 50)
+    offset = arguments.get("offset", 0)
+    item_type = WorkItemType(normalize_item_type(arguments["item_type"])) if arguments.get("item_type") else None
+    status = WorkItemStatus(arguments["status"]) if arguments.get("status") else None
+    parent_id = arguments.get("parent_id")
+    if parent_id:
+        parent_id = _resolve_id(service, parent_id, arguments)
+    items, total = service.list_work_items(
+        project_id=arguments.get("project_id"),
+        board_id=arguments.get("board_id"),
+        item_type=item_type,
+        status=status,
+        parent_id=parent_id,
+        assignee_id=arguments.get("assignee_id"),
+        labels=arguments.get("labels"),
+        sprint_id=arguments.get("sprint_id"),
+        org_id=arguments.get("org_id"),
+        limit=limit,
+        offset=offset,
+        include_total=True,
+    )
+    return {
+        "success": True,
+        "items": [_work_item_to_dict(item) for item in items],
+        "total": total,
+        "has_more": offset + len(items) < total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def handle_suggest_agent(service: BoardService, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Suggest agents for a feature or task."""
+    _require(arguments, "assignable_id", "assignable_type")
+    request = SuggestAgentRequest(
+        assignable_id=arguments["assignable_id"],
+        assignable_type=arguments["assignable_type"],
+        required_behaviors=arguments.get("required_behaviors", []),
+        exclude_agent_ids=arguments.get("exclude_agent_ids"),
+        max_suggestions=arguments.get("max_suggestions", 3),
+    )
+    assignment_service = AssignmentService(dsn=getattr(service, "_dsn", None), board_service=service)
+    response = assignment_service.suggest_agent(request, actor=_get_actor(arguments), org_id=arguments.get("org_id"))
+    return response.model_dump(mode="json") if hasattr(response, "model_dump") else response.dict()
 
 
 # ==============================================================================
@@ -110,11 +251,7 @@ def handle_list_boards(
     limit = arguments.get("limit", 50)
     offset = arguments.get("offset", 0)
 
-    if not project_id:
-        return {
-            "success": False,
-            "error": "project_id is required",
-        }
+    _require(arguments, "project_id")
 
     boards = service.list_boards(
         project_id=project_id,
@@ -146,10 +283,7 @@ def handle_create_board(
     name = arguments.get("name")
     org_id = arguments.get("org_id")
 
-    if not project_id:
-        return {"success": False, "error": "project_id is required"}
-    if not name:
-        return {"success": False, "error": "name is required"}
+    _require(arguments, "project_id", "name")
 
     actor = _get_actor(arguments)
 
@@ -184,8 +318,7 @@ def handle_get_board(
     org_id = arguments.get("org_id")
     include_columns = arguments.get("include_columns", True)
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
+    _require(arguments, "board_id")
 
     try:
         if include_columns:
@@ -219,8 +352,7 @@ def handle_update_board(
     board_id = arguments.get("board_id")
     org_id = arguments.get("org_id")
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
+    _require(arguments, "board_id")
 
     actor = _get_actor(arguments)
 
@@ -257,8 +389,7 @@ def handle_delete_board(
     board_id = arguments.get("board_id")
     org_id = arguments.get("org_id")
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
+    _require(arguments, "board_id")
 
     actor = _get_actor(arguments)
 
@@ -355,7 +486,7 @@ def handle_create_work_item(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Create a new work item (goal, feature, task, or bug).
+    Create a new work item (goal, feature, task, bug, or research).
 
     MCP Tool: workItems.create
     """
@@ -364,12 +495,7 @@ def handle_create_work_item(
     title = arguments.get("title")
     org_id = arguments.get("org_id")
 
-    if not item_type:
-        return {"success": False, "error": "item_type is required (goal, feature, task, or bug)"}
-    if not project_id:
-        return {"success": False, "error": "project_id is required"}
-    if not title:
-        return {"success": False, "error": "title is required"}
+    _require(arguments, "item_type", "project_id", "title")
 
     actor = _get_actor(arguments)
 
@@ -377,7 +503,7 @@ def handle_create_work_item(
     try:
         item_type_enum = WorkItemType(normalize_item_type(item_type))
     except ValueError:
-        return {"success": False, "error": f"Invalid item_type: {item_type}. Must be goal, feature, task, or bug."}
+        return {"success": False, "error": f"Invalid item_type: {item_type}. Must be goal, feature, task, bug, or research."}
 
     # GWS title validation is enforced by BoardService.create_work_item()
 
@@ -410,13 +536,14 @@ def handle_create_work_item(
         description=arguments.get("description"),
         priority=priority,
         labels=arguments.get("labels", []),
-        story_points=arguments.get("points") or arguments.get("story_points"),
+        story_points=_mcp_coalesce_points(arguments),
         estimated_hours=arguments.get("estimated_hours"),
         start_date=arguments.get("start_date"),
         target_date=arguments.get("target_date"),
         due_date=arguments.get("due_date"),
         behavior_id=arguments.get("behavior_id"),
         run_id=arguments.get("run_id"),
+        research_url=arguments.get("research_url") or arguments.get("Research URL"),
         metadata=arguments.get("metadata", {}),
     )
 
@@ -441,8 +568,7 @@ def handle_get_work_item(
     raw_id = arguments.get("item_id")
     org_id = arguments.get("org_id")
 
-    if not raw_id:
-        return {"success": False, "error": "item_id is required"}
+    _require(arguments, "item_id")
 
     try:
         item_id = _resolve_id(service, raw_id, arguments)
@@ -470,8 +596,7 @@ def handle_get_work_items_batch(
     raw_ids = arguments.get("item_ids", [])
     org_id = arguments.get("org_id")
 
-    if not raw_ids:
-        return {"success": False, "error": "item_ids is required and must be non-empty"}
+    _require(arguments, "item_ids")
 
     if len(raw_ids) > 100:
         return {"success": False, "error": "Maximum 100 item_ids per batch request"}
@@ -501,8 +626,7 @@ def handle_update_work_item(
     raw_id = arguments.get("item_id")
     org_id = arguments.get("org_id")
 
-    if not raw_id:
-        return {"success": False, "error": "item_id is required"}
+    _require(arguments, "item_id")
 
     item_id = _resolve_id(service, raw_id, arguments)
     actor = _get_actor(arguments)
@@ -533,7 +657,7 @@ def handle_update_work_item(
         try:
             item_type_enum = WorkItemType(normalize_item_type(arguments["item_type"]))
         except ValueError:
-            return {"success": False, "error": f"Invalid item_type: {arguments['item_type']}. Must be goal, feature, task, or bug."}
+            return {"success": False, "error": f"Invalid item_type: {arguments['item_type']}. Must be goal, feature, task, bug, or research."}
 
     # GWS title validation is enforced by BoardService.update_work_item()
 
@@ -556,7 +680,7 @@ def handle_update_work_item(
         status=status,
         priority=priority,
         labels=arguments.get("labels"),
-        story_points=arguments.get("points") or arguments.get("story_points"),
+        story_points=_mcp_coalesce_points(arguments),
         estimated_hours=arguments.get("estimated_hours"),
         actual_hours=arguments.get("actual_hours"),
         start_date=arguments.get("start_date"),
@@ -564,6 +688,7 @@ def handle_update_work_item(
         due_date=arguments.get("due_date"),
         behavior_id=arguments.get("behavior_id"),
         run_id=arguments.get("run_id"),
+        research_url=arguments.get("research_url") or arguments.get("Research URL"),
         metadata=arguments.get("metadata"),
         parent_id=_resolve_parent_id,
     )
@@ -614,8 +739,7 @@ def handle_delete_work_item(
     raw_id = arguments.get("item_id")
     org_id = arguments.get("org_id")
 
-    if not raw_id:
-        return {"success": False, "error": "item_id is required"}
+    _require(arguments, "item_id")
 
     item_id = _resolve_id(service, raw_id, arguments)
     actor = _get_actor(arguments)
@@ -653,7 +777,8 @@ def handle_post_comment(
     Arguments:
         work_item_id: ID of the work item to comment on
         body: Comment text content
-        author_id: ID of the comment author (user or agent)
+        author_id: ID of the comment author (user or agent). Defaults from
+            user_id or session user_id when omitted.
         author_type: "user" or "agent" (default: "user")
         run_id: Optional link to an execution run
         metadata: Optional JSON metadata
@@ -661,19 +786,16 @@ def handle_post_comment(
     """
     raw_id = arguments.get("work_item_id")
     body = arguments.get("body")
-    author_id = arguments.get("author_id")
-    author_type = arguments.get("author_type", "user")
+    session = arguments.get("_session", {})
+    author_id = arguments.get("author_id") or arguments.get("user_id") or session.get("user_id")
+    explicit_author_type = arguments.get("author_type")
+    author_type = explicit_author_type or ("agent" if _looks_like_agent_author(arguments, author_id) else "user")
     run_id = arguments.get("run_id")
     metadata = arguments.get("metadata")
     org_id = arguments.get("org_id")
 
     # Validate required fields
-    if not raw_id:
-        return {"success": False, "error": "work_item_id is required"}
-    if not body:
-        return {"success": False, "error": "body is required"}
-    if not author_id:
-        return {"success": False, "error": "author_id is required"}
+    _require({"work_item_id": raw_id, "body": body, "author_id": author_id}, "work_item_id", "body", "author_id")
     if author_type not in ("user", "agent"):
         return {"success": False, "error": "author_type must be 'user' or 'agent'"}
 
@@ -702,6 +824,25 @@ def handle_post_comment(
             "error": f"Work item {raw_id} not found",
         }
     except AuthorNotFoundError as e:
+        if not explicit_author_type and author_type == "user":
+            try:
+                comment = service.add_comment(
+                    work_item_id=work_item_id,
+                    author_id=author_id,
+                    author_type="agent",
+                    content=body,
+                    actor=actor,
+                    run_id=run_id,
+                    metadata=metadata,
+                    org_id=org_id,
+                )
+                return {
+                    "success": True,
+                    "comment": comment,
+                    "message": "Comment posted successfully",
+                }
+            except AuthorNotFoundError as fallback_error:
+                e = fallback_error
         return {
             "success": False,
             "error": str(e),
@@ -728,8 +869,7 @@ def handle_list_comments(
     offset = arguments.get("offset", 0)
     org_id = arguments.get("org_id")
 
-    if not raw_id:
-        return {"success": False, "error": "work_item_id is required"}
+    _require(arguments, "work_item_id")
 
     work_item_id = _resolve_id(service, raw_id, arguments)
 
@@ -778,10 +918,9 @@ def handle_move_to_column(
     position = arguments.get("position", 0)
     org_id = arguments.get("org_id")
 
-    if not raw_id:
-        return {"success": False, "error": "work_item_id is required"}
+    _require(arguments, "work_item_id")
     if not column_id and not status_mapping:
-        return {"success": False, "error": "Either column_id or status_mapping is required"}
+        raise BoardToolValidationError("Missing required parameter: column_id or status_mapping")
 
     work_item_id = _resolve_id(service, raw_id, arguments)
     actor = _get_actor(arguments)
@@ -867,14 +1006,10 @@ def handle_create_column(
     name = arguments.get("name")
     org_id = arguments.get("org_id")
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
-    if not name:
-        return {"success": False, "error": "name is required"}
+    _require(arguments, "board_id", "name")
 
     status_mapping = arguments.get("status_mapping")
-    if not status_mapping:
-        return {"success": False, "error": "status_mapping is required"}
+    _require(arguments, "status_mapping")
 
     try:
         status_enum = WorkItemStatus(status_mapping)
@@ -913,8 +1048,7 @@ def handle_list_columns(
     board_id = arguments.get("board_id")
     org_id = arguments.get("org_id")
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
+    _require(arguments, "board_id")
 
     columns = service.list_columns(board_id, org_id=org_id)
 
@@ -937,8 +1071,7 @@ def handle_available_columns(
     board_id = arguments.get("board_id")
     org_id = arguments.get("org_id")
 
-    if not board_id:
-        return {"success": False, "error": "board_id is required"}
+    _require(arguments, "board_id")
 
     columns = service.list_columns(board_id, org_id=org_id)
     existing_statuses = {c.status_mapping for c in columns if c.status_mapping}
@@ -974,6 +1107,12 @@ def handle_available_columns(
 
 
 BOARD_HANDLERS = {
+    "board.listLabels": handle_list_labels,
+    "board.createLabel": handle_create_label,
+    "board.updateLabel": handle_update_label,
+    "board.deleteLabel": handle_delete_label,
+    "board.filterItems": handle_filter_items,
+    "board.suggestAgent": handle_suggest_agent,
     "boards.list": handle_list_boards,
     "boards.create": handle_create_board,
     "boards.get": handle_get_board,

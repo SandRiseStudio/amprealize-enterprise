@@ -140,6 +140,22 @@ export function getVisibleWikiDomains(): WikiDomainConfig[] {
   return WIKI_DOMAINS.filter((d) => PUBLIC_WIKI_DOMAIN_IDS.has(d.id));
 }
 
+/** Apex / marketing sidebar order — matches `AppShell.astro` wiki section. */
+export const WIKI_PREVIEW_SIDEBAR_DOMAIN_ORDER: readonly WikiDomain[] = [
+  'research',
+  'infra',
+  'ai-learning',
+  'platform',
+];
+
+/** Visible domains for the public-preview sidebar, in presentation order. */
+export function getVisibleWikiDomainsForPreviewSidebar(): WikiDomainConfig[] {
+  const visibleIds = new Set(getVisibleWikiDomains().map((d) => d.id));
+  return WIKI_PREVIEW_SIDEBAR_DOMAIN_ORDER
+    .filter((id) => visibleIds.has(id))
+    .map((id) => getWikiDomainConfig(id));
+}
+
 export function isVisibleWikiDomain(domain: WikiDomain): boolean {
   if (!isPublicPreview()) return true;
   return PUBLIC_WIKI_DOMAIN_IDS.has(domain);

@@ -9,9 +9,15 @@ Following MCP best practices:
 Tool groups are loaded dynamically based on context, keeping the active tool count < 128.
 """
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set
+
+
+def _whiteboard_enabled() -> bool:
+    """Check if the whiteboard/brainstorm feature is enabled via env var."""
+    return os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes")
 
 
 class ToolGroupId(str, Enum):
@@ -35,7 +41,14 @@ class ToolGroupId(str, Enum):
     INFRASTRUCTURE = "infrastructure"
     BILLING = "billing"
     KNOWLEDGE_PACKS = "knowledge_packs"
+    PROJECTS = "projects"
+    BEHAVIORS = "behaviors"
+    AUTHORIZATION = "authorization"
+    WORK_ITEMS = "work_items"
+    COMMUNICATION = "communication"
+    WHITEBOARD = "whiteboard"
     RESEARCH = "research"
+    WIKI = "wiki"
 
 
 @dataclass
@@ -55,7 +68,7 @@ class ToolGroup:
 # Core tools that are ALWAYS loaded (essential for basic operation)
 # These follow the "Ruthless Curation" principle - only the most essential tools
 CORE_TOOLS: Set[str] = {
-    # Authentication (required for everything)
+    # Authentication/session bootstrap
     "auth.deviceInit",
     "auth.devicePoll",
     "auth.deviceLogin",
@@ -63,58 +76,42 @@ CORE_TOOLS: Set[str] = {
     "auth.refreshToken",
     "auth.logout",
 
-    # Essential behavior tools (core to Amprealize value)
+    # Behavior retrieval essentials
     "behaviors.getForTask",
     "behaviors.get",
     "behaviors.list",
-    "behaviors.create",
     "behaviors.search",
-    "behaviors.update",
-    "behaviors.submit",
-    "behaviors.approve",
-    "behaviors.deprecate",
-    "behaviors.deleteDraft",
 
-    # Project/Org basics
+    # Active tenant/project context
     "projects.list",
     "projects.get",
-    "projects.create",
     "orgs.list",
     "orgs.get",
-
-    # Work items basics
-    "workItems.list",
-    "workItems.get",
-    "workItems.create",
-    "workItems.update",
-    "workItems.delete",
-    "workItems.execute",
-
-    # Board basics (discover boards for work item placement)
-    "boards.list",
-    "boards.get",
-
-    # Runs basics
-    "runs.list",
-    "runs.get",
-    "runs.create",
-
-    # Context management
     "context.getContext",
     "context.setOrg",
     "context.setProject",
 
-    # Research tools
-    "research.evaluate",
-    "research.get",
-    "research.search",
-    "research.list",
+    # Lightweight work discovery
+    "boards.list",
+    "boards.get",
+    "workItems.list",
+    "workItems.get",
+    "workItems.create",
+    "runs.list",
+    "runs.get",
 
     # Tool group activation (meta-tools)
+    "tools.guide",
+    "tools.catalog",
     "tools.listGroups",
     "tools.activateGroup",
     "tools.deactivateGroup",
     "tools.activeGroups",
+}
+
+STARTUP_TOOL_GROUPS: Set[ToolGroupId] = {
+    ToolGroupId.PROJECTS,
+    ToolGroupId.WORK_ITEMS,
 }
 
 
@@ -123,12 +120,123 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
     ToolGroupId.CORE: ToolGroup(
         id=ToolGroupId.CORE,
         name="Core",
-        description="Essential Amprealize tools always available",
-        tool_prefixes=["auth.", "behaviors.", "projects.", "orgs.", "workItems.", "runs.", "context.", "boards."],
-        max_tools=55,  # Must be >= len(CORE_TOOLS); was 42, missing 8 tools
-        priority=0,  # Highest priority
-        requires_auth=False,  # Auth tools don't require auth
-        activation_keywords=["start", "login", "behavior", "project", "work"],
+        description="Minimum tool set for login, context, behavior lookup, and lightweight work discovery",
+        tool_prefixes=[],
+        max_tools=32,
+        priority=0,
+        requires_auth=False,
+        activation_keywords=["start", "login", "behavior", "project", "context", "work"],
+    ),
+
+    ToolGroupId.PROJECTS: ToolGroup(
+        id=ToolGroupId.PROJECTS,
+        name="Projects & Organizations",
+        description="Organizations, projects, membership, invitations, and active context selection",
+        tool_prefixes=["projects.", "project.", "orgs.", "context."],
+        max_tools=35,
+        priority=15,
+        activation_keywords=["project", "organization", "org", "tenant", "member", "invite", "context", "switch"],
+    ),
+
+    ToolGroupId.BEHAVIORS: ToolGroup(
+        id=ToolGroupId.BEHAVIORS,
+        name="Behavior Management",
+        description="Create, update, submit, approve, and retrieve behaviors and behavior-guided prompts",
+        tool_prefixes=["behaviors.", "behavior."],
+        max_tools=15,
+        priority=20,
+        activation_keywords=["behavior", "behaviors", "handbook", "proposal", "approve behavior"],
+    ),
+
+    ToolGroupId.AUTHORIZATION: ToolGroup(
+        id=ToolGroupId.AUTHORIZATION,
+        name="Authentication & Consent",
+        description="Auth sessions, AgentAuth grants, policy previews, and consent decisions",
+        tool_prefixes=["auth.", "consent."],
+        max_tools=25,
+        priority=25,
+        requires_auth=False,
+        activation_keywords=["auth", "login", "consent", "grant", "token", "permission", "policy"],
+    ),
+
+    ToolGroupId.WORK_ITEMS: ToolGroup(
+        id=ToolGroupId.WORK_ITEMS,
+        name="Boards & Work Items",
+        description="Boards, columns, labels, comments, assignments, and work item planning/execution metadata",
+        tool_prefixes=["boards.", "board.", "columns.", "workItems.", "workItem."],
+        max_tools=35,
+        priority=30,
+        activation_keywords=["work item", "workitem", "board", "column", "label", "comment", "gws", "planner"],
+    ),
+
+    ToolGroupId.EXECUTION: ToolGroup(
+        id=ToolGroupId.EXECUTION,
+        name="Execution & Workflows",
+        description="Runs, workflows, actions, and execution control",
+        tool_prefixes=["runs.", "workflow.", "actions."],
+        max_tools=25,
+        priority=35,
+        activation_keywords=["run", "workflow", "execute", "execution", "action", "replay", "status"],
+    ),
+
+    ToolGroupId.WIKI: ToolGroup(
+        id=ToolGroupId.WIKI,
+        name="Wiki",
+        description="Manage LLM-maintained wikis for research, infra, platform, and AI-learning domains",
+        tool_prefixes=["wiki.", "research_wiki.", "infra_wiki.", "platform_wiki.", "ai_learning_wiki."],
+        max_tools=22,
+        priority=37,
+        activation_keywords=["wiki", "ingest", "lint", "learning path", "explain concept", "infra docs", "platform docs"],
+    ),
+
+    ToolGroupId.RESEARCH: ToolGroup(
+        id=ToolGroupId.RESEARCH,
+        name="AI Research",
+        description="Evaluate research papers/articles through the 4-phase pipeline and retrieve past evaluations",
+        tool_prefixes=["research."],
+        max_tools=10,
+        priority=38,
+        activation_keywords=["research", "paper", "evaluate", "arxiv", "article", "study"],
+    ),
+
+    ToolGroupId.COMMUNICATION: ToolGroup(
+        id=ToolGroupId.COMMUNICATION,
+        name="Collaboration & Messaging",
+        description="Workspace collaboration, conversations, and message operations",
+        tool_prefixes=["collaboration.", "conversations.", "messages."],
+        max_tools=15,
+        priority=39,
+        activation_keywords=["conversation", "message", "chat", "thread", "reaction", "collaboration", "workspace"],
+    ),
+
+    ToolGroupId.COMPLIANCE: ToolGroup(
+        id=ToolGroupId.COMPLIANCE,
+        name="Compliance & Audit",
+        description="Policy management, audit trails, compliance validation, and security scanning",
+        tool_prefixes=["compliance.", "compliance/", "audit.", "security."],
+        max_tools=22,
+        priority=40,
+        activation_keywords=["compliance", "audit", "policy", "security", "scan", "validate"],
+    ),
+
+    ToolGroupId.KNOWLEDGE_PACKS: ToolGroup(
+        id=ToolGroupId.KNOWLEDGE_PACKS,
+        name="Knowledge Packs",
+        description="Build, validate, inspect, bootstrap, and roll back knowledge packs for context injection",
+        tool_prefixes=["knowledgePacks.", "pack."],
+        max_tools=10,
+        priority=42,
+        activation_keywords=["knowledge pack", "pack", "overlay", "primer", "context injection", "bootstrap pack"],
+    ),
+
+    ToolGroupId.BCI: ToolGroup(
+        id=ToolGroupId.BCI,
+        name="Behavior-Conditioned Inference",
+        description="BCI prompt composition, pattern detection, reflection, retrieval, and token optimization",
+        tool_prefixes=["bci.", "patterns.", "reflection.", "retrieval."],
+        max_tools=22,
+        priority=45,
+        activation_keywords=["bci", "prompt", "pattern", "token", "compose", "retrieve", "reflection"],
     ),
 
     ToolGroupId.ANALYTICS: ToolGroup(
@@ -138,37 +246,17 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         tool_prefixes=["analytics.", "metrics.", "telemetry."],
         max_tools=15,
         priority=50,
-        activation_keywords=["cost", "metrics", "analytics", "roi", "performance", "dashboard", "trend"],
+        activation_keywords=["cost", "metrics", "analytics", "roi", "performance", "dashboard", "trend", "telemetry"],
     ),
 
-    ToolGroupId.ADMIN: ToolGroup(
-        id=ToolGroupId.ADMIN,
-        name="Administration",
-        description="Billing, rate limits, tenants, and system configuration",
-        tool_prefixes=["billing.", "ratelimit.", "rate-limits.", "mcp-rate-limits.", "tenants.", "config."],
+    ToolGroupId.INFRASTRUCTURE: ToolGroup(
+        id=ToolGroupId.INFRASTRUCTURE,
+        name="Infrastructure & Environments",
+        description="BreakerAmp blueprints, environment management, Raze logging, and bootstrap operations",
+        tool_prefixes=["breakeramp.", "raze.", "bootstrap."],
         max_tools=20,
-        priority=80,
-        activation_keywords=["billing", "subscription", "rate limit", "tenant", "admin", "configure"],
-    ),
-
-    ToolGroupId.AGENTS: ToolGroup(
-        id=ToolGroupId.AGENTS,
-        name="Agent Management",
-        description="Agent registry, performance monitoring, task assignment, and orchestration",
-        tool_prefixes=["agents.", "agentRegistry.", "agentPerformance.", "tasks.", "escalation."],
-        max_tools=30,
-        priority=30,
-        activation_keywords=["agent", "assign", "delegate", "performance", "handoff", "escalate"],
-    ),
-
-    ToolGroupId.COMPLIANCE: ToolGroup(
-        id=ToolGroupId.COMPLIANCE,
-        name="Compliance & Audit",
-        description="Policy management, audit trails, compliance validation, and security scanning",
-        tool_prefixes=["compliance.", "audit.", "security."],
-        max_tools=20,
-        priority=40,
-        activation_keywords=["compliance", "audit", "policy", "security", "scan", "validate"],
+        priority=55,
+        activation_keywords=["environment", "blueprint", "container", "deploy", "log", "raze", "bootstrap"],
     ),
 
     ToolGroupId.DEVELOPMENT: ToolGroup(
@@ -181,36 +269,6 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         activation_keywords=["file", "github", "commit", "branch", "diff", "pr", "pull request"],
     ),
 
-    ToolGroupId.EXECUTION: ToolGroup(
-        id=ToolGroupId.EXECUTION,
-        name="Execution & Workflows",
-        description="Workflow management, board operations, and execution control",
-        tool_prefixes=["workflow.", "boards.", "board.", "actions.", "consent."],
-        max_tools=25,
-        priority=35,
-        activation_keywords=["workflow", "board", "execute", "action", "consent", "replay"],
-    ),
-
-    ToolGroupId.BCI: ToolGroup(
-        id=ToolGroupId.BCI,
-        name="Behavior-Conditioned Inference",
-        description="BCI prompt composition, pattern detection, and token optimization",
-        tool_prefixes=["bci.", "patterns.", "reflection.", "retrieval."],
-        max_tools=20,
-        priority=45,
-        activation_keywords=["bci", "prompt", "pattern", "token", "compose", "retrieve", "reflection"],
-    ),
-
-    ToolGroupId.FINE_TUNING: ToolGroup(
-        id=ToolGroupId.FINE_TUNING,
-        name="Fine-Tuning & Reviews",
-        description="Model fine-tuning, behavior reviews, and training data management",
-        tool_prefixes=["fine-tuning.", "reviews."],
-        max_tools=10,
-        priority=90,
-        activation_keywords=["fine-tune", "fine tuning", "training", "review"],
-    ),
-
     ToolGroupId.GITHUB: ToolGroup(
         id=ToolGroupId.GITHUB,
         name="GitHub Integration",
@@ -221,14 +279,17 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         activation_keywords=["github", "commit", "pull request", "branch", "repository"],
     ),
 
-    ToolGroupId.INFRASTRUCTURE: ToolGroup(
-        id=ToolGroupId.INFRASTRUCTURE,
-        name="Infrastructure & Environments",
-        description="BreakerAmp blueprints, environment management, and logging",
-        tool_prefixes=["breakeramp.", "raze."],
-        max_tools=15,
-        priority=55,
-        activation_keywords=["environment", "blueprint", "container", "deploy", "log", "raze"],
+    ToolGroupId.ADMIN: ToolGroup(
+        id=ToolGroupId.ADMIN,
+        name="Administration",
+        description="Billing, rate limits, tenants, flags, and system configuration",
+        tool_prefixes=[
+            "billing.", "config.", "flags.", "tenants.",
+            "ratelimit.", "rate-limits.", "mcp-rate-limits.", "ratelimit_",
+        ],
+        max_tools=25,
+        priority=80,
+        activation_keywords=["billing", "subscription", "rate limit", "tenant", "admin", "configure", "feature flag"],
     ),
 
     ToolGroupId.BILLING: ToolGroup(
@@ -241,26 +302,37 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         activation_keywords=["billing", "subscription", "invoice", "payment", "plan"],
     ),
 
-    ToolGroupId.KNOWLEDGE_PACKS: ToolGroup(
-        id=ToolGroupId.KNOWLEDGE_PACKS,
-        name="Knowledge Packs",
-        description="Build, validate, inspect, and manage knowledge packs for context injection",
-        tool_prefixes=["knowledgePacks."],
+    ToolGroupId.FINE_TUNING: ToolGroup(
+        id=ToolGroupId.FINE_TUNING,
+        name="Fine-Tuning & Reviews",
+        description="Model fine-tuning, behavior reviews, and training data management",
+        tool_prefixes=["fine-tuning.", "reviews."],
         max_tools=10,
-        priority=42,
-        activation_keywords=["knowledge pack", "pack", "overlay", "primer", "context injection"],
+        priority=90,
+        activation_keywords=["fine-tune", "fine tuning", "training", "review"],
     ),
 
-    ToolGroupId.RESEARCH: ToolGroup(
-        id=ToolGroupId.RESEARCH,
-        name="AI Research",
-        description="Evaluate research papers/articles through 4-phase pipeline, search and retrieve past evaluations",
-        tool_prefixes=["research."],
-        max_tools=10,
-        priority=38,
-        activation_keywords=["research", "paper", "evaluate", "arxiv", "article", "study"],
+    ToolGroupId.AGENTS: ToolGroup(
+        id=ToolGroupId.AGENTS,
+        name="Agent Management",
+        description="Agent registry, performance monitoring, task assignment, and orchestration",
+        tool_prefixes=["agents.", "agentRegistry.", "agentPerformance.", "tasks.", "escalation."],
+        max_tools=40,
+        priority=95,
+        activation_keywords=["agent", "assign", "delegate", "performance", "handoff", "escalate"],
     ),
 }
+
+if _whiteboard_enabled():
+    TOOL_GROUPS[ToolGroupId.WHITEBOARD] = ToolGroup(
+        id=ToolGroupId.WHITEBOARD,
+        name="Brainstorm & Whiteboard",
+        description="Brainstorm sessions, whiteboard rooms, canvas annotations, and snapshots",
+        tool_prefixes=["brainstorm.", "whiteboard."],
+        max_tools=15,
+        priority=36,
+        activation_keywords=["whiteboard", "brainstorm", "canvas", "sticky note", "ideation", "snapshot"],
+    )
 
 
 # High-level outcome-focused tools that replace multiple low-level operations

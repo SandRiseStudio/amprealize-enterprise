@@ -438,8 +438,14 @@ export interface ExecutionStreamEvents {
 // ---------------------------------------------------------------------------
 
 export enum ConversationScope {
+  GlobalUserHome = 'global_user_home',
+  ProjectSpace = 'project_space',
   ProjectRoom = 'project_room',
+  Dm = 'dm',
   AgentDm = 'agent_dm',
+  GroupChat = 'group_chat',
+  WorkItemThread = 'work_item_thread',
+  RunThread = 'run_thread',
 }
 
 export enum ActorType {
@@ -472,7 +478,7 @@ export enum NotificationPreference {
 
 export interface Conversation {
   id: string;
-  project_id: string;
+  project_id: string | null;
   org_id?: string | null;
   scope: ConversationScope | string;
   title?: string | null;

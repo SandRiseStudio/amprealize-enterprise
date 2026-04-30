@@ -71,7 +71,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: 'var(--color-text-primary)',
     outline: 'none',
-    transition: 'border var(--duration-fast) ease, box-shadow var(--duration-fast) ease',
+    transition: 'border var(--duration-fast) ease, outline-color var(--duration-fast) ease',
   },
   searchIcon: {
     position: 'absolute' as const,
@@ -176,26 +176,34 @@ const styles: Record<string, React.CSSProperties> = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function groupConversations(items: Conversation[]) {
+  const global: Conversation[] = [];
   const rooms: Conversation[] = [];
   const dms: Conversation[] = [];
+  const groups: Conversation[] = [];
   for (const c of items) {
-    if (c.scope === ConversationScope.ProjectRoom) rooms.push(c);
+    if (c.scope === ConversationScope.GlobalUserHome) global.push(c);
+    else if (c.scope === ConversationScope.ProjectRoom || c.scope === ConversationScope.ProjectSpace) rooms.push(c);
+    else if (c.scope === ConversationScope.GroupChat) groups.push(c);
     else dms.push(c);
   }
-  return { rooms, dms };
+  return { global, rooms, dms, groups };
 }
 
 function displayTitle(c: Conversation): string {
   if (c.title) return c.title;
+  if (c.scope === ConversationScope.GlobalUserHome) return 'Global chat';
   if (c.scope === ConversationScope.ProjectRoom) return 'General';
-  return 'Direct Message';
+  if (c.scope === ConversationScope.ProjectSpace) return 'Project room';
+  if (c.scope === ConversationScope.GroupChat) return 'Group chat';
+  return 'Direct message';
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export interface ConversationSidebarProps {
-  projectId: string;
+  projectId?: string | null;
   orgId?: string | null;
+  contextKind?: 'project' | 'global';
   activeConversationId: string | null;
   onSelect: (conversationId: string) => void;
 }
@@ -203,12 +211,19 @@ export interface ConversationSidebarProps {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export const ConversationSidebar = memo(function ConversationSidebar(props: ConversationSidebarProps) {
-  const { projectId, activeConversationId, onSelect } = props;
+  const { projectId, contextKind = projectId ? 'project' : 'global', activeConversationId, onSelect } = props;
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useConversations({ projectId, enabled: !!projectId });
+  const globalQuery = useConversations({ scope: ConversationScope.GlobalUserHome });
+  const projectQuery = useConversations({ projectId, enabled: !!projectId });
   const createConversation = useCreateConversation();
 
-  const items = useMemo(() => data?.items ?? [], [data?.items]);
+  const items = useMemo(() => {
+    const globalItems = globalQuery.data?.items ?? [];
+    const projectItems = projectQuery.data?.items ?? [];
+    return contextKind === 'project' ? [...globalItems, ...projectItems] : globalItems;
+  }, [contextKind, globalQuery.data?.items, projectQuery.data?.items]);
+
+  const isLoading = globalQuery.isLoading || (contextKind === 'project' && projectQuery.isLoading);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return items;
@@ -216,14 +231,17 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
     return items.filter((c) => displayTitle(c).toLowerCase().includes(q));
   }, [items, search]);
 
-  const { rooms, dms } = useMemo(() => groupConversations(filtered), [filtered]);
+  const { global, rooms, dms, groups } = useMemo(() => groupConversations(filtered), [filtered]);
 
   const handleCreate = useCallback(() => {
+    const canCreateProjectRoom = contextKind === 'project' && !!projectId;
     createConversation.mutate(
-      { projectId, scope: ConversationScope.ProjectRoom },
+      canCreateProjectRoom
+        ? { projectId, scope: ConversationScope.ProjectRoom, title: 'Project room' }
+        : { scope: ConversationScope.GlobalUserHome, title: 'Global chat' },
       { onSuccess: (created) => onSelect(created.id) },
     );
-  }, [createConversation, projectId, onSelect]);
+  }, [contextKind, createConversation, projectId, onSelect]);
 
   const renderItem = useCallback(
     (c: Conversation, icon: React.ReactNode) => {
@@ -280,10 +298,24 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
           <div style={styles.empty}>No matches</div>
         )}
 
+        {global.length > 0 && (
+          <>
+            <div style={styles.groupLabel}><HashIcon /> Home</div>
+            {global.map((c) => renderItem(c, <HashIcon />))}
+          </>
+        )}
+
         {rooms.length > 0 && (
           <>
-            <div style={styles.groupLabel}><HashIcon /> Rooms</div>
+            <div style={styles.groupLabel}><HashIcon /> Project</div>
             {rooms.map((c) => renderItem(c, <HashIcon />))}
+          </>
+        )}
+
+        {groups.length > 0 && (
+          <>
+            <div style={styles.groupLabel}><UserIcon /> Groups</div>
+            {groups.map((c) => renderItem(c, <UserIcon />))}
           </>
         )}
 
@@ -307,7 +339,7 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
           data-haptic="light"
         >
           <PlusIcon />
-          {createConversation.isPending ? 'Creating…' : 'New conversation'}
+          {createConversation.isPending ? 'Creating…' : contextKind === 'project' ? 'New project room' : 'Start global chat'}
         </button>
       </div>
     </div>

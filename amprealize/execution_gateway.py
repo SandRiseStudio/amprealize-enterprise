@@ -19,15 +19,18 @@ Part of E3 — Agent Execution Loop Rearchitecture (AMPREALIZE-277 / Phase 1).
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .action_contracts import Actor
 from .execution_gateway_contracts import (
     ExecutionGatewayResult,
     ExecutionRequest,
+    GatewayQueuePayload,
     ModeExecutor,
     NewExecutionMode,
     OutputTarget,
@@ -42,14 +45,39 @@ from .output_handlers import (
     OutputResult,
     OutputStatus,
 )
+from .policy_composition import (
+    PolicyCompositionEngine,
+    PolicyDecision,
+    PolicyEvaluationResult,
+    build_execution_policy_request,
+)
+from .plan_artifact_contracts import PlanArtifact
 from .run_contracts import RunCreateRequest, RunProgressUpdate
+from .session_audit import GovernedChatAuditEventType, GovernedChatAuditLogger
 from .task_cycle_contracts import CyclePhase, CreateCycleRequest
 from .work_item_execution_contracts import (
     AgentExecutionMode,
     ExecutionPolicy,
+    ExecutionState,
+    ToolPermissionLevel,
+    WriteScope,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _load_execution_queue_models():
+    try:
+        from execution_queue import ExecutionJob, Priority
+    except ModuleNotFoundError:
+        import sys
+
+        package_src = Path(__file__).resolve().parent.parent / "packages" / "execution-queue" / "src"
+        if package_src.exists() and str(package_src) not in sys.path:
+            sys.path.insert(0, str(package_src))
+        from execution_queue import ExecutionJob, Priority
+
+    return ExecutionJob, Priority
 
 
 def _now_iso() -> str:
@@ -87,6 +115,10 @@ class ExecutionGateway:
         executors: Optional[Dict[NewExecutionMode, ModeExecutor]] = None,
         settings_service: Any = None,
         github_service: Any = None,
+        queue_publisher: Any = None,
+        dispatch_mode: str = "background",
+        policy_engine: Optional[PolicyCompositionEngine] = None,
+        governed_chat_audit: Optional[GovernedChatAuditLogger] = None,
     ) -> None:
         """
         Args:
@@ -101,6 +133,11 @@ class ExecutionGateway:
                        at execute time.
             settings_service: SettingsService for project-level settings.
             github_service: GitHubService for PR creation in output handlers.
+            queue_publisher: ExecutionQueuePublisher for queue dispatch mode.
+            dispatch_mode: "background" for development or "queue" for worker dispatch.
+            policy_engine: Optional runtime policy evaluator. Defaults to
+                           PolicyCompositionEngine.
+            governed_chat_audit: Optional append-only governed chat audit logger.
         """
         self._board = board_service
         self._runs = run_service
@@ -112,6 +149,10 @@ class ExecutionGateway:
         self._executors: Dict[NewExecutionMode, ModeExecutor] = executors or {}
         self._settings = settings_service
         self._github_service = github_service
+        self._queue_publisher = queue_publisher
+        self._dispatch_mode = dispatch_mode
+        self._policy_engine = policy_engine or PolicyCompositionEngine()
+        self._chat_audit = governed_chat_audit or GovernedChatAuditLogger()
 
     # ------------------------------------------------------------------
     # Executor registration
@@ -142,7 +183,15 @@ class ExecutionGateway:
             work_item = self._load_work_item(request)
             agent, agent_version = self._load_agent(work_item, request)
             exec_policy = self._resolve_policy(agent_version, request)
+            self._emit_chat_preflight_audit(request, work_item, agent.agent_id)
             self._check_idempotency(work_item, request)
+            policy_result = self._evaluate_policy(request, exec_policy, agent.agent_id)
+            if policy_result.decision == PolicyDecision.DENY:
+                raise ValueError(self._policy_error_message(policy_result))
+            if policy_result.decision == PolicyDecision.REVIEW:
+                request.requires_approval = True
+                if not request.approved_by:
+                    raise ValueError(self._policy_error_message(policy_result))
 
             # --- Phase B: Resolve execution configuration ---
             mode = self._resolve_mode(request)
@@ -151,6 +200,14 @@ class ExecutionGateway:
             model_id, api_key, cred_source, is_byok = self._resolve_model(
                 request, exec_policy,
             )
+            if (
+                self._dispatch_mode == "queue"
+                and self._queue_publisher is None
+                and not request.is_plan_only
+            ):
+                raise ValueError(
+                    "ExecutionGateway queue dispatch requested but no queue publisher is configured"
+                )
 
             # --- Phase C: Create tracking records ---
             run_id, cycle_id = self._create_records(
@@ -177,25 +234,8 @@ class ExecutionGateway:
                 playbook=self._extract_playbook(agent_version),
             )
 
-            # --- Phase E: Dispatch to executor ---
-            executor = self._executors.get(mode)
-            if executor is None:
-                raise ValueError(
-                    f"No executor registered for mode {mode.value}. "
-                    f"Available: {list(self._executors.keys())}"
-                )
-
             # Resolve agent execution mode (GEP vs SESSION)
             agent_exec_mode = request.agent_execution_mode or AgentExecutionMode.GEP
-
-            # Wrap in SessionModeExecutor when session mode requested
-            if agent_exec_mode == AgentExecutionMode.SESSION:
-                from .mode_executors import SessionModeExecutor
-                executor = SessionModeExecutor(inner_executor=executor)
-                logger.info(
-                    f"Session Mode requested for run {run_id} — "
-                    f"wrapping {mode.value} executor in SessionModeExecutor"
-                )
 
             # Link run to work item
             self._link_run_to_work_item(request.work_item_id, run_id, request.org_id)
@@ -203,10 +243,45 @@ class ExecutionGateway:
             # Emit start telemetry
             self._emit_start(resolved, work_item)
 
-            # Launch execution in background
-            asyncio.create_task(
-                self._run_with_executor(executor, resolved, work_item, agent, agent_version, exec_policy)
-            )
+            queue_job_id = None
+            plan_artifact = None
+            if request.is_plan_only:
+                plan_artifact = self._create_plan_artifact(resolved, work_item)
+                request.plan_artifact_id = plan_artifact.plan_artifact_id
+                self._complete_plan_only_run(resolved, plan_artifact)
+            elif self._dispatch_mode == "queue":
+                queue_job_id = await self._enqueue_execution(
+                    resolved,
+                    exec_policy,
+                    agent_exec_mode,
+                    work_item=work_item,
+                )
+            else:
+                # --- Phase E: Dispatch to executor ---
+                executor = self._executors.get(mode)
+                if executor is None:
+                    raise ValueError(
+                        f"No executor registered for mode {mode.value}. "
+                        f"Available: {list(self._executors.keys())}"
+                    )
+
+                # Wrap in SessionModeExecutor when session mode requested
+                if agent_exec_mode == AgentExecutionMode.SESSION:
+                    from .mode_executors import SessionModeExecutor
+
+                    executor = SessionModeExecutor(inner_executor=executor)
+                    logger.info(
+                        f"Session Mode requested for run {run_id} — "
+                        f"wrapping {mode.value} executor in SessionModeExecutor"
+                    )
+
+                # Launch execution in background. This mode is intended for
+                # development/local gateway validation; production should use queue.
+                asyncio.create_task(
+                    self._run_with_executor(
+                        executor, resolved, work_item, agent, agent_version, exec_policy
+                    )
+                )
 
             return ExecutionGatewayResult(
                 success=True,
@@ -214,13 +289,36 @@ class ExecutionGateway:
                 cycle_id=cycle_id,
                 mode=mode,
                 output_target=output_target,
-                message="Execution started",
+                intent=request.intent,
+                queue_job_id=queue_job_id,
+                plan_artifact_id=(
+                    plan_artifact.plan_artifact_id if plan_artifact else None
+                ),
+                compatibility={
+                    "work_item_id": request.work_item_id,
+                    "agent_id": resolved.agent_id,
+                    "model_id": resolved.model_id,
+                    "status": ExecutionState.PENDING.value,
+                    "phase": CyclePhase.PLANNING.value,
+                    "created_at": request.created_at,
+                    **(
+                        self._plan_compatibility(plan_artifact)
+                        if plan_artifact
+                        else {}
+                    ),
+                },
+                message=(
+                    "Plan artifact created"
+                    if plan_artifact
+                    else "Execution queued" if queue_job_id else "Execution started"
+                ),
             )
 
         except Exception as e:
             logger.exception(f"Gateway execution failed: {e}")
             return ExecutionGatewayResult(
                 success=False,
+                intent=request.intent,
                 error=str(e),
                 message=f"Execution failed: {e}",
             )
@@ -228,6 +326,65 @@ class ExecutionGateway:
     # ------------------------------------------------------------------
     # Background execution
     # ------------------------------------------------------------------
+
+    async def _enqueue_execution(
+        self,
+        resolved: ResolvedExecution,
+        exec_policy: ExecutionPolicy,
+        agent_exec_mode: AgentExecutionMode,
+        *,
+        work_item: WorkItem,
+    ) -> str:
+        """Enqueue the resolved execution for worker processing."""
+        ExecutionJob, Priority = _load_execution_queue_models()
+
+        priority = Priority.NORMAL
+        if exec_policy and hasattr(exec_policy, "priority"):
+            priority_str = getattr(exec_policy, "priority", "normal").lower()
+            if priority_str == "high":
+                priority = Priority.HIGH
+            elif priority_str == "low":
+                priority = Priority.LOW
+
+        payload = GatewayQueuePayload.from_resolved(resolved).to_dict()
+        payload.update(
+            {
+                "cycle_id": resolved.cycle_id,
+                "work_item_title": work_item.title,
+                "agent_version_id": resolved.agent_version_id,
+                "agent_execution_mode": agent_exec_mode.value,
+                "exec_policy": (
+                    exec_policy.to_dict() if hasattr(exec_policy, "to_dict") else None
+                ),
+            }
+        )
+
+        job = ExecutionJob(
+            job_id=resolved.run_id,
+            run_id=resolved.run_id,
+            work_item_id=resolved.request.work_item_id,
+            agent_id=resolved.agent_id,
+            user_id=resolved.request.user_id,
+            project_id=resolved.request.project_id,
+            priority=priority,
+            org_id=resolved.request.org_id,
+            model_override=resolved.model_id,
+            cycle_id=resolved.cycle_id,
+            payload=payload,
+        )
+
+        message_id = await self._queue_publisher.enqueue(job)
+        logger.info(
+            "Queued gateway execution",
+            extra={
+                "run_id": resolved.run_id,
+                "cycle_id": resolved.cycle_id,
+                "work_item_id": resolved.request.work_item_id,
+                "queue_message_id": message_id,
+                "priority": priority.value,
+            },
+        )
+        return message_id
 
     async def _run_with_executor(
         self,
@@ -408,8 +565,43 @@ class ExecutionGateway:
     def _resolve_policy(self, agent_version: Any, request: ExecutionRequest) -> ExecutionPolicy:
         """Resolve the execution policy from agent version or defaults."""
         if agent_version and hasattr(agent_version, "execution_policy") and agent_version.execution_policy:
-            return agent_version.execution_policy
-        return ExecutionPolicy()
+            policy = agent_version.execution_policy
+        else:
+            policy = ExecutionPolicy()
+        if request.is_plan_only:
+            return self._plan_only_policy(policy)
+        return policy
+
+    @staticmethod
+    def _plan_only_policy(policy: ExecutionPolicy) -> ExecutionPolicy:
+        """Derive a read-only policy for plan-only gateway requests."""
+        plan_policy = copy.deepcopy(policy)
+        plan_policy.write_scope = WriteScope.READ_ONLY
+        plan_policy.require_workspace = False
+        for tool_name in (
+            "write_file",
+            "edit_file",
+            "delete_file",
+            "run_in_terminal",
+            "workItems.create",
+            "workItems.update",
+            "workItems.delete",
+            "boards.create",
+            "boards.update",
+            "boards.delete",
+            "projects.create",
+            "projects.update",
+            "projects.delete",
+            "orgs.create",
+            "orgs.update",
+            "orgs.delete",
+            "agents.create",
+            "agents.update",
+            "agents.delete",
+            "mcp.tools.invoke_mutating",
+        ):
+            plan_policy.tool_permissions[tool_name] = ToolPermissionLevel.DENY
+        return plan_policy
 
     def _check_idempotency(self, work_item: WorkItem, request: ExecutionRequest) -> None:
         """Check if there's already an active execution for this work item."""
@@ -423,6 +615,199 @@ class ExecutionGateway:
                     )
             except Exception:
                 pass  # Run not found — safe to proceed
+
+    def _evaluate_policy(
+        self,
+        request: ExecutionRequest,
+        exec_policy: ExecutionPolicy,
+        agent_id: str,
+    ) -> PolicyEvaluationResult:
+        """Evaluate runtime governance policy and emit audit telemetry."""
+        policy_request = build_execution_policy_request(
+            request_id=request.request_id,
+            user_id=request.user_id,
+            org_id=request.org_id,
+            project_id=request.project_id,
+            conversation_id=request.conversation_id,
+            agent_id=request.agent_id_override or agent_id,
+            risk_classification=request.risk_classification,
+            policy_context=request.policy_context,
+            execution_policy=exec_policy,
+        )
+        result = self._policy_engine.evaluate(policy_request)
+        request.policy_context["policy_evaluation"] = result.to_dict()
+        if result.requires_review:
+            request.requires_approval = True
+        self._emit_policy_audit(request, result)
+        self._emit_chat_policy_audit(request, result)
+        return result
+
+    def _emit_policy_audit(
+        self,
+        request: ExecutionRequest,
+        result: PolicyEvaluationResult,
+    ) -> None:
+        if not self._telemetry:
+            return
+        actor = {
+            "id": request.user_id or "unknown",
+            "role": "user",
+            "surface": request.surface,
+        }
+        for audit_event in result.audit_events:
+            self._telemetry.emit_event(
+                event_type=audit_event.event_type,
+                payload={
+                    **audit_event.to_dict(),
+                    "request_id": request.request_id,
+                    "work_item_id": request.work_item_id,
+                    "project_id": request.project_id,
+                    "org_id": request.org_id,
+                    "approved_by": request.approved_by,
+                },
+                actor=actor,
+            )
+
+    def _emit_chat_preflight_audit(
+        self,
+        request: ExecutionRequest,
+        work_item: WorkItem,
+        agent_id: str,
+    ) -> None:
+        """Record chat intent and scope resolution before policy evaluation."""
+
+        self._chat_audit.log(
+            event_type=GovernedChatAuditEventType.INTENT_CLASSIFICATION,
+            user_id=request.user_id,
+            action=request.intent.value,
+            decision="recorded",
+            chat_scope=self._chat_scope(request),
+            target_resources=self._chat_target_resources(request, agent_id),
+            work_item_id=request.work_item_id,
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+            request_id=request.request_id,
+            metadata={
+                "surface": request.surface,
+                "risk_classification": request.risk_classification,
+                "is_plan_only": request.is_plan_only,
+                "work_item_title": work_item.title,
+            },
+            actor_surface=request.surface,
+        )
+        self._chat_audit.log(
+            event_type=GovernedChatAuditEventType.SCOPE_RESOLUTION,
+            user_id=request.user_id,
+            action="resolve_chat_scope",
+            decision="recorded",
+            chat_scope=self._chat_scope(request),
+            target_resources=self._chat_target_resources(request, agent_id),
+            work_item_id=request.work_item_id,
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+            request_id=request.request_id,
+            metadata={
+                "org_id": request.org_id,
+                "project_id": request.project_id,
+                "source_type": request.source_type.value if request.source_type else None,
+            },
+            actor_surface=request.surface,
+        )
+
+    def _emit_chat_policy_audit(
+        self,
+        request: ExecutionRequest,
+        result: PolicyEvaluationResult,
+    ) -> None:
+        decision = "review_required" if result.requires_review else result.decision.value
+        policy_ids = [directive.source for directive in result.directives if directive.source]
+        self._chat_audit.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id=request.user_id,
+            action=request.intent.value,
+            decision=decision,
+            chat_scope=self._chat_scope(request),
+            target_resources=self._chat_target_resources(request),
+            policy_ids=policy_ids,
+            work_item_id=request.work_item_id,
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+            request_id=request.request_id,
+            metadata={
+                "reasons": list(result.reasons),
+                "failed_closed": result.failed_closed,
+                "directives": [directive.to_dict() for directive in result.directives],
+                "approved_by": request.approved_by,
+            },
+            actor_surface=request.surface,
+        )
+        if result.denied:
+            event_type = GovernedChatAuditEventType.DENIAL
+        elif result.requires_review:
+            event_type = (
+                GovernedChatAuditEventType.APPROVAL
+                if request.approved_by
+                else GovernedChatAuditEventType.DENIAL
+            )
+        else:
+            return
+        self._chat_audit.log(
+            event_type=event_type,
+            user_id=request.user_id,
+            action=request.intent.value,
+            decision=decision,
+            chat_scope=self._chat_scope(request),
+            target_resources=self._chat_target_resources(request),
+            policy_ids=policy_ids,
+            work_item_id=request.work_item_id,
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+            request_id=request.request_id,
+            metadata={
+                "approved_by": request.approved_by,
+                "reasons": list(result.reasons),
+            },
+            actor_surface=request.surface,
+        )
+
+    @staticmethod
+    def _policy_error_message(result: PolicyEvaluationResult) -> str:
+        prefix = (
+            "Policy review required"
+            if result.requires_review
+            else "Policy denied execution"
+        )
+        reason = "; ".join(result.reasons) if result.reasons else result.decision.value
+        return f"{prefix}: {reason}"
+
+    @staticmethod
+    def _chat_scope(request: ExecutionRequest) -> str:
+        return str(
+            request.policy_context.get("chat_scope")
+            or request.policy_context.get("chat_surface")
+            or request.surface
+        )
+
+    @staticmethod
+    def _chat_target_resources(
+        request: ExecutionRequest,
+        agent_id: Optional[str] = None,
+    ) -> list[Dict[str, Any]]:
+        resources: list[Dict[str, Any]] = [
+            {"type": "work_item", "id": request.work_item_id},
+            {"type": "project", "id": request.project_id},
+        ]
+        if request.org_id:
+            resources.append({"type": "org", "id": request.org_id})
+        if request.conversation_id:
+            resources.append({"type": "conversation", "id": request.conversation_id})
+        if request.message_id:
+            resources.append({"type": "message", "id": request.message_id})
+        effective_agent_id = agent_id or request.agent_id_override
+        if effective_agent_id:
+            resources.append({"type": "agent", "id": effective_agent_id})
+        return resources
+
 
     # ------------------------------------------------------------------
     # Resolution helpers
@@ -529,6 +914,9 @@ class ExecutionGateway:
                 "model_id": model_id,
                 "project_id": request.project_id,
                 "org_id": request.org_id,
+                "execution_intent": request.intent.value,
+                "run_type": "plan_only" if request.is_plan_only else "execution",
+                "plan_artifact_id": request.plan_artifact_id,
                 "execution_mode": mode,
                 "execution_policy": policy.to_dict() if hasattr(policy, "to_dict") else {},
                 "agent_playbook_version": agent_version.version if agent_version else None,
@@ -546,6 +934,9 @@ class ExecutionGateway:
                 "run_id": run.run_id,
                 "agent_id": agent.agent_id,
                 "model_id": model_id,
+                "execution_intent": request.intent.value,
+                "run_type": "plan_only" if request.is_plan_only else "execution",
+                "plan_artifact_id": request.plan_artifact_id,
             },
         ))
 
@@ -562,10 +953,91 @@ class ExecutionGateway:
             RunProgressUpdate(metadata={
                 "cycle_id": cycle_id,
                 "phase": CyclePhase.PLANNING.value,
+                "execution_intent": request.intent.value,
+                "run_type": "plan_only" if request.is_plan_only else "execution",
+                "plan_artifact_id": request.plan_artifact_id,
             }),
         )
 
         return run.run_id, cycle_id
+
+    def _create_plan_artifact(
+        self,
+        resolved: ResolvedExecution,
+        work_item: WorkItem,
+    ) -> PlanArtifact:
+        """Create the in-gateway plan artifact for a plan-only request."""
+        summary = f"Draft execution plan for {work_item.title}"
+        content = (
+            f"# Plan for {work_item.title}\n\n"
+            f"- Work item: {resolved.request.work_item_id}\n"
+            f"- Project: {resolved.request.project_id}\n"
+            f"- Agent: {resolved.agent_id}\n"
+            f"- Source: {resolved.source_type.value}"
+            f"{f' ({resolved.source_url})' if resolved.source_url else ''}\n\n"
+            "This draft was produced in plan-only mode. It is read-only and must "
+            "be approved before a separate execution run can mutate files or "
+            "platform resources."
+        )
+        artifact = PlanArtifact.create(
+            work_item_id=resolved.request.work_item_id,
+            project_id=resolved.request.project_id,
+            org_id=resolved.request.org_id,
+            created_by=resolved.request.user_id,
+            agent_id=resolved.agent_id,
+            conversation_id=resolved.request.conversation_id,
+            message_id=resolved.request.message_id,
+            source_run_id=resolved.run_id,
+            content=content,
+            summary=summary,
+            metadata={
+                "gateway_request_id": resolved.request.request_id,
+                "cycle_id": resolved.cycle_id,
+                "mode": resolved.mode.value,
+                "output_target": resolved.output_target.value,
+                "policy_context": dict(resolved.request.policy_context),
+            },
+        )
+        return artifact
+
+    def _complete_plan_only_run(
+        self,
+        resolved: ResolvedExecution,
+        plan_artifact: PlanArtifact,
+    ) -> None:
+        self._runs.update_run(
+            resolved.run_id,
+            RunProgressUpdate(
+                status="COMPLETED",
+                progress_pct=100.0,
+                message="Plan artifact created",
+                metadata={
+                    "cycle_id": resolved.cycle_id,
+                    "phase": CyclePhase.COMPLETED.value,
+                    "execution_intent": resolved.request.intent.value,
+                    "run_type": "plan_only",
+                    "plan_artifact_id": plan_artifact.plan_artifact_id,
+                    "plan_artifact_status": plan_artifact.status.value,
+                },
+            ),
+        )
+
+    @staticmethod
+    def _plan_compatibility(plan_artifact: PlanArtifact) -> Dict[str, Any]:
+        return {
+            "status": ExecutionState.COMPLETED.value,
+            "phase": CyclePhase.COMPLETED.value,
+            "plan_artifact_id": plan_artifact.plan_artifact_id,
+            "plan_artifact": plan_artifact.to_dict(),
+            "summary_card": {
+                "type": "plan_summary",
+                "plan_artifact_id": plan_artifact.plan_artifact_id,
+                "status": plan_artifact.status.value,
+                "title": plan_artifact.current.summary,
+                "version": plan_artifact.current_version,
+                "can_start_execution": plan_artifact.can_start_execution,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Helpers
@@ -620,6 +1092,27 @@ class ExecutionGateway:
         return m.provider.value if m else None
 
     def _emit_start(self, resolved: ResolvedExecution, work_item: WorkItem) -> None:
+        self._chat_audit.log(
+            event_type=GovernedChatAuditEventType.EXECUTION_START,
+            user_id=resolved.request.user_id,
+            action=resolved.request.intent.value,
+            decision="allow",
+            chat_scope=self._chat_scope(resolved.request),
+            target_resources=self._chat_target_resources(resolved.request, resolved.agent_id),
+            run_id=resolved.run_id,
+            work_item_id=resolved.request.work_item_id,
+            conversation_id=resolved.request.conversation_id,
+            message_id=resolved.request.message_id,
+            request_id=resolved.request.request_id,
+            metadata={
+                "cycle_id": resolved.cycle_id,
+                "mode": resolved.mode.value,
+                "output_target": resolved.output_target.value,
+                "source_type": resolved.source_type.value,
+                "surface": resolved.request.surface,
+            },
+            actor_surface=resolved.request.surface,
+        )
         if self._telemetry:
             self._telemetry.emit_event(
                 event_type="execution.gateway.started",

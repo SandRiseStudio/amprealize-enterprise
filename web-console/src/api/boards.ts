@@ -1176,6 +1176,16 @@ export function useCreateWorkItem() {
         org_id: null,
       };
 
+      const targetColumnId = payload.column_id ?? null;
+      const bumpColumnPositions = (list: WorkItem[]): WorkItem[] => {
+        if (!targetColumnId) return list;
+        return list.map((item) =>
+          item.column_id === targetColumnId
+            ? { ...item, position: (item.position ?? 0) + 1 }
+            : item,
+        );
+      };
+
       const itemCaches = queryClient.getQueriesData<WorkItem[]>({
         predicate: (q) => isBoardWorkItemsQueryKey(q.queryKey, payload.board_id),
       });
@@ -1183,8 +1193,11 @@ export function useCreateWorkItem() {
         queryClient.setQueryData<WorkItem[]>(key, (old) => {
           const list = old ?? [];
           const subq = boardWorkItemQueryFromKey(key as readonly unknown[]);
-          if (subq && !matchesBoardWorkItemQuery(optimistic, subq)) return list;
-          return [optimistic, ...list];
+          const bumped = bumpColumnPositions(list);
+          if (subq && !matchesBoardWorkItemQuery(optimistic, subq)) {
+            return bumped;
+          }
+          return [optimistic, ...bumped];
         });
       }
       return { previousEntries, optimisticId };
@@ -1209,7 +1222,7 @@ export function useCreateWorkItem() {
           const list = old ?? [];
           const subq = boardWorkItemQueryFromKey(key as readonly unknown[]);
           if (subq && !matchesBoardWorkItemQuery(created, subq)) {
-            return list.map((i) => (i.item_id === context?.optimisticId ? created : i));
+            return list.filter((i) => i.item_id !== context?.optimisticId);
           }
           const replaced = list.map((i) => (i.item_id === context?.optimisticId ? created : i));
           return replaced.some((i) => i.item_id === created.item_id) ? replaced : [created, ...replaced];

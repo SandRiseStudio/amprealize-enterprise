@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +23,42 @@ from pydantic import BaseModel, Field
 
 
 class ConversationScope(str, Enum):
+    GLOBAL_USER_HOME = "global_user_home"
+    PROJECT_SPACE = "project_space"
     PROJECT_ROOM = "project_room"
+    DM = "dm"
     AGENT_DM = "agent_dm"
+    GROUP_CHAT = "group_chat"
+    WORK_ITEM_THREAD = "work_item_thread"
+    RUN_THREAD = "run_thread"
+
+    @property
+    def is_global(self) -> bool:
+        return self == ConversationScope.GLOBAL_USER_HOME
+
+    @property
+    def is_project_scoped(self) -> bool:
+        return self in PROJECT_SCOPED_CONVERSATION_SCOPES
+
+
+PROJECT_SCOPED_CONVERSATION_SCOPES = frozenset(
+    {
+        ConversationScope.PROJECT_SPACE,
+        ConversationScope.PROJECT_ROOM,
+        ConversationScope.DM,
+        ConversationScope.AGENT_DM,
+        ConversationScope.GROUP_CHAT,
+        ConversationScope.WORK_ITEM_THREAD,
+        ConversationScope.RUN_THREAD,
+    }
+)
+
+LEGACY_CONVERSATION_SCOPE_ALIASES = {
+    ConversationScope.PROJECT_ROOM: ConversationScope.PROJECT_ROOM,
+    ConversationScope.AGENT_DM: ConversationScope.DM,
+}
+
+ALL_CONVERSATION_SCOPE_VALUES = tuple(scope.value for scope in ConversationScope)
 
 
 class ParticipantRole(str, Enum):
@@ -61,6 +95,63 @@ class ExternalProvider(str, Enum):
     DISCORD = "discord"
 
 
+class ConversationResourceType(str, Enum):
+    ORG = "org"
+    PROJECT = "project"
+    BOARD = "board"
+    WORK_ITEM = "work_item"
+    RUN = "run"
+    PLAN = "plan"
+    FILE = "file"
+    UPLOAD = "upload"
+    IMAGE = "image"
+    AGENT = "agent"
+    MCP_TOOL = "mcp_tool"
+    PLATFORM_ACTION = "platform_action"
+
+
+class ConversationWorkspaceKind(str, Enum):
+    GLOBAL = "global"
+    PROJECT = "project"
+
+
+class ChatPermissionAction(str, Enum):
+    READ = "read"
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    INVITE_SHARE = "invite_share"
+    EXECUTE = "execute"
+    PUBLISH = "publish"
+    ADMINISTER = "administer"
+
+
+class ChatPermissionScope(str, Enum):
+    USER = "user"
+    ORG = "org"
+    PROJECT = "project"
+    CONVERSATION = "conversation"
+    AGENT = "agent"
+
+
+class ChatPermissionSurface(str, Enum):
+    GLOBAL_CHAT = "global_chat"
+    PROJECT_SPACE = "project_space"
+    GROUP_CHAT = "group_chat"
+    WORK_ITEM_THREAD = "work_item_thread"
+    RUN_THREAD = "run_thread"
+    AGENT_LIFECYCLE = "agent_lifecycle"
+    MCP_TOOL = "mcp_tool"
+    ATTACHMENT = "attachment"
+    PLATFORM_ACTION = "platform_action"
+
+
+class ChatPermissionEffect(str, Enum):
+    ALLOW = "allow"
+    REQUIRE_APPROVAL = "require_approval"
+    DENY = "deny"
+
+
 # ============================================================================
 # Domain Dataclasses
 # ============================================================================
@@ -69,7 +160,7 @@ class ExternalProvider(str, Enum):
 @dataclass
 class Conversation:
     id: str
-    project_id: str
+    project_id: Optional[str]
     org_id: Optional[str]
     scope: ConversationScope
     title: Optional[str]
@@ -99,6 +190,14 @@ class Conversation:
             "participant_count": self.participant_count,
             "unread_count": self.unread_count,
         }
+
+    @property
+    def workspace_kind(self) -> ConversationWorkspaceKind:
+        return (
+            ConversationWorkspaceKind.GLOBAL
+            if self.scope == ConversationScope.GLOBAL_USER_HOME
+            else ConversationWorkspaceKind.PROJECT
+        )
 
 
 @dataclass
@@ -146,6 +245,7 @@ class Message:
     run_id: Optional[str] = None
     behavior_id: Optional[str] = None
     work_item_id: Optional[str] = None
+    resource_links: List[Dict[str, Any]] = field(default_factory=list)
     is_edited: bool = False
     edited_at: Optional[datetime] = None
     is_deleted: bool = False
@@ -169,6 +269,7 @@ class Message:
             "run_id": self.run_id,
             "behavior_id": self.behavior_id,
             "work_item_id": self.work_item_id,
+            "resource_links": self.resource_links,
             "is_edited": self.is_edited,
             "edited_at": self.edited_at.isoformat() if self.edited_at else None,
             "is_deleted": self.is_deleted,
@@ -226,14 +327,199 @@ class ExternalBinding:
         }
 
 
+@dataclass(frozen=True)
+class ConversationScopeResolution:
+    """Resolved workspace boundary for a conversation request."""
+
+    scope: ConversationScope
+    workspace_kind: ConversationWorkspaceKind
+    user_id: str
+    org_id: Optional[str] = None
+    project_id: Optional[str] = None
+    resource_id: Optional[str] = None
+
+    def validate(self) -> None:
+        if self.scope.is_global:
+            if self.project_id is not None:
+                raise ValueError("global user chat must not be bound to a project_id")
+            return
+        if self.project_id is None:
+            raise ValueError(f"{self.scope.value} requires a project_id")
+
+
+@dataclass(frozen=True)
+class ChatPermissionRequirement:
+    """Contract row for chat governance; not a runtime policy evaluator."""
+
+    surface: ChatPermissionSurface
+    action: ChatPermissionAction
+    scopes: Tuple[ChatPermissionScope, ...]
+    effect: ChatPermissionEffect = ChatPermissionEffect.ALLOW
+    notes: str = ""
+
+    @property
+    def is_denied(self) -> bool:
+        return self.effect == ChatPermissionEffect.DENY
+
+
+class ConversationResourceLink(BaseModel):
+    """Typed link from a chat message to an Amprealize resource."""
+
+    resource_type: ConversationResourceType
+    resource_id: str
+    org_id: Optional[str] = None
+    project_id: Optional[str] = None
+    label: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+CHAT_PERMISSION_DENY_BY_DEFAULT = (
+    "Chat governance denies any action/surface pair that is missing from the "
+    "matrix, carries no recognized user/org/project/conversation/agent scope, "
+    "or resolves to conflicting scopes that cannot be reconciled by the "
+    "most-restrictive-wins rule."
+)
+
+
+def normalize_conversation_scope(scope: ConversationScope) -> ConversationScope:
+    """Map legacy conversation scopes onto the target workspace model."""
+    return LEGACY_CONVERSATION_SCOPE_ALIASES.get(scope, scope)
+
+
+def conversation_scope_storage_values(scope: ConversationScope) -> Tuple[str, ...]:
+    """Return storage values that should match a logical target scope."""
+    normalized = normalize_conversation_scope(scope)
+    if normalized == ConversationScope.DM:
+        return (ConversationScope.DM.value, ConversationScope.AGENT_DM.value)
+    return (normalized.value,)
+
+
+def _permission(
+    surface: ChatPermissionSurface,
+    action: ChatPermissionAction,
+    scopes: Tuple[ChatPermissionScope, ...],
+    *,
+    effect: ChatPermissionEffect = ChatPermissionEffect.ALLOW,
+    notes: str = "",
+) -> ChatPermissionRequirement:
+    return ChatPermissionRequirement(
+        surface=surface,
+        action=action,
+        scopes=scopes,
+        effect=effect,
+        notes=notes,
+    )
+
+
+_DEFAULT_SURFACE_SCOPES: Dict[ChatPermissionSurface, Tuple[ChatPermissionScope, ...]] = {
+    ChatPermissionSurface.GLOBAL_CHAT: (ChatPermissionScope.USER,),
+    ChatPermissionSurface.PROJECT_SPACE: (ChatPermissionScope.PROJECT,),
+    ChatPermissionSurface.GROUP_CHAT: (
+        ChatPermissionScope.CONVERSATION,
+        ChatPermissionScope.PROJECT,
+        ChatPermissionScope.AGENT,
+    ),
+    ChatPermissionSurface.WORK_ITEM_THREAD: (
+        ChatPermissionScope.CONVERSATION,
+        ChatPermissionScope.PROJECT,
+    ),
+    ChatPermissionSurface.RUN_THREAD: (
+        ChatPermissionScope.CONVERSATION,
+        ChatPermissionScope.PROJECT,
+    ),
+    ChatPermissionSurface.AGENT_LIFECYCLE: (
+        ChatPermissionScope.ORG,
+        ChatPermissionScope.PROJECT,
+        ChatPermissionScope.AGENT,
+    ),
+    ChatPermissionSurface.MCP_TOOL: (
+        ChatPermissionScope.USER,
+        ChatPermissionScope.ORG,
+        ChatPermissionScope.PROJECT,
+    ),
+    ChatPermissionSurface.ATTACHMENT: (
+        ChatPermissionScope.USER,
+        ChatPermissionScope.CONVERSATION,
+        ChatPermissionScope.PROJECT,
+    ),
+    ChatPermissionSurface.PLATFORM_ACTION: (
+        ChatPermissionScope.USER,
+        ChatPermissionScope.ORG,
+        ChatPermissionScope.PROJECT,
+    ),
+}
+
+
+def _build_chat_permission_matrix() -> Dict[
+    Tuple[ChatPermissionSurface, ChatPermissionAction],
+    ChatPermissionRequirement,
+]:
+    matrix: Dict[
+        Tuple[ChatPermissionSurface, ChatPermissionAction],
+        ChatPermissionRequirement,
+    ] = {}
+    for surface, scopes in _DEFAULT_SURFACE_SCOPES.items():
+        for action in ChatPermissionAction:
+            effect = (
+                ChatPermissionEffect.REQUIRE_APPROVAL
+                if action == ChatPermissionAction.EXECUTE
+                else ChatPermissionEffect.ALLOW
+            )
+            matrix[(surface, action)] = _permission(
+                surface,
+                action,
+                scopes,
+                effect=effect,
+            )
+
+    matrix[
+        (ChatPermissionSurface.GLOBAL_CHAT, ChatPermissionAction.INVITE_SHARE)
+    ] = _permission(
+        ChatPermissionSurface.GLOBAL_CHAT,
+        ChatPermissionAction.INVITE_SHARE,
+        (),
+        effect=ChatPermissionEffect.DENY,
+        notes="A global user home is personal; sharing happens through linked resources.",
+    )
+    matrix[(ChatPermissionSurface.GLOBAL_CHAT, ChatPermissionAction.PUBLISH)] = _permission(
+        ChatPermissionSurface.GLOBAL_CHAT,
+        ChatPermissionAction.PUBLISH,
+        (),
+        effect=ChatPermissionEffect.DENY,
+        notes="Global chat content is not publishable by default.",
+    )
+    return matrix
+
+
+CHAT_PERMISSION_MATRIX = _build_chat_permission_matrix()
+
+
+def get_chat_permission_requirement(
+    surface: ChatPermissionSurface,
+    action: ChatPermissionAction,
+) -> ChatPermissionRequirement:
+    """Return the contract row for a chat action or deny by default."""
+    return CHAT_PERMISSION_MATRIX.get(
+        (surface, action),
+        ChatPermissionRequirement(
+            surface=surface,
+            action=action,
+            scopes=(),
+            effect=ChatPermissionEffect.DENY,
+            notes=CHAT_PERMISSION_DENY_BY_DEFAULT,
+        ),
+    )
+
+
 # ============================================================================
 # Pydantic Request / Response Models (REST API)
 # ============================================================================
 
 
 class CreateConversationRequest(BaseModel):
-    """Create a new conversation (DM only; project rooms are auto-created)."""
-    scope: ConversationScope = ConversationScope.AGENT_DM
+    """Create a new global or project conversation."""
+    project_id: Optional[str] = None
+    scope: ConversationScope = ConversationScope.DM
     title: Optional[str] = None
     participant_ids: List[str] = Field(default_factory=list)
 
@@ -247,6 +533,7 @@ class SendMessageRequest(BaseModel):
     run_id: Optional[str] = None
     behavior_id: Optional[str] = None
     work_item_id: Optional[str] = None
+    resource_links: List[ConversationResourceLink] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -276,7 +563,7 @@ class SearchMessagesRequest(BaseModel):
 
 class ConversationResponse(BaseModel):
     id: str
-    project_id: str
+    project_id: Optional[str]
     org_id: Optional[str] = None
     scope: str
     title: Optional[str] = None
@@ -302,6 +589,7 @@ class MessageResponse(BaseModel):
     run_id: Optional[str] = None
     behavior_id: Optional[str] = None
     work_item_id: Optional[str] = None
+    resource_links: List[Dict[str, Any]] = Field(default_factory=list)
     is_edited: bool = False
     edited_at: Optional[str] = None
     is_deleted: bool = False

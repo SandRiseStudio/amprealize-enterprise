@@ -76,7 +76,7 @@ describe('UnifiedConversationWindow', () => {
     vi.clearAllMocks();
   });
 
-  it('renders floating dialog with messages title region', () => {
+  it('renders floating dialog with project context title region', () => {
     render(
       <UnifiedConversationWindow
         projectId="p1"
@@ -86,7 +86,25 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('dialog', { name: /messages/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /amprealize chat — project space/i })).toBeInTheDocument();
+    expect(screen.getByText('Project space')).toBeInTheDocument();
+    expect(screen.getByText('Inside this project workspace')).toBeInTheDocument();
+  });
+
+  it('renders global chat context when requested', () => {
+    render(
+      <UnifiedConversationWindow
+        projectId="p1"
+        contextKind="global"
+        contextLabel="Global home"
+        initialTarget={{ mode: 'conversation', conversationId: 'room-1' }}
+        initialTargetKey={1}
+        onClose={vi.fn()}
+      />,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByRole('dialog', { name: /amprealize chat — global home/i })).toBeInTheDocument();
+    expect(screen.getByText('Across accessible orgs, projects, boards, runs, files, and agents')).toBeInTheDocument();
   });
 
   it('renders close control in header', () => {

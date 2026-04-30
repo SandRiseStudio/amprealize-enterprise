@@ -1,3 +1,624 @@
+| 232 | BreakerAmp wait-health / baked API — OSS parity | ### #232 - BreakerAmp wait-health / baked API — OSS parity (2026-04-27)
+**Milestone:** Ported OSS BreakerAmp stack readiness and baked API image support into `amprealize-enterprise` (`health_wait`, `restart --wait`, `wait-health`, blueprint `AMPREALIZE_API_SKIP_PIP` / `AMPREALIZE_API_IMAGE`, `deployment/Dockerfile.api-dev`, docs).
+
+**Implementation (Completed):**
+- aligned `packages/breakeramp` CLI, blueprints (`cloud-dev`, `local-dev`, `local-test-suite`), and tests with SandRiseStudio/amprealize
+- updated `docs/WORK_MANAGEMENT_GUIDE.md` CLI table and §5.2
+
+**Validation:** `python -m pytest packages/breakeramp/tests/test_health_wait.py -q` from enterprise repo root (after install).
+
+**Behaviors applied:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-27_ |
+| 231 | Global chat optimistic send and reply trigger parity | ### #231 - Global chat optimistic send and reply trigger parity (2026-04-27)
+**Milestone:** Restored Enterprise parity for the `GUIDEAI-1037` global chat send UX so sent messages render immediately and selected-model chat messages trigger an agent reply.
+
+**Implementation (Completed):**
+- added optimistic message insertion/reconciliation in the web console message cache so user messages appear before the REST round trip completes
+- wired the conversation REST send route to schedule `ConversationReplyService.generate_reply()` for normal user text messages with selected LLM model metadata
+- initialized `ConversationReplyService` with the conversation event hub and a DB-backed LLM credential resolver so user-scoped NVIDIA BYOK credentials can be used for replies
+- corrected reply-service token/error/complete publication to use the synchronous event hub API and async LLM streaming path
+
+**Validation:** `python -m py_compile` passes for edited conversation/API modules; `python -m pytest tests/test_conversation_reply_routing.py -q` passes; `npm --prefix "amprealize-enterprise/web-console" run build` passes with the existing large-chunk warning; IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_enforce_quality_gates`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-27_ |
+| 230 | Global chat NVIDIA BYOK send path parity | ### #230 - Global chat NVIDIA BYOK send path parity (2026-04-27)
+**Milestone:** Restored Enterprise parity for the `GUIDEAI-1037` global chat path after user-scoped NVIDIA BYOK keys were saved successfully.
+
+**Implementation (Completed):**
+- wired conversation message model metadata validation to the DB-backed BYOK credential repository so user-scoped NVIDIA keys are accepted when sending messages
+- optimized model availability to filter provider/free-chat candidates before credential resolution and cache provider credentials per request
+- added DeepSeek V4 Pro (`deepseek-ai/deepseek-v4-pro`) to the curated NVIDIA free endpoint chat catalog
+- refreshed the LLM routing wiki with the updated DeepSeek model list
+
+**Validation:** Backend modules compile; focused model availability tests cover the curated NVIDIA free-chat list.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-27_ |
+| 229 | Web console user BYOK settings parity | ### #229 - Web console user BYOK settings parity (2026-04-27)
+**Milestone:** Restored Enterprise parity for account-level BYOK management in `GUIDEAI-1037`.
+
+**Implementation (Completed):**
+- added an `/settings` LLM API Keys section for user-scoped provider keys, defaulting the add form to NVIDIA NIM
+- wired the existing user credential hooks to authenticated `/users/me/credentials` endpoints and refreshed LLM model availability after key changes
+- hardened user credential route ownership checks so cross-user access cannot rely on caller-supplied `actor_id`
+- added user credential re-enable support for disabled personal provider keys
+- updated the LLM routing wiki with the personal BYOK web flow
+
+**Validation:** `python -m pytest tests/test_user_credential_auth.py -m unit -q --no-cov` passes (`5 passed`); `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes with the existing large-chunk warning; IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_lock_down_security_surface`, `behavior_prevent_secret_leaks`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-27_ |
+| 228 | NVIDIA chat model dropdown visibility parity | ### #228 - NVIDIA chat model dropdown visibility parity (2026-04-26)
+**Milestone:** Restored Enterprise parity for the `GUIDEAI-1037` NVIDIA free endpoint chat selector refinement.
+
+**Implementation (Completed):**
+- expanded the canonical NVIDIA NIM chat catalog to the requested free/open model set: DeepSeek V4, MiniMax M2, Kimi K2, Qwen Coder, GPT-OSS 120B, Mistral Large, GLM 5.1, Nemotron Ultra, and Llama 70B
+- filtered free/open availability to chat-capable models so moderation-only endpoints do not appear in the composer selector
+- made `CredentialStore` load `.env` files from the repo/workspace path before resolving platform credentials, while preserving explicit environment variable precedence
+- passed the shell current user into `MessageComposer` so global chat model lookup does not depend on `conversation.created_by`
+- kept the model row visible with loading/error/no-key status text instead of hiding the selector area when model availability is empty
+
+**Validation:** `python -m pytest tests/test_model_availability.py -m unit -q --no-cov` passes (`1 passed`); `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes; local `CredentialStore` smoke check resolves 9 NVIDIA chat models without printing secrets.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 227 | Global chat NVIDIA free-model selector parity | ### #227 - Global chat NVIDIA free-model selector parity (2026-04-26)
+**Milestone:** Restored Enterprise parity for the `GUIDEAI-1037` global chat model-selection refinement.
+
+**Implementation (Completed):**
+- defaulted the personal/global model availability endpoint to `provider_filter=nvidia` and `free_open_only=true`
+- passed the same query params from the global chat model hook so the dropdown only shows NVIDIA free/open models
+- loaded the workspace-level `.env` as a fallback so locally stored NVIDIA keys are visible to API startup without duplicating secrets
+- added shared availability filtering and regression coverage for the free/open model contract
+- refreshed the AI Learning Wiki LLM routing page with the global chat selector behavior
+
+**Validation:** `python -m pytest tests/test_model_availability.py tests/test_llm_client.py -m unit -q --no-cov` passes (`48 passed`); `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes; IDE lints report no errors on edited Enterprise files.
+
+**Behaviors applied:** `behavior_design_api_contract`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 226 | Global chat endpoint gate fix parity | ### #226 - Global chat endpoint gate fix parity (2026-04-26)
+**Milestone:** Restored Enterprise parity for the `GUIDEAI-1037` dashboard/global chat dock open-path fix.
+
+**Implementation (Completed):**
+- moved the `conversations` REST/MCP/CLI capability into the always-enabled goals surface so `/api/v1/conversations` is not blocked as gated collaboration
+- opened the chat window immediately on global dock click while the global home conversation is fetched or created
+- added modular-install regression coverage proving goals-only installs keep the conversations router enabled
+
+**Validation:** `python -m pytest tests/test_modular_install.py -q` passes (`166 passed, 12 skipped`); `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes; IDE lints report no errors on edited Enterprise files.
+
+**Behaviors applied:** `behavior_design_api_contract`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-26_ |
+| 225 | Always-visible chat dock UX parity | ### #225 - Always-visible chat dock UX parity (2026-04-26)
+**Milestone:** Restored Enterprise parity for `GUIDEAI-1037` by replacing the board-only legacy chat dock with the protected-shell Amprealize Chat dock.
+
+**Implementation (Completed):**
+- mounted `AmprealizeChatDock` from `WorkspaceShell` so chat is available on dashboard, project, board, and other protected pages
+- defaulted the dock to global home chat outside project routes and project-room chat on project/board routes
+- expanded TypeScript conversation scopes and nullable `project_id` parity for global conversations
+- added global conversation list/create helpers and user-model availability for global chat composer model selection
+- removed the board page's legacy horizontal-avatar `ChatHub` launcher and board-only `UnifiedConversationWindow` mounting
+- updated the Enterprise conversation UX plan to the two-state dock/full-window model with no peek sheet
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes; IDE lints report no errors on edited Enterprise chat UX files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-26_ |
+| 224 | LLM routing and model selection Enterprise parity | ### #224 - LLM routing and model selection Enterprise parity (2026-04-26)
+**Milestone:** Completed Enterprise parity for `GUIDEAI-1037` LLM routing, model selection, and BYOK after the OSS implementation.
+
+**Implementation (Completed):**
+- ported the canonical LLM model catalog, NVIDIA NIM provider support, user/project/org/platform BYOK resolution, and user-scoped credential migration
+- ported schema-constrained `LLMChatActionRouter` and `ChatRouteGateway` with deterministic fallback and policy recomputation
+- wired selected model metadata through REST, WebSocket, web console, VS Code webviews, and collab client paths
+- wired route metadata and governed chat audit events into `ConversationReplyService`
+- added Enterprise parity tests for credential resolution and routed replies
+- added the AI Learning Wiki LLM routing walkthrough and index/log entries
+
+**Validation:** targeted Enterprise checks were run for chat routing, credential resolution, routed replies, LLM client behavior, web-console build, and extension typecheck.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 223 | Architecture migration path docs | ### #223 - Architecture migration path docs (2026-04-25)
+**Milestone:** Completed Enterprise parity for `guideai-1065` by updating the gateway/chat architecture migration documentation.
+
+**Implementation (Completed):**
+- updated `docs/WORK_ITEM_EXECUTION_PLAN.md` to mark the gateway-first architecture as documented, retire stale `WorkItemExecutionService`-only start assumptions, and add a surface-by-surface migration matrix for board/web, chat, REST, MCP, CLI-shaped requests, and queue workers
+- updated `docs/CONVERSATION_SYSTEM_PLAN.md` with cross-surface validation evidence for `guideai-1063` and chat-governance boundary evidence for `guideai-1064`
+- added a governed work item execution and chat row to `docs/capability_matrix.md` with supported/deferred surfaces and concrete parity evidence
+- refreshed `wiki/ai-learning/in-practice/agent-orchestration.md` with the gateway/chat validation boundary
+- kept Enterprise documentation aligned with OSS
+
+**Validation:** focused doc/lint checks on edited architecture, capability matrix, and wiki files report no IDE linter errors; stale architecture phrases were removed from `WORK_ITEM_EXECUTION_PLAN.md`.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 222 | Chat governance boundary tests | ### #222 - Chat governance boundary tests (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1064` by adding focused unit coverage for governed chat security and approval boundaries.
+
+**Implementation (Completed):**
+- added `tests/test_chat_governance_boundaries.py` covering global chat denial for inaccessible resources, mixed human/agent group-chat execution scopes, project-space work item mutations, attachment scope requirements, MCP tool approval flow, agent lifecycle policy denial, and execution-policy tool denial
+- updated `ChatActionRouter` to derive chat permission surfaces from the active conversation scope for group chats, project spaces, run threads, and work item threads
+- added router coverage proving group-chat execution uses `group_chat` permissions and requires conversation, project, and agent scopes
+- restored Enterprise permission parity by adding the missing `agent` scope to group-chat permission requirements
+- refreshed the AI Learning Wiki orchestration walkthrough with the new validation boundary coverage
+
+**Validation:** `python -m pytest tests/test_chat_action_router.py tests/test_chat_governance_boundaries.py -m unit -q --no-cov` passes (`13 passed`); IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 221 | Gateway execution parity tests | ### #221 - Gateway execution parity tests (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1063` by adding cross-surface gateway execution parity coverage.
+
+**Implementation (Completed):**
+- extended `tests/test_execution_gateway_adapter.py` to compare REST, MCP, CLI-shaped, and chat-shaped start requests against the same gateway request signature
+- verified equivalent work item, project, org, agent override, model override, execution mode, idempotency, intent, and plan artifact fields
+- asserted each surface preserves its source label (`api`, `mcp`, `cli`, `chat`) while sharing run metadata
+- added REST/MCP parity coverage for cancel and clarification control payloads
+- kept Enterprise assertions aligned with OSS
+
+**Validation:** `python -m pytest tests/test_execution_gateway_adapter.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited test files.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 220 | Unified board execution controls parity | ### #220 - Unified board execution controls parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1062` by centralizing execution-control state and action copy across board, drawer, and chat surfaces.
+
+**Implementation (Completed):**
+- added `web-console/src/lib/executionControls.ts` with shared state normalization for pending, queued, running, paused, clarification-needed, failed, completed, and cancelled runs
+- derived consistent start/cancel/open/refresh labels, disabled-state titles, active-run gating, missing-agent copy, and unavailable copy from one model
+- wired board work item cards and `WorkItemDrawer` to the shared model for start/cancel gating and status summaries
+- wired chat run artifact cards to the shared open/cancel action language
+- added unit tests for state normalization, active-run semantics, and control gating
+- updated Enterprise conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" test -- executionControls.test.ts MessageComponents.test.tsx` passes (`21 passed`); `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" run build` passes.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 219 | Live plan and run cards parity | ### #219 - Live plan and run cards parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1061` by rendering live work item, run, plan, and recovery artifacts in Amprealize Chat.
+
+**Implementation (Completed):**
+- extended `MessageBubble` to route `structured_payload.card_kind` values for `work_item`, `run`, `plan`, and `recovery`
+- added inline card anatomy for work item status, priority, assignee, agent, branch, related run, queue state, execution phase, progress, completion summary, plan artifact ID, and recovery actions
+- styled artifact cards with the existing glass chat language while preserving the current structured-message contract
+- added React tests covering work item, run, plan, and recovery cards
+- updated Enterprise conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" test -- MessageComponents.test.tsx` passes (`18 passed`); IDE lints report no errors on edited UI files.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 218 | Unified chat interface context shell parity | ### #218 - Unified chat interface context shell parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1060` by making the unified conversation window explicitly context-aware for global and project chat.
+
+**Implementation (Completed):**
+- extended `UnifiedConversationWindow` with `contextKind="global" | "project"` and optional `contextLabel`
+- rendered context badge and scope hint in the draggable glass header
+- updated the accessible dialog label to identify Amprealize Chat, current context, and active conversation title
+- adjusted empty-state copy for global cross-resource chat versus project conversation selection
+- expanded the desktop glass shell and kept styling aligned with translucent panes, blur, crisp borders, teal-compatible accents, and no shadows or gradients
+- added React tests for project and global context rendering
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize-enterprise/web-console" test -- UnifiedConversationWindow.test.tsx` passes (`3 passed`); IDE lints report no errors on edited UI files.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 217 | Platform management actions parity | ### #217 - Platform management actions parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1059` by adding the governed chat boundary for platform management actions.
+
+**Implementation (Completed):**
+- added `amprealize/platform_management_actions.py` with resource/action enums, request/result contracts, policy evaluation, target validation, dispatch, and audit logging
+- covered org, project, board, work item, invite/share, file, upload, image, and MCP-tool access action families
+- required explicit targets for invite/share and MCP tool access changes
+- required project or conversation scope for file/upload/image actions
+- routed actions through `PolicyCompositionEngine` and emitted `GovernedChatAuditLogger` platform-action records
+- dispatched approved actions through configured typed services by resource family rather than ad hoc tool calls
+- updated Enterprise conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_platform_management_actions.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 216 | Agent lifecycle actions parity | ### #216 - Agent lifecycle actions parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1058` by adding the governed chat boundary for agent registry lifecycle actions.
+
+**Implementation (Completed):**
+- added `amprealize/agent_lifecycle_actions.py` with action types, request/result contracts, policy evaluation, dispatch, and audit logging
+- supported discover, assign-to-project, create custom agent, modify tools, modify policy, publish, and archive/delete actions
+- routed all actions through `PolicyCompositionEngine` with `agent_lifecycle` chat surface metadata
+- required explicit approval for tool/policy changes, publishing, and archive/delete before registry dispatch
+- emitted `GovernedChatAuditLogger` platform-action records for allow, review-required, denied, and approved lifecycle attempts
+- updated Enterprise conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_agent_lifecycle_actions.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 215 | Chat action router parity | ### #215 - Chat action router parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1057` by adding a deterministic typed router for governed Amprealize Chat platform actions.
+
+**Implementation (Completed):**
+- added `amprealize/chat_action_router.py` with action categories, risk levels, route request/result contracts, typed candidates, and policy-context serialization
+- mapped natural-language and preset commands to read/synthesis, work management, agent management, execution planning, execution start, MCP tool, attachment, and invite/share action families
+- attached confidence, permission surface/action, required scopes, risk, approval requirement, clarification requirement, target resource type, and routing metadata to each candidate
+- made high-risk actions require approval and ambiguous requests ask for clarification before dispatch
+- updated Enterprise conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_chat_action_router.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 214 | Plan approval flow parity | ### #214 - Plan approval flow parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1056` by adding the approval bridge from plan-only artifacts to separate execution runs.
+
+**Implementation (Completed):**
+- added `amprealize/plan_approval_service.py` with `PlanArtifactRepository`, `InMemoryPlanArtifactRepository`, `PlanApprovalService`, and `PlanExecutionStartResult`
+- supported explicit revise, discard, and approve operations while preserving artifact version history and audit state
+- added `approve_and_start_execution()` to approve a plan, create a fresh `ExecutionRequest` with `intent=execute` and `plan_artifact_id`, and call `ExecutionGateway`
+- marked artifacts executed only after a successful new gateway run ID is returned
+- updated Enterprise execution docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_plan_artifact_contracts.py tests/test_plan_approval_service.py -m unit -q --no-cov` passes (`8 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 213 | Plan-only gateway mode parity | ### #213 - Plan-only gateway mode parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1055` by making `ExecutionIntent.PLAN_ONLY` a first-class non-dispatching mode in `ExecutionGateway`.
+
+**Implementation (Completed):**
+- derived read-only/tool-limited execution policy for plan-only requests, denying file writes and platform-mutating board/project/org/agent tools
+- created draft `PlanArtifact` output and summary-card compatibility metadata from plan-only gateway runs
+- marked plan-only run records with `run_type=plan_only`, `execution_intent=plan_only`, completed status, and `plan_artifact_id`
+- skipped both queue dispatch and background executor launch for plan-only requests
+- updated Enterprise execution docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_execution_gateway.py tests/test_plan_artifact_contracts.py -m unit -q --no-cov` passes (`60 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 212 | Plan artifact contract parity | ### #212 - Plan artifact contract parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1054` by defining the durable plan artifact contract needed for `GUIDEAI-1041` plan-only execution.
+
+**Implementation (Completed):**
+- added `amprealize/plan_artifact_contracts.py` with `PlanArtifactStatus`, immutable `PlanArtifactVersion` entries, and `PlanArtifact`
+- modeled stable `plan-*` IDs, work item/project/org/chat/message/agent/source-run links, approval state, discard state, and eventual execution-run linkage
+- added lifecycle helpers for revise, approve, discard, and mark-executed transitions while preserving version history
+- updated Enterprise execution docs and AI Learning Wiki orchestration guidance for plan artifact behavior
+
+**Validation:** `python -m pytest tests/test_plan_artifact_contracts.py -m unit -q --no-cov` passes (`4 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 211 | Gateway queue dispatch parity | ### #211 - Gateway queue dispatch parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1047` by adding queue-first `ExecutionGateway` dispatch semantics for the `GUIDEAI-1037` gateway migration.
+
+**Implementation (Completed):**
+- added `GatewayQueuePayload` to the Enterprise gateway contract so queued workers receive normalized intent, surface, source, output, chat, idempotency, approval, and policy context
+- added `queue_publisher` and `dispatch_mode` support to `ExecutionGateway`, with queue mode creating records, linking the work item run, and enqueueing an `ExecutionJob`
+- made queue mode fail before run/task-cycle creation when no queue publisher is configured
+- preserved legacy REST/MCP start compatibility metadata through `ExecutionGatewayResult` and `GatewayWorkItemExecutionAdapter`
+- updated execution docs and the AI Learning Wiki orchestration page for Enterprise queue-first behavior
+
+**Validation:** `python -m pytest tests/test_execution_gateway.py tests/test_execution_gateway_adapter.py tests/test_execution_gateway_bootstrap.py -m unit -q --no-cov` passes (`62 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 210 | Governed chat audit parity | ### #210 - Governed chat audit parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1053` by adding append-only governed chat audit records and wiring governed execution decisions into the gateway and session audit flow.
+
+**Implementation (Completed):**
+- added `GovernedChatAuditEventType`, `GovernedChatAuditRecord`, and `GovernedChatAuditLogger` with sanitized telemetry/Raze emission and query helpers
+- updated `SessionAuditLogger` to mirror denied/error tool calls into governed chat audit records
+- wired `ExecutionGateway` to record intent classification, scope resolution, policy decision, denial/approval, and execution-start audit events
+- added regression coverage for sanitized audit telemetry, queryable denied/review records, session tool-call mirroring, policy denial audit records, and successful execution-start records
+
+**Validation:** `python -m pytest tests/test_session_audit.py tests/test_policy_composition.py tests/test_execution_gateway.py -q --no-cov -m unit` passes (`97 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_use_raze_for_logging`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 209 | Policy composition parity | ### #209 - Policy composition parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1052` by adding the OSS governed execution policy composition engine and gateway pre-record enforcement.
+
+**Implementation (Completed):**
+- added `amprealize/policy_composition.py` with most-restrictive-wins `allow` / `review` / `deny` decisions across chat matrix, explicit policy context, MCP tool policy, and action risk
+- expanded `ExecutionRequest` with policy context, risk classification, approval, intent, chat conversation/message IDs, and metadata fields used by governed execution
+- wired `ExecutionGateway` to evaluate policy before run/task-cycle creation, fail closed, require approval for review decisions, and emit policy audit telemetry
+- added focused policy engine tests plus gateway regression tests for denied, review-required, fail-closed, and tool-policy-denied decisions
+
+**Validation:** `python -m pytest tests/test_policy_composition.py tests/test_execution_gateway.py -q --no-cov -m unit` passes (`54 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 208 | Conversation primitive mapping parity | ### #208 - Conversation primitive mapping parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1050` by porting the OSS global/project chat workspace primitive mapping across contracts, runtime, REST, MCP, CLI, manifests, and migration scaffolding.
+
+**Implementation (Completed):**
+- expanded conversation request/response contracts for nullable global `project_id`, `resource_links`, scope normalization, and legacy `agent_dm` -> `dm` mapping
+- updated `ConversationService` to validate global vs project scope binding, list global/project conversations, match legacy DM storage values, and persist message resource links in metadata
+- added `/v1/conversations` create/list routes for global or project conversation surfaces while preserving project-prefixed routes
+- aligned MCP handlers, MCP manifests, CLI choices, and CLI adapter calls with the target scope vocabulary
+- added `20260424_expand_conversation_workspace_scopes.py` for nullable global conversations and target scope constraints
+
+**Validation:** `python -m pytest tests/test_conversation_workspace_contracts.py tests/test_conversation_parity.py -q --no-cov -m unit` passes (`89 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_migrate_postgres_schema`
+
+_Last Updated: 2026-04-25_ |
+| 207 | Chat permission matrix parity | ### #207 - Chat permission matrix parity (2026-04-25)
+**Milestone:** Restored Enterprise parity for `guideai-1051` by adding the governed chat permission contract that OSS uses as the foundation for policy composition.
+
+**Implementation (Completed):**
+- expanded Enterprise conversation contracts with target chat workspace scopes, resource link types, workspace resolution helpers, and legacy scope normalization
+- added `CHAT_PERMISSION_MATRIX` with read/create/update/delete/invite-share/execute/publish/administer coverage across global chat, project spaces, group chats, work-item/run threads, agent lifecycle, MCP tools, attachments, and platform actions
+- added deny-by-default semantics and approval-required execution rows for sensitive chat-triggered operations
+- added `docs/contracts/CHAT_PERMISSION_MATRIX.md` and focused unit coverage in `tests/test_conversation_workspace_contracts.py`
+
+**Validation:** `python -m pytest tests/test_conversation_workspace_contracts.py -q --no-cov -m unit` passes (`19 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 206 | Gateway execution default routing parity | ### #206 - Gateway execution default routing parity (2026-04-25)
+**Milestone:** Mirrored the OSS `guideai-1046` gateway-default routing behavior in Enterprise so related `GUIDEAI-1037` work item reality matches across distributions.
+
+**Implementation (Completed):**
+- added `execution_gateway_bootstrap.is_execution_gateway_enabled()` with gateway-on-by-default semantics and explicit `AMPREALIZE_EXECUTION_GATEWAY_ENABLED=false` fallback
+- added `GatewayWorkItemExecutionAdapter` so REST and MCP starts use `ExecutionGateway` while preserving legacy execution response contracts
+- wired API and MCP bootstraps to initialize and pass the gateway into work item execution route/handler factories by default
+- carried REST `agent_id` and `idempotency_key` into execution request metadata for gateway migration parity
+- updated execution docs and AI Learning Wiki orchestration guidance for gateway-first enterprise behavior
+- added focused adapter/bootstrap regression coverage
+
+**Validation:** `python -m pytest tests/test_execution_gateway_bootstrap.py tests/test_execution_gateway_adapter.py -m unit -q --no-cov` passes (`7 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 206 | Dual-repo agent parity guidance | ### #206 - Dual-repo agent parity guidance (2026-04-24)
+**Milestone:** Mirrored the OSS dual-repo parity guidance in Enterprise so Amprealize platform work defaults to both `/Users/nick/Main/amprealize` and `/Users/nick/Main/amprealize-enterprise` unless explicitly scoped otherwise.
+
+**Implementation (Completed):**
+- added repo parity notes to `tools.guide` runtime guidance and MCP prompt/resource text
+- updated AGENTS/CLAUDE, WorkItemPlanner agent instructions, and WorkItemPlanner skill guidance with dual-repo defaults
+- updated the MCP AI Learning Wiki concept page to explain dual-repo parity as part of the startup protocol
+- added regression coverage that runtime guide, prompt/resource guidance, and agent docs name both repo paths and the explicit exception rule
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py -q --no-cov` passes (`11 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 205 | Work item comment author validation parity | ### #205 - Work item comment author validation parity (2026-04-24)
+**Milestone:** Mirrored the OSS `workItems.postComment` author validation fix in Enterprise so completion comments can be attributed to email-based users or runtime MCP agent identities.
+
+**Implementation (Completed):**
+- aligned user author validation with the `auth.users` schema by checking `id` or `email` instead of the nonexistent `user_id` column
+- allowed runtime MCP agent identities such as `system` and `cursor-agent` to author append-only comments without requiring an `execution.agents` registry row
+- preserved strict user validation so unknown human authors still fail with `AuthorNotFoundError`
+- added regression coverage for email authors, unknown users, and runtime MCP agent comment authors
+
+**Validation:** `python -m pytest tests/test_mcp_board_workitem_handlers.py tests/unit/test_display_id.py -q --no-cov` passes (`30 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_align_storage_layers`, `behavior_design_mcp_tool_schema`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-24_ |
+| 204 | Work item comment author defaults parity | ### #204 - Work item comment author defaults parity (2026-04-24)
+**Milestone:** Mirrored the OSS `workItems.postComment` author default fix in Enterprise so MCP agents can post completion summaries without explicitly supplying `author_id` when `user_id` or session context already identifies the author.
+
+**Implementation (Completed):**
+- defaulted comment `author_id` from explicit `author_id`, then `user_id`, then MCP session `user_id`
+- inferred `author_type="agent"` for agent-like MCP calls such as `user_id=cursor-agent` with `actor_role=Student`
+- retained user-comment behavior for normal user/session calls and added an agent fallback when no explicit `author_type` is supplied
+- updated `workItems.postComment` manifests to document session/user-backed author defaults
+- added regression coverage for both session-backed and explicit `user_id` author defaults
+
+**Validation:** `python -m pytest tests/test_mcp_board_workitem_handlers.py -q --no-cov` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-24_ |
+| 203 | MCP agent onboarding runtime parity | ### #203 - MCP agent onboarding runtime parity (2026-04-24)
+**Milestone:** Mirrored the OSS MCP agent onboarding runtime in Enterprise so new agent sessions can discover startup protocol, active groups, inactive tools, and normalized tool names without spelunking manifests.
+
+**Implementation (Completed):**
+- added `tools.guide` and `tools.catalog` as core MCP tools with mirrored manifests
+- added runtime guide payloads covering behavior retrieval, context lookup, active groups, group activation, session defaults, and normalized tool names
+- made authorization the first startup gate: agents check `auth.authStatus`, refresh with `auth.refreshToken` when possible, use `auth.deviceLogin`/`auth.deviceInit` + `auth.devicePoll` when login is needed, and retry after unauthorized/auth-expired responses
+- clarified that MCP agent/unit device login/init is approved automatically after the auth tool call, so agents should not ask humans to visit verification URLs unless polling explicitly cannot complete
+- exposed the same guidance through MCP `prompts/list`, `prompts/get`, `resources/list`, and `resources/read`
+- updated AGENTS/CLAUDE guidance, WorkItemPlanner agent instructions, and WorkItemPlanner skill docs to reference the startup protocol
+- updated the MCP AI Learning Wiki concept page with the new self-describing discovery pattern
+- added regression coverage for guide/catalog core availability, authorization guidance, inactive tool catalog discovery, normalized names, prompt/resource output, and instruction coverage
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py -q --no-cov` passes (`11 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 202 | Work item display-ID project lookup parity fix | ### #202 - Work item display-ID project lookup parity fix (2026-04-24)
+**Milestone:** Mirrored the OSS `workItems.get` display-ID fix in Enterprise so IDs like `guideai-1051` resolve without depending on an unqualified `projects` relation.
+
+**Implementation (Completed):**
+- qualified display-ID project joins as `auth.projects`
+- qualified project slug enrichment queries as `auth.projects`
+- added regression coverage for display-ID resolution and slug lookup query targets
+
+**Validation:** `python -m pytest tests/unit/test_display_id.py tests/test_mcp_board_workitem_handlers.py` passes (`26 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_align_storage_layers`, `behavior_design_mcp_tool_schema`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 201 | MCP tool group optimization parity | ### #201 - MCP tool group optimization parity (2026-04-24)
+**Milestone:** Mirrored the OSS MCP lazy-loading group optimization in Enterprise so the always-loaded core is small and every Enterprise-published manifest is discoverable through either core or an activatable group.
+
+**Implementation (Completed):**
+- reduced `CORE_TOOLS` to authentication/session bootstrap, behavior lookup, active context, lightweight work discovery, and tool-group meta-tools
+- added explicit groups for projects/orgs, behavior management, auth/consent, boards/work items, collaboration/messages, and gated brainstorm/whiteboard tools
+- activated the projects/orgs and boards/work items groups at lazy-loader startup so essential planning tools are immediately available
+- excluded startup groups from auto-deactivation so essential tools remain available during long agent sessions
+- moved research and wiki families out of core while preserving high-priority activation keywords
+- covered slash-style compliance manifests, underscore-style rate-limit manifests, bootstrap, pack, flags, and outcome-style tool manifests
+- stopped auto-loading published outcome-style manifests during lazy-loader initialization so they activate through their groups
+- added tool-group regression tests for stale core entries, feature-gated whiteboard discovery, full manifest discoverability, group budgets, and activation keywords
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py` passes (`7 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 200 | MCP research handler normalization parity | ### #200 - MCP research handler normalization parity (2026-04-24)
+**Milestone:** Mirrored the OSS `research.*` MCP normalization in Enterprise so paper evaluation, retrieval, search, and listing share runtime validation, strict enum parsing, and consistent backend search behavior.
+
+**Implementation (Completed):**
+- added `ResearchToolValidationError` with required-parameter, enum, limit, and offset validation
+- mapped research validation failures to MCP `INVALID_PARAMS`
+- fixed `SourceType` parsing so lowercase schema values (`url`, `arxiv`, `pdf`, etc.) are accepted
+- rejected invalid `verdict` and `source_type` values instead of silently ignoring them
+- aligned SQLite research search with Postgres-backed behavior for `query`, `max_score`, `source_type`, `since`, and count filters
+- simplified `research.evaluate` output schema to match the handler response
+- added manifest parity, validation, enum parsing, session propagation, and SQLite filter tests
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_research_handlers.py", "-q", "--no-cov"]))'` passes (`5 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 199 | MCP wiki feature parity | ### #199 - MCP wiki feature parity (2026-04-24)
+**Milestone:** Mirrored the full OSS wiki MCP surface into Enterprise and normalized wiki validation/routing across both distributions.
+
+**Implementation (Completed):**
+- added Enterprise `wiki_service()` singleton and MCP dispatch for `research_wiki.*`, `infra_wiki.*`, `platform_wiki.*`, `ai_learning_wiki.*`, and generic `wiki.*`
+- mirrored all wiki MCP manifests so Enterprise publishes the same wiki surface as OSS
+- added `WikiToolValidationError` with runtime required-parameter and domain validation
+- mapped wiki validation failures to MCP `INVALID_PARAMS`
+- added `platform` to generic `wiki.*` domain schemas
+- removed stale `ai_learning_wiki.path` from core tool advertising because no manifest or handler exists
+- added wiki tool-group discovery and manifest-to-handler parity tests
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_wiki_handlers.py", "-q", "--no-cov"]))'` passes (`4 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_maintain_ai_learning_wiki`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 198 | MCP brainstorm/whiteboard feature parity | ### #198 - MCP brainstorm/whiteboard feature parity (2026-04-24)
+**Milestone:** Mirrored the OSS brainstorm/whiteboard MCP feature into Enterprise and normalized the shared public surface around session-aware brainstorm rooms and canvas operations.
+
+**Implementation (Completed):**
+- added Enterprise `brainstorm.*` and `whiteboard.*` MCP handlers, manifests, tool-group activation, and server dispatch
+- mirrored the standalone `packages/whiteboard` package, brainstorm bridge, whiteboard storage bridge, and telemetry hooks
+- added Enterprise whiteboard Alembic migrations on the current Enterprise migration chain
+- defaulted `room_id` from MCP session context and mapped validation failures to MCP invalid-params errors
+- removed public `whiteboard.createRoom` manifests in favor of `brainstorm.openWhiteboard`
+- mirrored Brainstorm playbook/template assets and aligned feature flag wording with `AMPREALIZE_ENABLE_WHITEBOARD`
+- added manifest-to-handler parity and validation coverage for both namespaces
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_brainstorm_whiteboard_handlers.py", "tests/test_brainstorm_bridge.py", "-q", "--no-cov"]))'` passes (`12 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`295 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 197 | WorkItemPlanner agent MCP guidance refresh (parity with OSS) | ### #197 - WorkItemPlanner agent MCP guidance refresh (2026-04-24)
+**Milestone:** Mirrored the OSS WorkItemPlanner prompt, playbook, agent, and skill updates so Enterprise planner guidance matches the normalized board/work item MCP surface.
+
+**Implementation (Completed):**
+- documented session-aware `project_id`, `org_id`, `user_id`, and comment `author_id` defaults
+- added `board.filterItems` duplicate-check guidance before creating planned hierarchies
+- clarified top-down `workItems.create` parent ID sequencing and canonical `points` usage
+- refreshed GitHub WorkItemPlanner agent instructions and the `work-item-planner` skill
+- added prompt regression coverage for the MCP guidance
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_work_item_planner.py", "-q"]))'` passes.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_standardize_work_items`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 196 | MCP board/work item handler normalization (parity with OSS) | ### #196 - MCP board/work item handler normalization (2026-04-24)
+**Milestone:** Mirrored the OSS board, column, and work item MCP tool cleanup in Enterprise so published manifests route through handler registries with session-aware defaults and no dead `board.*` descriptors.
+
+**Implementation (Completed):**
+- moved `board.*` label routing into `amprealize/mcp/handlers/board_handlers.py`
+- added registry-backed handlers for `board.filterItems` and `board.suggestAgent`
+- injected MCP session context before board, column, work item, and work item execution dispatch
+- relaxed schemas for session-backed `project_id` and comment `author_id` fields while keeping canonical item IDs explicit
+- added manifest-to-handler parity coverage for board/column/work item tools
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_board_workitem_handlers.py", "tests/test_mcp_workitems_update_no_cascade.py", "-q"]))'` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`283 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 195 | MCP auth tool handler normalization (parity with OSS) | ### #195 - MCP auth tool handler normalization (2026-04-24)
+**Milestone:** Mirrored the OSS `auth.*` MCP namespace cleanup in Enterprise so device flow, token refresh, consent, and AgentAuth grant tools share one dispatch path with session-aware defaults and token redaction.
+
+**Implementation (Completed):**
+- added `amprealize/mcp/handlers/auth_handlers.py` covering all published `auth.*` manifests
+- collapsed duplicate `auth.*` routing in `mcp_server.py` into a single registry-backed block
+- preserved device-flow session population, refresh-session updates, and OAuth token redaction before MCP responses
+- published the documented `auth.consentStatus` status-polling alias so `PUBLIC_TOOLS` references a callable manifest
+- relaxed auth MCP schemas for session-backed fields including `agent_id`, `surface`, `revoked_by`, and consent `approver`
+- added focused unit coverage for handler parity, session identity defaults, runtime validation, and token redaction
+
+**Validation:** `python -m pytest tests/test_mcp_auth_handlers.py tests/test_mcp_auth_session.py -q -m unit` passes (`7 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`283 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_lock_down_security_surface`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 194 | MCP behavior tool handler normalization (parity with OSS) | ### #194 - MCP behavior tool handler normalization (2026-04-24)
+**Milestone:** Mirrored the OSS `behaviors.*` MCP handler refactor in Enterprise so behavior tooling now shares the same session-aware, manifest-backed dispatch model.
+
+**Implementation (Completed):**
+- added `amprealize/mcp/handlers/behavior_handlers.py` with a handler registry, runtime required-parameter validation, session-backed actor defaults, and `behaviors.propose` support
+- simplified `mcp_server.py` behavior dispatch to registry lookup, session injection, and JSON-RPC error mapping
+- relaxed behavior MCP manifests so `task_description` and `actor` can be supplied by defaults/session context where appropriate
+- added focused unit coverage for session-only `behaviors.getForTask`, runtime validation, and manifest-to-handler parity
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_behavior_handlers.py", "-q"]))'` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`282 MCP tool manifests in sync`). Broader DB-backed behavior MCP tests were not run because configured DSNs attempted protected/live service setup.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 193 | MCP projects/orgs/context tool optimization (parity with OSS) | ### #193 - MCP projects/orgs/context tool optimization (2026-04-24)
+**Milestone:** Mirrored the OSS MCP project, organization, and context tool fixes in Enterprise so session-aware tool invocation, manifest routing, and context semantics stay aligned.
+
+**Implementation (Completed):**
+- awaited async `orgs.*` and `projects.*` handlers directly from `mcp_server.py`
+- normalized handler user/session resolution and sync-or-async enterprise service calls
+- implemented missing `orgs.projects`, `projects.switch`, and project member handlers
+- relaxed canonical MCP schemas so `user_id` is optional and supplied by session context
+- clarified `context.setOrg` wording and added server-level context coverage
+- synced bundled MCP manifests and verified manifest parity
+
+**Validation:** `python -m pytest tests/test_mcp_multi_tenant_handlers.py tests/test_mcp_tenant_context.py -v --tb=short` passes (`64 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`282 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
 | 192 | Platform runtime metadata + sidebar footer chips (parity with OSS) | ### #192 - Platform runtime metadata for web shell (2026-04-15)
 **Milestone:** Added `GET /api/v1/platform/runtime` and web-console footer chips mirroring OSS: installed version, OSS vs enterprise distribution, starter/premium when applicable, and active context name (with `:pg` display suffix stripped).
 

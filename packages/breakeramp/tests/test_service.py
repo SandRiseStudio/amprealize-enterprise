@@ -38,13 +38,19 @@ class TestBreakerAmpServiceInit:
         assert service.environments_dir.exists()
         assert service.user_blueprints_dir.exists()
 
-    def test_init_registers_default_environments(self, mock_executor, temp_base_dir):
-        """Service registers default environments."""
+    def test_init_registers_default_environments(self, mock_executor, temp_base_dir, monkeypatch):
+        """Service registers default environments when no manifest is loaded."""
+        # Do not load repo-level config/breakeramp/environments.yaml (first match on cwd).
+        monkeypatch.setattr(
+            BreakerAmpService,
+            "_resolve_environment_file",
+            lambda self: None,
+        )
+
         service = BreakerAmpService(
             executor=mock_executor,
             base_dir=temp_base_dir,
         )
-        # Default environments should be registered
         assert "development" in service.environments
         assert "staging" in service.environments
         assert "production" in service.environments

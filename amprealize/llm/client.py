@@ -22,6 +22,8 @@ from amprealize.llm.types import (
     ProviderType,
     StreamChunk,
     get_model,
+    get_provider_base_url,
+    get_provider_key_env,
 )
 from amprealize.llm.providers import get_provider
 from amprealize.llm.providers.base import Provider
@@ -70,9 +72,18 @@ class LLMClient:
         config: Optional[LLMConfig] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user_credential: bool = False,
     ) -> LLMResponse:
         """Synchronous LLM call."""
-        cfg = self._resolve_config(config, model, project_id, org_id)
+        cfg = self._resolve_config(
+            config,
+            model,
+            project_id,
+            org_id,
+            user_id,
+            prefer_user_credential,
+        )
         provider = self._get_provider(cfg)
         tool_schemas = self._build_tool_schemas(tools) if tools else None
 
@@ -100,9 +111,18 @@ class LLMClient:
         config: Optional[LLMConfig] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user_credential: bool = False,
     ) -> LLMResponse:
         """Synchronous streaming call with optional text callback."""
-        cfg = self._resolve_config(config, model, project_id, org_id)
+        cfg = self._resolve_config(
+            config,
+            model,
+            project_id,
+            org_id,
+            user_id,
+            prefer_user_credential,
+        )
         provider = self._get_provider(cfg)
         tool_schemas = self._build_tool_schemas(tools) if tools else None
 
@@ -132,9 +152,18 @@ class LLMClient:
         config: Optional[LLMConfig] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user_credential: bool = False,
     ) -> LLMResponse:
         """Asynchronous LLM call."""
-        cfg = self._resolve_config(config, model, project_id, org_id)
+        cfg = self._resolve_config(
+            config,
+            model,
+            project_id,
+            org_id,
+            user_id,
+            prefer_user_credential,
+        )
         provider = self._get_provider(cfg)
         tool_schemas = self._build_tool_schemas(tools) if tools else None
 
@@ -161,9 +190,18 @@ class LLMClient:
         config: Optional[LLMConfig] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user_credential: bool = False,
     ) -> AsyncIterator[StreamChunk]:
         """Asynchronous streaming call yielding StreamChunks."""
-        cfg = self._resolve_config(config, model, project_id, org_id)
+        cfg = self._resolve_config(
+            config,
+            model,
+            project_id,
+            org_id,
+            user_id,
+            prefer_user_credential,
+        )
         provider = self._get_provider(cfg)
         tool_schemas = self._build_tool_schemas(tools) if tools else None
 
@@ -214,6 +252,8 @@ class LLMClient:
         model: Optional[str],
         project_id: Optional[str],
         org_id: Optional[str],
+        user_id: Optional[str],
+        prefer_user_credential: bool,
     ) -> LLMConfig:
         """Merge override config, model, and credentials into a final config."""
         cfg = override or self._default_config or LLMConfig.from_env()
@@ -222,11 +262,12 @@ class LLMClient:
         if model:
             model_def = get_model(model)
             if model_def:
+                provider_changed = model_def.provider != cfg.provider
                 cfg = LLMConfig(
                     provider=model_def.provider,
                     model=model_def.api_name,
-                    api_key=cfg.api_key,
-                    api_base=cfg.api_base,
+                    api_key=None if provider_changed else cfg.api_key,
+                    api_base=model_def.provider_base_url or get_provider_base_url(model_def.provider),
                     max_tokens=cfg.max_tokens,
                     temperature=cfg.temperature,
                     timeout=cfg.timeout,
@@ -239,7 +280,13 @@ class LLMClient:
 
         # Resolve credential if not already set
         if not cfg.api_key and cfg.provider != ProviderType.TEST:
-            key = self._resolve_credential(cfg.provider.value, project_id, org_id)
+            key = self._resolve_credential(
+                cfg.provider.value,
+                project_id,
+                org_id,
+                user_id,
+                prefer_user_credential,
+            )
             if key:
                 cfg = LLMConfig(
                     provider=cfg.provider,
@@ -263,16 +310,27 @@ class LLMClient:
         provider_name: str,
         project_id: Optional[str],
         org_id: Optional[str],
+        user_id: Optional[str],
+        prefer_user_credential: bool,
     ) -> Optional[str]:
         """Try the credential resolver, adapting to its arity."""
         try:
             import inspect
             sig = inspect.signature(self._credential_resolver)
             param_count = len(sig.parameters)
+            if param_count >= 5:
+                return self._credential_resolver(
+                    provider_name,
+                    project_id,
+                    org_id,
+                    user_id,
+                    prefer_user_credential,
+                )
+            if param_count == 4:
+                return self._credential_resolver(provider_name, project_id, org_id, user_id)
             if param_count >= 3:
                 return self._credential_resolver(provider_name, project_id, org_id)
-            else:
-                return self._credential_resolver(provider_name)
+            return self._credential_resolver(provider_name)
         except Exception:
             return self._credential_resolver(provider_name)
 
@@ -282,11 +340,14 @@ class LLMClient:
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
+            "nvidia": "NVIDIA_API_KEY",
             "together": "TOGETHER_API_KEY",
             "groq": "GROQ_API_KEY",
             "fireworks": "FIREWORKS_API_KEY",
         }
         env_var = env_vars.get(provider)
+        if not env_var and provider in ProviderType._value2member_map_:
+            env_var = get_provider_key_env(ProviderType(provider))
         return os.getenv(env_var) if env_var else None
 
     def _get_provider(self, cfg: LLMConfig) -> Provider:

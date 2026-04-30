@@ -215,7 +215,7 @@ services:
     healthcheck_timeout_s: 60
 
   amprealize-api:
-    image: docker.io/library/python:3.11-slim-bookworm
+    image: "${AMPREALIZE_API_IMAGE:-docker.io/library/python:3.11-slim-bookworm}"
     module: console
     ports:
       - "${AMPREALIZE_API_PORT:-8000}:8000"
@@ -232,8 +232,16 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"
+      - |
+        set -e
+        W="${AMPREALIZE_API_WORKERS:-1}"
+        if [ "${AMPREALIZE_API_SKIP_PIP:-}" = "1" ]; then
+          exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
+        fi
+        pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue
+        exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
     environment:
+      AMPREALIZE_API_SKIP_PIP: "${AMPREALIZE_API_SKIP_PIP:-}"
       # Podman API for workspace provisioning (when using queue mode)
       PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
       # =========================================================================

@@ -176,7 +176,7 @@ services:
     healthcheck_timeout_s: 60
 
   amprealize-api:
-    image: docker.io/library/python:3.11-slim-bookworm
+    image: "${AMPREALIZE_API_IMAGE:-docker.io/library/python:3.11-slim-bookworm}"
     module: console
     ports:
       - "${AMPREALIZE_API_PORT:-8000}:8000"
@@ -191,8 +191,20 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"
+      # Default workers=4 for cloud-dev when using pip path. With AMPREALIZE_API_SKIP_PIP=1
+      # and a baked image (see deployment/Dockerfile.api-dev), uvicorn starts immediately.
+      - |
+        set -e
+        # Default 1 worker: ConversationEventHub is in-process memory; multiple workers
+        # split WebSocket subscribers from REST/reply tasks so real-time chat breaks.
+        W="${AMPREALIZE_API_WORKERS:-1}"
+        if [ "${AMPREALIZE_API_SKIP_PIP:-}" = "1" ]; then
+          exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
+        fi
+        pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue
+        exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
     environment:
+      AMPREALIZE_API_SKIP_PIP: "${AMPREALIZE_API_SKIP_PIP:-}"
       # Podman API for workspace provisioning (when using queue mode)
       PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
       # =========================================================================
@@ -200,6 +212,7 @@ services:
       # Set via `amprealize context use <name>` before starting
       # =========================================================================
       DATABASE_URL: "${DATABASE_URL}"
+      AMPREALIZE_API_WORKERS: "${AMPREALIZE_API_WORKERS:-1}"
       # Telemetry disabled in cloud-dev (no telemetry DB available)
       AMPREALIZE_TELEMETRY_ENABLED: "false"
       # Explicit Org DSN — falls back to DATABASE_URL

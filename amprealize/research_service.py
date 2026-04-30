@@ -2018,6 +2018,11 @@ class ResearchStorage:
             """
             params: List[Any] = []
 
+            if request.query:
+                query += " AND (LOWER(p.title) LIKE ? OR LOWER(c.core_idea) LIKE ?)"
+                like_query = f"%{request.query.lower()}%"
+                params.extend([like_query, like_query])
+
             if request.verdict:
                 query += " AND r.verdict = ?"
                 params.append(request.verdict.value)
@@ -2025,6 +2030,10 @@ class ResearchStorage:
             if request.min_score is not None:
                 query += " AND e.overall_score >= ?"
                 params.append(request.min_score)
+
+            if request.max_score is not None:
+                query += " AND e.overall_score <= ?"
+                params.append(request.max_score)
 
             if request.source_type:
                 query += " AND p.source_type = ?"
@@ -2057,12 +2066,36 @@ class ResearchStorage:
             count_query = """
                 SELECT COUNT(*) FROM research_papers p
                 JOIN recommendations r ON r.paper_id = p.id
+                JOIN evaluations e ON e.paper_id = p.id
+                JOIN comprehensions c ON c.paper_id = p.id
                 WHERE 1=1
             """
             count_params: List[Any] = []
+
+            if request.query:
+                count_query += " AND (LOWER(p.title) LIKE ? OR LOWER(c.core_idea) LIKE ?)"
+                like_query = f"%{request.query.lower()}%"
+                count_params.extend([like_query, like_query])
+
             if request.verdict:
                 count_query += " AND r.verdict = ?"
                 count_params.append(request.verdict.value)
+
+            if request.min_score is not None:
+                count_query += " AND e.overall_score >= ?"
+                count_params.append(request.min_score)
+
+            if request.max_score is not None:
+                count_query += " AND e.overall_score <= ?"
+                count_params.append(request.max_score)
+
+            if request.source_type:
+                count_query += " AND p.source_type = ?"
+                count_params.append(request.source_type.value)
+
+            if request.since:
+                count_query += " AND p.created_at >= ?"
+                count_params.append(request.since.isoformat())
 
             cursor = conn.execute(count_query, count_params)
             total_count = cursor.fetchone()[0]

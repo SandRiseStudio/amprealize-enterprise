@@ -24,8 +24,14 @@ var DocumentType = /* @__PURE__ */ ((DocumentType2) => {
   return DocumentType2;
 })(DocumentType || {});
 var ConversationScope = /* @__PURE__ */ ((ConversationScope2) => {
+  ConversationScope2["GlobalUserHome"] = "global_user_home";
+  ConversationScope2["ProjectSpace"] = "project_space";
   ConversationScope2["ProjectRoom"] = "project_room";
+  ConversationScope2["Dm"] = "dm";
   ConversationScope2["AgentDm"] = "agent_dm";
+  ConversationScope2["GroupChat"] = "group_chat";
+  ConversationScope2["WorkItemThread"] = "work_item_thread";
+  ConversationScope2["RunThread"] = "run_thread";
   return ConversationScope2;
 })(ConversationScope || {});
 var ActorType = /* @__PURE__ */ ((ActorType2) => {
@@ -756,7 +762,8 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       content: options.content,
       message_type: options.message_type,
       structured_payload: options.structured_payload,
-      parent_id: options.parent_id
+      parent_id: options.parent_id,
+      metadata: options.metadata
     });
   }
   editMessage(messageId, content) {
@@ -849,7 +856,7 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       case "reaction.removed":
         this.emit("reaction.removed", message.payload);
         break;
-      case "typing":
+      case "typing.indicator":
         this.emit("typing.indicator", message.payload);
         break;
       case "read.receipt":
@@ -862,6 +869,16 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
         this.emit("participant.left", message.payload);
         break;
       case "pong":
+        break;
+      case "heartbeat":
+        break;
+      case "token":
+      case "structured_start":
+      case "structured_update":
+      case "complete":
+        break;
+      case "pin.updated":
+      case "system.announcement":
         break;
       case "error":
         this.emit("error", message.code ?? "UNKNOWN", message.message ?? "Unknown error");

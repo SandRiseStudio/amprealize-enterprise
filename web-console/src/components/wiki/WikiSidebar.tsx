@@ -17,6 +17,12 @@ interface WikiSidebarProps {
   isLoading: boolean;
   domain: WikiDomain;
   onSelect: (path: string) => void;
+  /**
+   * Public apex preview (`amprealize.ai`): show a single “Wiki” group with
+   * domain links only — matches the marketing-site sidebar (no folder/page tree).
+   */
+  previewDomains?: { id: WikiDomain; label: string }[];
+  onPreviewDomainNavigate?: (id: WikiDomain) => void;
 }
 
 const FolderChevron = ({ expanded }: { expanded: boolean }) => (
@@ -54,14 +60,33 @@ function pageTypeColor(type: string): string {
   }
 }
 
+const DomainRowIcon = () => (
+  <svg className="wiki-sidebar-item-icon wiki-sidebar-item-icon--domain" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path
+      d="M3 4.5A1.5 1.5 0 0 1 4.5 3h3A1.5 1.5 0 0 1 9 4.5v11A1.5 1.5 0 0 1 7.5 17h-3A1.5 1.5 0 0 1 3 15.5v-11Z"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <path
+      d="M9 5.5A1.5 1.5 0 0 1 10.5 4h5A1.5 1.5 0 0 1 17 5.5v10a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 9 15.5v-10Z"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+  </svg>
+);
+
 export const WikiSidebar = memo(function WikiSidebar({
   pages,
   activePath,
   isLoading,
+  domain,
   onSelect,
+  previewDomains,
+  onPreviewDomainNavigate,
 }: WikiSidebarProps) {
   const groups = useMemo(() => groupWikiPages(pages), [pages]);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [previewWikiOpen, setPreviewWikiOpen] = useState(true);
   const activeFolder = pages.find((page) => page.path === activePath)?.folder;
 
   const toggleFolder = useCallback((folder: string) => {
@@ -86,6 +111,46 @@ export const WikiSidebar = memo(function WikiSidebar({
               <div className={`wiki-skeleton wiki-skeleton-line ${index % 3 === 0 ? 'wide' : index % 3 === 1 ? 'medium' : 'narrow'}`} />
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (previewDomains?.length && onPreviewDomainNavigate) {
+    const goDomain = onPreviewDomainNavigate;
+    return (
+      <div className="wiki-sidebar wiki-sidebar--preview-domains">
+        <div className="wiki-sidebar-folder wiki-sidebar-folder--preview-root">
+          <button
+            type="button"
+            className="wiki-sidebar-folder-toggle"
+            onClick={() => setPreviewWikiOpen((open) => !open)}
+          >
+            <FolderChevron expanded={previewWikiOpen} />
+            Wiki
+          </button>
+          <div
+            className={`wiki-sidebar-folder-body ${previewWikiOpen ? '' : 'collapsed'}`}
+            style={
+              previewWikiOpen
+                ? ({ maxHeight: previewDomains.length * 80 + 24 } as CSSProperties)
+                : { maxHeight: 0 }
+            }
+          >
+            {previewDomains.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`wiki-sidebar-item wiki-sidebar-item--domain ${domain === item.id ? 'active' : ''}`}
+                onClick={() => goDomain(item.id)}
+              >
+                <DomainRowIcon />
+                <span className="wiki-sidebar-item-copy">
+                  <span>{item.label}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );

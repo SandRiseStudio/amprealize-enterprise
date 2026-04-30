@@ -45,22 +45,20 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, TYPE_CHECKING, Union
 
+from .execution_gateway_bootstrap import is_execution_gateway_enabled
+from .mcp_guidance import MCP_GUIDE_PROMPT_NAME, MCP_GUIDE_RESOURCE_URI, MCP_QUICKSTART_TEXT
 from .mcp_tools_dir import get_mcp_tools_directory
 
 # Apply active context DSN(s) to environment early, before any service reads
-# env vars. During pytest/breakeramp runs, preserve the isolated DSNs that the
-# test harness already configured instead of force-overwriting them with a
-# developer's active context.
+# env vars. This ensures MCP server respects ``amprealize context use <name>``.
 try:
     from .context import apply_context_to_environment as _apply_ctx
-    _is_pytest_runtime = "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ
-    _is_test_infra = os.environ.get("AMPREALIZE_TEST_INFRA_MODE", "").lower() == "breakeramp"
-    _apply_ctx(force=not (_is_pytest_runtime or _is_test_infra))
+    _apply_ctx(force=True)
 except Exception as _ctx_exc:
     import sys as _sys
     print(f"[mcp_server] context bridge failed: {_ctx_exc}", file=_sys.stderr)
@@ -74,6 +72,8 @@ if TYPE_CHECKING:
     from .behavior_service import BehaviorService
     from .workflow_service import WorkflowService
     from .storage.postgres_pool import PostgresPool
+    from .utils.dsn import apply_host_overrides
+    from .knowledge_pack.activation_service import ActivationService
 
 
 def _ensure_dsn_param(dsn: str, key: str, value: str) -> str:
@@ -325,6 +325,7 @@ class MCPServiceRegistry:
 
         # Work item execution
         self._work_item_execution_service: Optional[Any] = None
+        self._execution_gateway: Optional[Any] = None
 
         # File and GitHub services
         self._github_service: Optional[Any] = None
@@ -334,6 +335,15 @@ class MCPServiceRegistry:
 
         # Research service
         self._research_service: Optional[Any] = None
+
+        # Wiki service
+        self._wiki_service: Optional[Any] = None
+
+        # Whiteboard service
+        self._whiteboard_service: Optional[Any] = None
+
+        # Brainstorm bridge service
+        self._brainstorm_bridge_service: Optional[Any] = None
 
         # Conversation/messaging service
         self._conversation_service: Optional[Any] = None
@@ -573,6 +583,7 @@ class MCPServiceRegistry:
         """Get or create MetricsService singleton for MCP."""
         if self._metrics_service is None:
             from .utils.dsn import apply_host_overrides  # lazy
+            from .metrics_service import MetricsService
 
             dsn = apply_host_overrides(os.environ.get("AMPREALIZE_METRICS_PG_DSN"), "METRICS")
             if dsn:
@@ -580,19 +591,24 @@ class MCPServiceRegistry:
                     from .metrics_service_postgres import PostgresMetricsService
 
                     service = PostgresMetricsService(dsn=dsn)
-                    self._logger.info(
-                        "Initialized PostgresMetricsService for MCP with PostgreSQL backend"
-                    )
+                    try:
+                        service.get_summary(use_cache=False)
+                    except Exception as exc:
+                        self._logger.warning(
+                            "PostgresMetricsService probe failed for MCP; using in-memory MetricsService instead: %s",
+                            exc,
+                        )
+                        service = MetricsService()
+                    else:
+                        self._logger.info(
+                            "Initialized PostgresMetricsService for MCP with PostgreSQL backend"
+                        )
                 except ImportError:
-                    from .metrics_service import MetricsService
-
                     service = MetricsService()
                     self._logger.warning(
                         "Using in-memory MetricsService (PostgreSQL backend unavailable)"
                     )
             else:
-                from .metrics_service import MetricsService
-
                 service = MetricsService()
                 self._logger.info(
                     "Initialized MetricsService for MCP (in-memory mode, AMPREALIZE_METRICS_PG_DSN not set)"
@@ -890,7 +906,7 @@ class MCPServiceRegistry:
                 service = OrganizationService(dsn=dsn or fallback_dsn)
                 label = "OrganizationService"
             else:
-                # OrganizationService not available — use lightweight project service
+                # OSS: OrganizationService is not available — use lightweight project service
                 from .projects.service import OSSProjectService
                 service = OSSProjectService(dsn=fallback_dsn)
                 label = "OSSProjectService (OrganizationService not available)"
@@ -1019,6 +1035,86 @@ class MCPServiceRegistry:
             self._research_service = service
         return self._research_service
 
+    def wiki_service(self) -> Any:
+        """Get or create WikiService singleton for MCP.
+
+        Used by research_wiki.*, infra_wiki.*, and ai_learning_wiki.* tools
+        for managing domain-scoped LLM wikis.
+        """
+        if self._wiki_service is None:
+            from .wiki_service import WikiService
+
+            # Wiki service operates on the repo filesystem
+            repo_root = os.environ.get("AMPREALIZE_REPO_ROOT", os.getcwd())
+            self._wiki_service = WikiService(repo_root=repo_root)
+            self._logger.info(f"Initialized WikiService for MCP (repo_root={repo_root})")
+        return self._wiki_service
+
+    def whiteboard_service(self) -> Any:
+        """Get or create WhiteboardService singleton for MCP.
+
+        Used by whiteboard.* tools for room management, canvas operations,
+        and snapshot export.
+        """
+        if self._whiteboard_service is None:
+            from whiteboard import WhiteboardService, InMemoryStorage
+            from .utils.dsn import resolve_optional_postgres_dsn  # lazy
+
+            dsn = resolve_optional_postgres_dsn(
+                service="WHITEBOARD",
+                explicit_dsn=os.environ.get("AMPREALIZE_WHITEBOARD_PG_DSN"),
+                env_var="AMPREALIZE_WHITEBOARD_PG_DSN",
+            )
+            if dsn:
+                from .storage.postgres_pool import PostgresPool
+                from .storage.whiteboard_postgres import PostgresWhiteboardStorage
+
+                pool = PostgresPool(dsn, service_name="whiteboard")
+                postgres_storage = PostgresWhiteboardStorage(pool=pool)
+                try:
+                    postgres_storage.ensure_schema_ready()
+                    storage = postgres_storage
+                    self._logger.info("Initialized WhiteboardService for MCP (PostgreSQL backend)")
+                except Exception as exc:
+                    storage = InMemoryStorage()
+                    self._logger.warning(
+                        "Whiteboard PostgreSQL storage unavailable for MCP (%s); falling back to InMemoryStorage",
+                        exc,
+                    )
+            else:
+                storage = InMemoryStorage()
+                self._logger.info("WhiteboardService using InMemoryStorage for MCP (no DSN)")
+
+            hooks = None
+            try:
+                from .services.whiteboard_hooks import AmprealizeWhiteboardHooks
+                hooks = AmprealizeWhiteboardHooks(raze_service=self.raze_service)
+            except Exception:
+                self._logger.debug("Whiteboard Raze hooks unavailable", exc_info=True)
+
+            self._whiteboard_service = WhiteboardService(
+                storage=storage,
+                hooks=hooks,
+            )
+        return self._whiteboard_service
+
+    def brainstorm_bridge_service(self) -> Any:
+        """Get or create BrainstormBridge singleton for MCP."""
+        if self._brainstorm_bridge_service is None:
+            from .services.brainstorm_bridge import BrainstormBridge
+
+            base_url = os.environ.get("AMPREALIZE_BASE_URL", "http://localhost:8080")
+            sync_base_url = os.environ.get("AMPREALIZE_WHITEBOARD_SYNC_URL")
+            console_base_url = os.environ.get("AMPREALIZE_CONSOLE_URL", "http://localhost:5173")
+            self._brainstorm_bridge_service = BrainstormBridge(
+                whiteboard_service=self.whiteboard_service(),
+                base_url=base_url,
+                sync_base_url=sync_base_url,
+                console_base_url=console_base_url,
+            )
+            self._logger.info("Initialized BrainstormBridge for MCP")
+        return self._brainstorm_bridge_service
+
     def conversation_service(self) -> Any:
         """Get or create ConversationService singleton for MCP.
 
@@ -1051,19 +1147,10 @@ class MCPServiceRegistry:
         """
         if self._llm_client is None:
             from .llm.client import LLMClient
+            from .execution_wiring import _create_credential_resolver_from_store
 
-            # Create credential resolver from credential store if available
-            credential_resolver = None
-            if self._credential_store is not None:
-                def _resolver(provider: str, project_id: str = None, org_id: str = None) -> Optional[str]:
-                    store = self._credential_store
-                    # Try provider-specific key first
-                    key = store.get(f"{provider.upper()}_API_KEY")
-                    if key:
-                        return key
-                    # Fall back to generic API key
-                    return store.get("OPENAI_API_KEY") or store.get("ANTHROPIC_API_KEY")
-                credential_resolver = _resolver
+            store = self.credential_store()
+            credential_resolver = _create_credential_resolver_from_store(store)
 
             client = LLMClient(credential_resolver=credential_resolver)
             self._logger.info("Initialized LLMClient for MCP")
@@ -1140,6 +1227,49 @@ class MCPServiceRegistry:
             self._work_item_execution_service = service
         return self._work_item_execution_service
 
+    def execution_gateway(self) -> Optional[Any]:
+        """Get or create the canonical ExecutionGateway singleton for MCP starts."""
+        if not is_execution_gateway_enabled(os.environ.get("AMPREALIZE_EXECUTION_GATEWAY_ENABLED")):
+            self._logger.info(
+                "ExecutionGateway disabled by AMPREALIZE_EXECUTION_GATEWAY_ENABLED; "
+                "using legacy MCP work item execution starts"
+            )
+            return None
+
+        if self._execution_gateway is None:
+            try:
+                from .execution_wiring import wire_execution_gateway
+                from .utils.dsn import apply_host_overrides
+
+                dsn = apply_host_overrides(
+                    os.environ.get("AMPREALIZE_EXECUTION_PG_DSN") or os.environ.get("AMPREALIZE_PG_DSN"),
+                    "EXECUTION",
+                )
+                if not dsn:
+                    dsn = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize"
+
+                legacy_service = self.work_item_execution_service()
+                credential_store = getattr(legacy_service, "_credential_store", None)
+                queue_publisher = getattr(legacy_service, "_queue_publisher", None)
+                self._execution_gateway = wire_execution_gateway(
+                    dsn=dsn,
+                    board_service=self.board_service(),
+                    run_service=self.run_service(),
+                    telemetry=self.telemetry_client(),
+                    agent_registry=self.agent_registry_service(),
+                    credential_store=credential_store,
+                    queue_publisher=queue_publisher,
+                    dispatch_mode=os.environ.get(
+                        "AMPREALIZE_EXECUTION_GATEWAY_DISPATCH",
+                        "background",
+                    ),
+                )
+                self._logger.info("Initialized ExecutionGateway for MCP work item execution")
+            except Exception as exc:
+                self._logger.warning("ExecutionGateway initialization failed for MCP: %s", exc)
+                self._execution_gateway = None
+        return self._execution_gateway
+
 
 class MCPServer:
     """
@@ -1178,7 +1308,12 @@ class MCPServer:
         self._rate_limiter = MCPRateLimiter()
         # Only create distributed limiter when rate limiting is enabled
         _rl_enabled = os.environ.get("MCP_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no", "off")
-        self._distributed_rate_limiter = DistributedRateLimiter() if _rl_enabled else None  # Phase 5: Redis-backed
+        distributed_key_prefix = os.environ.get("AMPREALIZE_MCP_RATE_LIMIT_KEY_PREFIX")
+        if distributed_key_prefix is None and "PYTEST_CURRENT_TEST" in os.environ:
+            distributed_key_prefix = f"mcp:ratelimit:test:{os.getpid()}:{id(self)}"
+        self._distributed_rate_limiter = (
+            DistributedRateLimiter(key_prefix=distributed_key_prefix) if _rl_enabled else None
+        )  # Phase 5: Redis-backed
         self._client_id: Optional[str] = None  # Set during initialize
 
         # Connection stability (Epic 6 - MCP Server Stability)
@@ -1234,13 +1369,21 @@ class MCPServer:
             )
             self._device_flow_handler = MCPDeviceFlowHandler(service=device_flow_service)
 
-            # Session restore can touch DB/keychain and block in constrained environments.
-            # Keep it opt-in so public auth/context tools return promptly.
-            self._restore_session_on_startup = os.environ.get("MCP_RESTORE_SESSION_ON_STARTUP", "false").lower() == "true"
-            if self._restore_session_on_startup:
-                self._try_restore_session_from_tokens()
+            # --- Session bootstrap priority ---
+            # 1. AMPREALIZE_ACCESS_TOKEN env var (MCP spec §Authorization:
+            #    stdio transports SHOULD retrieve credentials from the environment)
+            # 2. Stored tokens (opt-in via MCP_RESTORE_SESSION_ON_STARTUP)
+            _env_access_token = os.environ.get("AMPREALIZE_ACCESS_TOKEN")
+            if _env_access_token:
+                self._bootstrap_session_from_env_token(_env_access_token)
             else:
-                self._logger.info("Skipping session restore on startup (MCP_RESTORE_SESSION_ON_STARTUP=false)")
+                # Session restore can touch DB/keychain and block in constrained environments.
+                # Keep it opt-in so public auth/context tools return promptly.
+                self._restore_session_on_startup = os.environ.get("MCP_RESTORE_SESSION_ON_STARTUP", "false").lower() == "true"
+                if self._restore_session_on_startup:
+                    self._try_restore_session_from_tokens()
+                else:
+                    self._logger.info("Skipping session restore on startup (MCP_RESTORE_SESSION_ON_STARTUP=false)")
         except ImportError as e:
             self._logger.error(f"Failed to import device flow handler: {e}")
             self._device_flow_handler = None
@@ -1275,20 +1418,19 @@ class MCPServer:
         if self._lazy_loading_enabled:
             # Use lazy loader - only loads core tools + outcome tools initially
             # Apply module gating to filter tools by enabled modules
-            if "PYTEST_CURRENT_TEST" not in os.environ and "pytest" not in sys.modules:
-                try:
-                    from amprealize.config.loader import get_config
-                    from amprealize.module_registry import (
-                        get_enabled_mcp_tool_prefixes,
-                        get_all_module_mcp_prefixes,
-                    )
-                    _mod_cfg = get_config().modules
-                    self._lazy_loader.set_module_filter(
-                        enabled_prefixes=get_enabled_mcp_tool_prefixes(_mod_cfg),
-                        all_module_prefixes=get_all_module_mcp_prefixes(),
-                    )
-                except Exception:
-                    pass  # No config yet — allow all tools
+            try:
+                from amprealize.config.loader import get_config
+                from amprealize.module_registry import (
+                    get_enabled_mcp_tool_prefixes,
+                    get_all_module_mcp_prefixes,
+                )
+                _mod_cfg = get_config().modules
+                self._lazy_loader.set_module_filter(
+                    enabled_prefixes=get_enabled_mcp_tool_prefixes(_mod_cfg),
+                    all_module_prefixes=get_all_module_mcp_prefixes(),
+                )
+            except Exception:
+                pass  # No config yet — allow all tools
 
             self._lazy_loader.initialize()
             self._tools = self._lazy_loader.get_active_tools()
@@ -1672,9 +1814,13 @@ class MCPServer:
         elif method == "tools/call":
             return await self._handle_tools_call(request_id, params)
         elif method in ("resources/list", "resources/templates/list"):
-            return self._success_response(request_id, {"resources": []})
+            return self._handle_resources_list(request_id)
+        elif method == "resources/read":
+            return self._handle_resources_read(request_id, params)
         elif method == "prompts/list":
-            return self._success_response(request_id, {"prompts": []})
+            return self._handle_prompts_list(request_id)
+        elif method == "prompts/get":
+            return self._handle_prompts_get(request_id, params)
         elif method == "ping":
             return self._success_response(request_id, {"status": "ok"})
         elif method == "health":
@@ -1764,6 +1910,86 @@ class MCPServer:
             }
 
         return self._success_response(request_id, result)
+
+    def _handle_prompts_list(self, request_id: Optional[str]) -> str:
+        """Handle MCP prompts/list request with Amprealize MCP onboarding."""
+        return self._success_response(
+            request_id,
+            {
+                "prompts": [
+                    {
+                        "name": MCP_GUIDE_PROMPT_NAME,
+                        "description": "Canonical startup protocol for using Amprealize MCP tools without guessing calls.",
+                        "arguments": [],
+                    }
+                ]
+            },
+        )
+
+    def _handle_prompts_get(self, request_id: Optional[str], params: Dict[str, Any]) -> str:
+        """Handle MCP prompts/get for Amprealize MCP onboarding."""
+        name = params.get("name")
+        if name != MCP_GUIDE_PROMPT_NAME:
+            return self._error_response(
+                request_id,
+                self.METHOD_NOT_FOUND,
+                f"Prompt not found: {name}",
+            )
+
+        return self._success_response(
+            request_id,
+            {
+                "description": "Canonical startup protocol for using Amprealize MCP tools.",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": MCP_QUICKSTART_TEXT,
+                        },
+                    }
+                ],
+            },
+        )
+
+    def _handle_resources_list(self, request_id: Optional[str]) -> str:
+        """Handle MCP resources/list request with the quickstart resource."""
+        return self._success_response(
+            request_id,
+            {
+                "resources": [
+                    {
+                        "uri": MCP_GUIDE_RESOURCE_URI,
+                        "name": "Amprealize MCP Quickstart",
+                        "description": "Canonical runtime guide for discovering and calling Amprealize MCP tools.",
+                        "mimeType": "text/markdown",
+                    }
+                ]
+            },
+        )
+
+    def _handle_resources_read(self, request_id: Optional[str], params: Dict[str, Any]) -> str:
+        """Handle MCP resources/read for the quickstart resource."""
+        uri = params.get("uri")
+        if uri != MCP_GUIDE_RESOURCE_URI:
+            return self._error_response(
+                request_id,
+                self.METHOD_NOT_FOUND,
+                f"Resource not found: {uri}",
+            )
+
+        return self._success_response(
+            request_id,
+            {
+                "contents": [
+                    {
+                        "uri": MCP_GUIDE_RESOURCE_URI,
+                        "mimeType": "text/markdown",
+                        "text": MCP_QUICKSTART_TEXT,
+                    }
+                ]
+            },
+        )
 
     async def _handle_tools_call(self, request_id: Optional[str], params: Dict[str, Any]) -> str:
         """Handle MCP tools/call request with rate limiting, timeout, and latency tracking."""
@@ -1902,7 +2128,9 @@ class MCPServer:
         session_context = getattr(self, "_session_context", None)
 
         # Check if tool requires authentication
-        if internal_tool_name not in PUBLIC_TOOLS:
+        # MCP_REQUIRE_AUTH=false disables the gate for local development.
+        _require_auth = os.environ.get("MCP_REQUIRE_AUTH", "true").lower() not in ("false", "0", "no", "off")
+        if _require_auth and internal_tool_name not in PUBLIC_TOOLS:
             self._logger.debug(f"[{trace_id}] AUTH_CHECK: tool requires authentication")
             if session_context is not None and not session_context.is_authenticated:
                 self._logger.warning(f"[{trace_id}] AUTH_FAIL: Unauthenticated call to {internal_tool_name}")
@@ -2022,46 +2250,60 @@ class MCPServer:
 
             return self._success_response(request_id, mcp_result)
 
-        # Route device flow tools
+        # Route auth tools
         if internal_tool_name.startswith("auth."):
-            if not self._device_flow_handler:
+            try:
+                from .mcp.handlers.auth_handlers import AUTH_HANDLERS, AuthToolValidationError
+
+                handler = AUTH_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown auth tool: {internal_tool_name}",
+                    )
+
+                enriched_params = self._inject_session_context(tool_params)
+                result = await handler(self, enriched_params)
+
+                # Populate session context on successful device flow auth.
+                # Works for both auth.deviceLogin (blocking) and auth.devicePoll (non-blocking).
+                if internal_tool_name in ("auth.deviceLogin", "auth.devicePoll") and result.get("status") == "authorized":
+                    self._populate_session_from_device_flow(result)
+                    self._logger.info(f"Session populated from device flow: user_id={self._session_context.user_id}")
+
+                # Update session context on successful token refresh.
+                if internal_tool_name in ("auth.refreshToken", "auth.refresh") and result.get("status") == "refreshed":
+                    self._update_session_from_refresh(result)
+                    self._logger.info(f"Session updated from token refresh: user_id={self._session_context.user_id}, new_expires_at={self._session_context.expires_at}")
+
+                # Do not echo raw OAuth tokens to MCP clients (IDE chat logs, etc.) unless debugging.
+                response_for_mcp = _redact_oauth_tokens_for_mcp_tool_result(result)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(response_for_mcp, indent=2),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except AuthToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
+            except Exception as e:
+                self._logger.error(f"Auth tool execution failed: {e}", exc_info=True)
                 return self._error_response(
                     request_id,
                     self.INTERNAL_ERROR,
-                    "Device flow handler not available",
+                    f"Auth tool execution failed: {str(e)}",
                 )
-
-            # Handle client credentials flow (Phase 2: Service Principal Auth)
-            if internal_tool_name == "auth.clientCredentials":
-                result = await self._handle_client_credentials(tool_params)
-            else:
-                result = await self._device_flow_handler.handle_tool_call(internal_tool_name, tool_params)
-
-            # Populate session context on successful device flow auth
-            # Works for both auth.deviceLogin (blocking) and auth.devicePoll (non-blocking)
-            if internal_tool_name in ("auth.deviceLogin", "auth.devicePoll") and result.get("status") == "authorized":
-                self._populate_session_from_device_flow(result)
-                self._logger.info(f"Session populated from device flow: user_id={self._session_context.user_id}")
-
-            # Update session context on successful token refresh
-            if internal_tool_name in ("auth.refreshToken", "auth.refresh") and result.get("status") == "refreshed":
-                self._update_session_from_refresh(result)
-                self._logger.info(f"Session updated from token refresh: user_id={self._session_context.user_id}, new_expires_at={self._session_context.expires_at}")
-
-            # Do not echo raw OAuth tokens to MCP clients (IDE chat logs, etc.) unless debugging.
-            response_for_mcp = _redact_oauth_tokens_for_mcp_tool_result(result)
-
-            # Wrap result in MCP content format
-            mcp_result = {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": json.dumps(response_for_mcp, indent=2),
-                    }
-                ]
-            }
-
-            return self._success_response(request_id, mcp_result)
 
         # ====================================================================
         # Route JIT consent tools (Phase 6: Consent UX Dashboard)
@@ -2350,100 +2592,21 @@ class MCPServer:
         # Route behavior service tools
         if internal_tool_name.startswith("behaviors."):
             try:
-                from .adapters import MCPBehaviorServiceAdapter
+                from .mcp.handlers.behavior_handlers import (
+                    BEHAVIOR_HANDLERS,
+                    BehaviorToolValidationError,
+                )
 
-                adapter = MCPBehaviorServiceAdapter(self._services.behavior_service())
-
-                if internal_tool_name == "behaviors.create":
-                    result = adapter.create(tool_params)
-                elif internal_tool_name == "behaviors.list":
-                    result = adapter.list(tool_params)
-                elif internal_tool_name == "behaviors.search":
-                    query = tool_params.get("query")
-                    if not query:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: query",
-                        )
-                    result = adapter.search(tool_params)
-                elif internal_tool_name == "behaviors.get":
-                    behavior_id = tool_params.get("behavior_id")
-                    if not behavior_id:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: behavior_id",
-                        )
-                    result = adapter.get(tool_params)
-                elif internal_tool_name == "behaviors.getForTask":
-                    task_description = tool_params.get("task_description")
-                    if not task_description:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: task_description",
-                        )
-                    result = adapter.get_for_task(tool_params)
-                elif internal_tool_name == "behaviors.update":
-                    behavior_id = tool_params.get("behavior_id")
-                    version = tool_params.get("version")
-                    if not behavior_id or not version:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: behavior_id, version",
-                        )
-                    result = adapter.update(tool_params)
-                elif internal_tool_name == "behaviors.submit":
-                    behavior_id = tool_params.get("behavior_id")
-                    version = tool_params.get("version")
-                    if not behavior_id or not version:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: behavior_id, version",
-                        )
-                    result = adapter.submit(tool_params)
-                elif internal_tool_name == "behaviors.approve":
-                    behavior_id = tool_params.get("behavior_id")
-                    version = tool_params.get("version")
-                    effective_from = tool_params.get("effective_from")
-                    if not behavior_id or not version or not effective_from:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: behavior_id, version, effective_from",
-                        )
-                    result = adapter.approve(tool_params)
-                elif internal_tool_name == "behaviors.deprecate":
-                    behavior_id = tool_params.get("behavior_id")
-                    version = tool_params.get("version")
-                    effective_to = tool_params.get("effective_to")
-                    if not behavior_id or not version or not effective_to:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: behavior_id, version, effective_to",
-                        )
-                    result = adapter.deprecate(tool_params)
-                elif internal_tool_name == "behaviors.deleteDraft":
-                    behavior_id = tool_params.get("behavior_id")
-                    version = tool_params.get("version")
-                    if not behavior_id or not version:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: behavior_id, version",
-                        )
-                    adapter.delete_draft(tool_params)
-                    result = {"success": True, "message": f"Draft {behavior_id} v{version} deleted"}
-                else:
+                handler = BEHAVIOR_HANDLERS.get(internal_tool_name)
+                if not handler:
                     return self._error_response(
                         request_id,
                         self.METHOD_NOT_FOUND,
                         f"Unknown behaviors tool: {internal_tool_name}",
                     )
+
+                enriched_params = self._inject_session_context(tool_params)
+                result = await handler(self._services.behavior_service(), enriched_params)
 
                 # Wrap result in MCP content format
                 mcp_result = {
@@ -2457,6 +2620,12 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
+            except BehaviorToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
             except Exception as e:
                 self._logger.error(f"Behavior tool execution failed: {e}", exc_info=True)
                 return self._error_response(
@@ -2983,13 +3152,13 @@ class MCPServer:
                 adapter = MCPAnalyticsServiceAdapter(service=service)
 
                 if internal_tool_name == "analytics.kpiSummary":
-                    result = adapter.kpi_summary(tool_params or {})
+                    result = await adapter.kpi_summary(tool_params or {})
                 elif internal_tool_name == "analytics.behaviorUsage":
-                    result = adapter.behavior_usage(tool_params or {})
+                    result = await adapter.behavior_usage(tool_params or {})
                 elif internal_tool_name == "analytics.tokenSavings":
-                    result = adapter.token_savings(tool_params or {})
+                    result = await adapter.token_savings(tool_params or {})
                 elif internal_tool_name == "analytics.complianceCoverage":
-                    result = adapter.compliance_coverage(tool_params or {})
+                    result = await adapter.compliance_coverage(tool_params or {})
                 else:
                     return self._error_response(
                         request_id,
@@ -3354,49 +3523,6 @@ class MCPServer:
                     request_id,
                     self.INTERNAL_ERROR,
                     f"Tasks tool execution failed: {str(e)}",
-                )
-
-        # Handle auth.* tools
-        if internal_tool_name.startswith("auth."):
-            try:
-                from .adapters import MCPAgentAuthServiceAdapter
-
-                service = self._services.agent_auth_service()
-                adapter = MCPAgentAuthServiceAdapter(client=service)
-
-                if internal_tool_name == "auth.ensureGrant":
-                    result = adapter.ensure_grant(tool_params)
-                elif internal_tool_name == "auth.listGrants":
-                    result = adapter.list_grants(tool_params)
-                elif internal_tool_name == "auth.policy.preview":
-                    result = adapter.policy_preview(tool_params)
-                elif internal_tool_name == "auth.revoke":
-                    result = adapter.revoke(tool_params)
-                else:
-                    return self._error_response(
-                        request_id,
-                        self.METHOD_NOT_FOUND,
-                        f"Unknown auth tool: {internal_tool_name}",
-                    )
-
-                # Wrap result in MCP content format
-                mcp_result = {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(result, indent=2),
-                        }
-                    ]
-                }
-
-                return self._success_response(request_id, mcp_result)
-
-            except Exception as e:
-                self._logger.error(f"Auth tool execution failed: {e}", exc_info=True)
-                return self._error_response(
-                    request_id,
-                    self.INTERNAL_ERROR,
-                    f"Auth tool execution failed: {str(e)}",
                 )
 
         # Handle fine-tuning.* tools (using midnighter package)
@@ -3943,8 +4069,7 @@ class MCPServer:
                 # This allows handlers to use user_id from session without requiring it as parameter
                 enriched_params = self._inject_session_context(tool_params)
 
-                # Call the sync handler in a thread to avoid blocking
-                result = await asyncio.to_thread(handler, org_service, enriched_params)
+                result = await handler(org_service, enriched_params)
 
                 # Wrap result in MCP content format
                 mcp_result = {
@@ -3988,9 +4113,8 @@ class MCPServer:
                 # Inject session context into tool params if authenticated
                 enriched_params = self._inject_session_context(tool_params)
 
-                # Call the sync handler in a thread to avoid blocking
                 self._logger.debug(f"[{trace_id}] PROJECTS_EXEC_HANDLER: {handler.__name__ if hasattr(handler, '__name__') else 'anon'}")
-                result = await asyncio.to_thread(handler, org_service, org_service, enriched_params)
+                result = await handler(org_service, org_service, enriched_params)
                 self._logger.debug(f"[{trace_id}] PROJECTS_HANDLER_COMPLETE")
 
                 # Wrap result in MCP content format
@@ -4016,111 +4140,18 @@ class MCPServer:
         # Handle boards.* tools (board management)
         if internal_tool_name.startswith("board."):
             try:
-                from .services.board_service import Actor, BoardService
-                from .multi_tenant.board_contracts import (
-                    CreateLabelRequest,
-                    LabelColor,
-                    UpdateLabelRequest,
-                )
+                from .mcp.handlers.board_handlers import BOARD_HANDLERS, BoardToolValidationError
 
-                # Use service registry when available; allow lightweight test instances
-                # created via MCPServer.__new__ to instantiate directly.
-                if hasattr(self, "_services") and self._services is not None:
-                    board_service = self._services.board_service()
-                else:
-                    board_service = BoardService()
-
-                actor_payload = tool_params.get("actor") or {}
-                actor = Actor(
-                    id=actor_payload.get("id") or tool_params.get("user_id") or "mcp-user",
-                    role=actor_payload.get("type") or tool_params.get("actor_role") or "user",
-                    surface=tool_params.get("actor_surface") or "mcp",
-                )
-                org_id = tool_params.get("org_id")
-
-                if internal_tool_name == "board.listLabels":
-                    project_id = tool_params.get("project_id")
-                    if not project_id:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: project_id",
-                        )
-
-                    labels_response = board_service.list_labels(
-                        project_id=project_id,
-                        org_id=org_id,
-                        limit=tool_params.get("limit", 100),
-                        offset=tool_params.get("offset", 0),
-                    )
-                    result = {
-                        "labels": [label.model_dump(mode="json") for label in labels_response.labels],
-                        "total": labels_response.total,
-                    }
-
-                elif internal_tool_name == "board.createLabel":
-                    project_id = tool_params.get("project_id")
-                    name = tool_params.get("name")
-                    if not project_id or not name:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameters: project_id, name",
-                        )
-
-                    request = CreateLabelRequest(
-                        name=name,
-                        color=LabelColor(tool_params.get("color", "gray")),
-                        description=tool_params.get("description"),
-                    )
-                    label = board_service.create_label(project_id, request, actor, org_id=org_id)
-                    result = {
-                        "success": True,
-                        "label": label.model_dump(mode="json"),
-                    }
-
-                elif internal_tool_name == "board.updateLabel":
-                    label_id = tool_params.get("label_id")
-                    if not label_id:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: label_id",
-                        )
-
-                    color = tool_params.get("color")
-                    request = UpdateLabelRequest(
-                        name=tool_params.get("name"),
-                        color=LabelColor(color) if color is not None else None,
-                        description=tool_params.get("description"),
-                    )
-                    label = board_service.update_label(label_id, request, actor, org_id=org_id)
-                    result = {
-                        "success": True,
-                        "label": label.model_dump(mode="json"),
-                    }
-
-                elif internal_tool_name == "board.deleteLabel":
-                    label_id = tool_params.get("label_id")
-                    if not label_id:
-                        return self._error_response(
-                            request_id,
-                            self.INVALID_PARAMS,
-                            "Missing required parameter: label_id",
-                        )
-
-                    delete_result = board_service.delete_label(label_id, actor, org_id=org_id)
-                    result = {
-                        "success": True,
-                        "deleted_id": delete_result.deleted_id,
-                    }
-
-                else:
+                handler = BOARD_HANDLERS.get(internal_tool_name)
+                if not handler:
                     return self._error_response(
                         request_id,
                         self.METHOD_NOT_FOUND,
                         f"Unknown board tool: {internal_tool_name}",
                     )
+                board_service = self._services.board_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, board_service, enriched_params)
 
                 mcp_result = {
                     "content": [
@@ -4133,13 +4164,7 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
-            except KeyError as exc:
-                return self._error_response(
-                    request_id,
-                    self.INVALID_PARAMS,
-                    f"Missing required field: {exc}",
-                )
-            except ValueError as exc:
+            except (BoardToolValidationError, KeyError, ValueError) as exc:
                 return self._error_response(
                     request_id,
                     self.INVALID_PARAMS,
@@ -4155,7 +4180,7 @@ class MCPServer:
 
         if internal_tool_name.startswith("boards."):
             try:
-                from .mcp.handlers.board_handlers import BOARD_HANDLERS
+                from .mcp.handlers.board_handlers import BOARD_HANDLERS, BoardToolValidationError
 
                 handler = BOARD_HANDLERS.get(internal_tool_name)
                 if not handler:
@@ -4169,7 +4194,8 @@ class MCPServer:
                 board_service = self._services.board_service()
 
                 # Call the sync handler in a thread to avoid blocking
-                result = await asyncio.to_thread(handler, board_service, tool_params)
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, board_service, enriched_params)
 
                 # Wrap result in MCP content format
                 mcp_result = {
@@ -4183,6 +4209,12 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
+            except (BoardToolValidationError, KeyError, ValueError) as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
             except Exception as e:
                 self._logger.error(f"Boards tool execution failed: {e}", exc_info=True)
                 return self._error_response(
@@ -4193,7 +4225,7 @@ class MCPServer:
 
         if internal_tool_name.startswith("columns."):
             try:
-                from .mcp.handlers.board_handlers import COLUMN_HANDLERS
+                from .mcp.handlers.board_handlers import COLUMN_HANDLERS, BoardToolValidationError
 
                 handler = COLUMN_HANDLERS.get(internal_tool_name)
                 if not handler:
@@ -4204,7 +4236,8 @@ class MCPServer:
                     )
 
                 board_service = self._services.board_service()
-                result = await asyncio.to_thread(handler, board_service, tool_params)
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, board_service, enriched_params)
 
                 mcp_result = {
                     "content": [
@@ -4217,12 +4250,114 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
+            except (BoardToolValidationError, KeyError, ValueError) as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
             except Exception as e:
                 self._logger.error(f"Columns tool execution failed: {e}", exc_info=True)
                 return self._error_response(
                     request_id,
                     self.INTERNAL_ERROR,
                     f"Columns tool execution failed: {str(e)}",
+                )
+
+        # Handle whiteboard.* tools (room management, canvas ops, export)
+        if internal_tool_name.startswith("whiteboard."):
+            if not os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
+                return self._error_response(
+                    request_id,
+                    self.INVALID_REQUEST,
+                    "Whiteboard feature is disabled. Set AMPREALIZE_ENABLE_WHITEBOARD=true to enable.",
+                )
+            try:
+                from .mcp.handlers.whiteboard_handlers import WHITEBOARD_HANDLERS, WhiteboardToolValidationError
+
+                handler = WHITEBOARD_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown whiteboard tool: {internal_tool_name}",
+                    )
+
+                whiteboard_service = self._services.whiteboard_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, whiteboard_service, enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except WhiteboardToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
+            except Exception as e:
+                self._logger.error(f"Whiteboard tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Whiteboard tool execution failed: {str(e)}",
+                )
+
+        # Handle brainstorm.* tools (brainstorm ↔ whiteboard bridge)
+        if internal_tool_name.startswith("brainstorm."):
+            if not os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
+                return self._error_response(
+                    request_id,
+                    self.INVALID_REQUEST,
+                    "Brainstorm whiteboard feature is disabled. Set AMPREALIZE_ENABLE_WHITEBOARD=true to enable.",
+                )
+            try:
+                from .mcp.handlers.brainstorm_handlers import BRAINSTORM_HANDLERS, BrainstormToolValidationError
+
+                handler = BRAINSTORM_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown brainstorm tool: {internal_tool_name}",
+                    )
+
+                brainstorm_bridge = self._services.brainstorm_bridge_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, brainstorm_bridge, enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except BrainstormToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
+            except Exception as e:
+                self._logger.error(f"Brainstorm tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Brainstorm tool execution failed: {str(e)}",
                 )
 
         # Handle workItems.* tools (work item management and execution)
@@ -4239,6 +4374,7 @@ class MCPServer:
             if internal_tool_name in execution_tools:
                 try:
                     from .mcp.handlers.work_item_execution_handlers import (
+                        WorkItemExecutionToolValidationError,
                         create_work_item_execution_handlers,
                     )
 
@@ -4250,6 +4386,7 @@ class MCPServer:
                     handlers = create_work_item_execution_handlers(
                         work_item_execution_service,
                         board_service=board_svc,
+                        execution_gateway=self._services.execution_gateway(),
                     )
                     handler = handlers.get(internal_tool_name)
 
@@ -4260,8 +4397,8 @@ class MCPServer:
                             f"Unknown work item execution tool: {internal_tool_name}",
                         )
 
-                    # Call the async handler
-                    result = await handler(tool_params)
+                    enriched_params = self._inject_session_context(tool_params)
+                    result = await handler(enriched_params)
 
                     # Wrap result in MCP content format
                     mcp_result = {
@@ -4275,6 +4412,12 @@ class MCPServer:
 
                     return self._success_response(request_id, mcp_result)
 
+                except WorkItemExecutionToolValidationError as e:
+                    return self._error_response(
+                        request_id,
+                        self.INVALID_PARAMS,
+                        str(e),
+                    )
                 except Exception as e:
                     self._logger.error(f"Work item execution tool failed: {e}", exc_info=True)
                     return self._error_response(
@@ -4285,7 +4428,7 @@ class MCPServer:
 
             # Board management tools (workItems.create, update, delete, etc.)
             try:
-                from .mcp.handlers.board_handlers import WORK_ITEM_HANDLERS
+                from .mcp.handlers.board_handlers import WORK_ITEM_HANDLERS, BoardToolValidationError
 
                 handler = WORK_ITEM_HANDLERS.get(internal_tool_name)
                 if not handler:
@@ -4299,7 +4442,8 @@ class MCPServer:
                 board_service = self._services.board_service()
 
                 # Call the sync handler in a thread to avoid blocking
-                result = await asyncio.to_thread(handler, board_service, tool_params)
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, board_service, enriched_params)
 
                 # Wrap result in MCP content format
                 mcp_result = {
@@ -4313,6 +4457,12 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
+            except (BoardToolValidationError, KeyError, ValueError) as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
             except Exception as e:
                 self._logger.error(f"WorkItems tool execution failed: {e}", exc_info=True)
                 return self._error_response(
@@ -4499,7 +4649,7 @@ class MCPServer:
         # Handle research.* tools (AI paper evaluation)
         if internal_tool_name.startswith("research."):
             try:
-                from .mcp.handlers.research_handlers import RESEARCH_HANDLERS
+                from .mcp.handlers.research_handlers import RESEARCH_HANDLERS, ResearchToolValidationError
 
                 handler = RESEARCH_HANDLERS.get(internal_tool_name)
                 if not handler:
@@ -4524,12 +4674,60 @@ class MCPServer:
 
                 return self._success_response(request_id, mcp_result)
 
+            except ResearchToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
             except Exception as e:
                 self._logger.error(f"Research tool execution failed: {e}", exc_info=True)
                 return self._error_response(
                     request_id,
                     self.INTERNAL_ERROR,
                     f"Research tool execution failed: {str(e)}",
+                )
+
+        # Handle wiki tools (research_wiki.*, infra_wiki.*, ai_learning_wiki.*, platform_wiki.*, wiki.*)
+        if internal_tool_name.startswith(("research_wiki.", "infra_wiki.", "ai_learning_wiki.", "platform_wiki.", "wiki.")):
+            try:
+                from .mcp.handlers.wiki_handlers import WIKI_HANDLERS, WikiToolValidationError
+
+                handler = WIKI_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown wiki tool: {internal_tool_name}",
+                    )
+
+                service = self._services.wiki_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await handler(service=service, params=enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2, default=str),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except WikiToolValidationError as e:
+                return self._error_response(
+                    request_id,
+                    self.INVALID_PARAMS,
+                    str(e),
+                )
+            except Exception as e:
+                self._logger.error(f"Wiki tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Wiki tool execution failed: {str(e)}",
                 )
 
         # Handle conversations.* and messages.* tools (messaging system)
@@ -4856,6 +5054,60 @@ class MCPServer:
             f"scopes={self._session_context.granted_scopes}"
         )
 
+    def _bootstrap_session_from_env_token(self, token: str) -> None:
+        """Bootstrap session from AMPREALIZE_ACCESS_TOKEN environment variable.
+
+        Per MCP Authorization spec (2025-11-25), stdio transports "SHOULD NOT
+        follow [the OAuth authorization] specification, and instead retrieve
+        credentials from the environment."  This method enables that pattern
+        for CI/CD pipelines, headless runners, and pre-authenticated sessions.
+
+        Optional companion env vars:
+          - AMPREALIZE_USER_ID: User identity (skips token introspection).
+          - AMPREALIZE_ACCESS_TOKEN_TTL_SECONDS: Token lifetime (default 3600).
+        """
+        from datetime import datetime, timedelta
+
+        ttl = int(os.environ.get("AMPREALIZE_ACCESS_TOKEN_TTL_SECONDS", "3600"))
+
+        # Resolve user identity: explicit env var > JWT sub claim > None
+        user_id = os.environ.get("AMPREALIZE_USER_ID")
+        if not user_id:
+            user_id = self._try_extract_jwt_subject(token)
+
+        self._session_context.user_id = self._resolve_user_id(user_id) if user_id else None
+        self._session_context.auth_method = "device_flow"  # compatible with is_authenticated
+        self._session_context.authenticated_at = datetime.utcnow()
+        self._session_context.expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+        self._session_context.granted_scopes = set()  # populated by authorization context
+
+        self._logger.info(
+            f"Session bootstrapped from AMPREALIZE_ACCESS_TOKEN: "
+            f"user_id={self._session_context.user_id}, expires_in={ttl}s"
+        )
+        self._populate_authorization_context()
+
+    @staticmethod
+    def _try_extract_jwt_subject(token: str) -> Optional[str]:
+        """Best-effort extraction of 'sub' or 'email' from a JWT payload.
+
+        Does NOT verify the token signature — that is the responsibility of
+        the backend services that receive the token.  This is used only to
+        populate the session context for authorization lookups.
+        """
+        import base64
+
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+            # Decode the payload (second segment), adding padding
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            return payload.get("sub") or payload.get("email")
+        except Exception:
+            return None
+
     def _try_restore_session_from_tokens(self) -> None:
         """Try to restore session from stored tokens on startup.
 
@@ -4878,7 +5130,7 @@ class MCPServer:
 
             auth_dsn = os.environ.get("AMPREALIZE_ORG_PG_DSN") or os.environ.get("AMPREALIZE_MULTI_TENANT_PG_DSN") or os.environ.get("AMPREALIZE_PG_DSN")
             if auth_dsn:
-                self._logger.debug("Found auth DSN, attempting PostgreSQL session restore...")
+                self._logger.debug(f"Found auth DSN, attempting PostgreSQL session restore...")
                 # Ensure auth schema
                 if "search_path" not in auth_dsn:
                     if "?" in auth_dsn:
@@ -4930,7 +5182,8 @@ class MCPServer:
 
         # Fallback: try local token store (keychain or file)
         try:
-            from .device_flow.token_store import KeychainTokenStore, FileTokenStore
+            from .mcp_device_flow import MCPDeviceFlowService
+            from .device_flow.token_store import KeychainTokenStore, FileTokenStore, TokenStoreError
 
             store = None
             try:
@@ -4985,7 +5238,7 @@ class MCPServer:
         try:
             svc = self._services.organization_service()
 
-            # Orgs are optional — users can use the platform without belonging to any org.
+            # Orgs are optional (enterprise-only, and even then not required).
             # OSSProjectService won't have list_user_organizations.
             if hasattr(svc, "list_user_organizations"):
                 user_orgs = svc.list_user_organizations(user_id=self._session_context.user_id)
@@ -5534,6 +5787,18 @@ class MCPServer:
                     "active_count": sum(1 for g in groups if g.get("is_active")),
                 }
 
+            elif tool_name == "tools.guide":
+                return self._lazy_loader.get_usage_guide()
+
+            elif tool_name == "tools.catalog":
+                return self._lazy_loader.get_tool_catalog(
+                    group=params.get("group"),
+                    query=params.get("query"),
+                    use_case=params.get("use_case"),
+                    include_inactive=params.get("include_inactive", True),
+                    limit=params.get("limit", 50),
+                )
+
             elif tool_name == "tools.activateGroup":
                 group_name = params.get("group_name")
                 if not group_name:
@@ -5827,7 +6092,7 @@ class MCPServer:
                 }
 
         # If no permission service (dev mode), allow switching
-        self._logger.warning("No permission service - allowing org switch without verification")
+        self._logger.warning(f"No permission service - allowing org switch without verification")
         self._session_context.org_id = org_id
         self._session_context.project_id = None
 
@@ -5894,7 +6159,7 @@ class MCPServer:
                         if role is None:
                             return {
                                 "success": False,
-                                "error": "Access denied to project's organization",
+                                "error": f"Access denied to project's organization",
                                 "error_code": "ACCESS_DENIED",
                             }
                 else:
@@ -6203,7 +6468,7 @@ class MCPServer:
         """Get the AsyncPermissionService if available."""
         try:
             # Try to get from services registry
-            from .multi_tenant.permissions import AsyncPermissionService
+            from .tenant.permissions import AsyncPermissionService
 
             dsn = os.environ.get("AMPREALIZE_AUTH_PG_DSN")
             if dsn:

@@ -42,6 +42,7 @@ import {
 import { useAuth } from '../../auth';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import type { ActorViewModel } from '../../types/actor';
+import { buildExecutionControlModel } from '../../lib/executionControls';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import type { PresenceState } from '../../hooks/useAgentPresence';
@@ -205,13 +206,12 @@ function summarizeStructure(
 }
 
 function summarizeExecution(status: ExecutionStatus | null, hasAgentAssignment: boolean): string {
-  if (status?.state === 'running') return 'Running now';
-  if (status?.pendingClarifications?.length) return 'Needs your input';
-  if (status?.state === 'failed') return 'Last run failed';
-  if (status?.state === 'completed') return 'Last run completed';
-  if (status?.hasExecution) return 'Run history available';
-  if (hasAgentAssignment) return 'Ready to run';
-  return 'Assign an agent to run';
+  return buildExecutionControlModel({
+    rawState: status?.state ?? null,
+    hasExecution: status?.hasExecution,
+    hasAgentAssignment,
+    pendingClarificationCount: status?.pendingClarifications?.length ?? 0,
+  }).summary;
 }
 
 function useDebouncedCallback(callback: () => void, delayMs: number) {
@@ -334,7 +334,12 @@ export function WorkItemDrawer({
   const executionStatusQuery = useWorkItemExecutionStatus(itemId, orgId, projectId);
   const executionStatus = executionStatusQuery.data ?? null;
   const executionState = executionStatus?.state ? String(executionStatus.state).toLowerCase() : null;
-  const activeExecution = executionState === 'running' || executionState === 'paused' || executionState === 'pending';
+  const activeExecution =
+    executionState === 'running' ||
+    executionState === 'paused' ||
+    executionState === 'pending' ||
+    executionState === 'queued' ||
+    Boolean(executionStatus?.pendingClarifications?.length);
   const executionStream = useExecutionStream({
     runId: executionStatus?.runId ?? null,
     orgId: orgId ?? null,
@@ -783,14 +788,27 @@ export function WorkItemDrawer({
   const assignmentBusy = assignItem.isPending || unassignItem.isPending;
   const hasAgentAssignment = Boolean(item?.assignee_id && item?.assignee_type === 'agent');
   const isOrphanedAssignment = hasAgentAssignment && !currentAssignee;
-  const canStartExecution = hasAgentAssignment && !activeExecution && !isOrphanedAssignment;
-  const canCancelExecution = Boolean(activeExecution);
-  const startLabel = executionStatus?.hasExecution ? 'Run again' : 'Start execution';
-  const executionHint = isOrphanedAssignment
-    ? 'Assigned agent no longer exists. Please re-assign.'
-    : !hasAgentAssignment
-      ? 'Assign an agent to enable execution.'
-      : 'Runs update in real time.';
+  const pendingClarificationCount = executionStatus?.pendingClarifications?.length ?? 0;
+  const executionControls = useMemo(
+    () => buildExecutionControlModel({
+      rawState: executionStatus?.state ?? null,
+      hasExecution: executionStatus?.hasExecution,
+      hasAgentAssignment,
+      isOrphanedAssignment,
+      pendingClarificationCount,
+    }),
+    [
+      executionStatus?.hasExecution,
+      executionStatus?.state,
+      hasAgentAssignment,
+      isOrphanedAssignment,
+      pendingClarificationCount,
+    ]
+  );
+  const canStartExecution = executionControls.canStart;
+  const canCancelExecution = executionControls.canCancel;
+  const startLabel = executionControls.startLabel;
+  const executionHint = executionControls.startTitle;
 
   const clarificationRequests = useMemo(() => {
     const raw = executionStatus?.pendingClarifications ?? [];
@@ -1349,7 +1367,7 @@ export function WorkItemDrawer({
                   className="execution-action-button pressable"
                   onClick={handleStartExecution}
                   disabled={!canStartExecution || executeWorkItem.isPending}
-                  title={canStartExecution ? startLabel : executionHint}
+                  title={executionControls.startTitle}
                   data-haptic="light"
                 >
                   {executeWorkItem.isPending ? 'Starting...' : startLabel}
@@ -1361,7 +1379,7 @@ export function WorkItemDrawer({
                   disabled={!canCancelExecution || cancelExecution.isPending}
                   data-haptic="light"
                 >
-                  {cancelExecution.isPending ? 'Cancelling...' : 'Cancel'}
+                  {cancelExecution.isPending ? 'Cancelling...' : executionControls.cancelLabel}
                 </button>
                 <button
                   type="button"
@@ -1369,7 +1387,7 @@ export function WorkItemDrawer({
                   onClick={handleRefreshExecution}
                   disabled={executionStatusQuery.isFetching}
                 >
-                  {executionStatusQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+                  {executionStatusQuery.isFetching ? 'Refreshing...' : executionControls.refreshLabel}
                 </button>
               </>
             }
@@ -1397,6 +1415,9 @@ export function WorkItemDrawer({
       executionStatusQuery.isFetching,
       executionStatusQuery.isLoading,
       executionSummary,
+      executionControls.cancelLabel,
+      executionControls.refreshLabel,
+      executionControls.startTitle,
       handleCancelExecution,
       handleClarificationSubmit,
       handleRefreshExecution,

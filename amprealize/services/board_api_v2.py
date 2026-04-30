@@ -662,7 +662,7 @@ def create_board_routes(
         response_model=WorkItemResponse,
         status_code=status.HTTP_201_CREATED,
         summary="Create work item",
-        description="Create a work item (goal, feature, task, or bug). Use item_type to specify.",
+        description="Create a work item (goal, feature, task, bug, or research). Use item_type to specify. Research items require research_url or metadata.research_url.",
     )
     async def create_work_item(
         request: Request,
@@ -692,7 +692,7 @@ def create_board_routes(
         request: Request,
         project_id: Optional[str] = Query(None, description="Filter by project"),
         board_id: Optional[str] = Query(None, description="Filter by board"),
-        item_type: Optional[List[WorkItemType]] = Query(None, description="Filter by type (goal/feature/task/bug). Repeat the query param for multiple values."),
+        item_type: Optional[List[WorkItemType]] = Query(None, description="Filter by type (goal/feature/task/bug/research). Repeat the query param for multiple values."),
         parent_id: Optional[str] = Query(None, description="Filter by parent item"),
         status_filter: Optional[WorkItemStatus] = Query(None, alias="status", description="Filter by status"),
         priority: Optional[List[WorkItemPriority]] = Query(None, description="Filter by priority. Repeat the query param for multiple values."),

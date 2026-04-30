@@ -7,6 +7,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 import { ConversationSidebar } from './ConversationSidebar';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
@@ -78,6 +79,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   orgId,
   onRequestClose,
 }: ConversationPanelProps) {
+  const { actor } = useAuthStore();
+  const currentUserId = actor?.id;
   const overlayRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const [phase, setPhase] = useState<DrawerPhase>('entering');
@@ -174,8 +177,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           onClose={() => setSearchOpen(false)}
         />
       )}
-      <MessageList conversationId={activeConversationId} />
-      <MessageComposer conversationId={activeConversationId} />
+      <MessageList conversationId={activeConversationId} currentUserId={currentUserId} />
+      <MessageComposer conversationId={activeConversationId} currentUserId={currentUserId} />
     </div>
   ) : (
     <div className="conversation-panel-empty">

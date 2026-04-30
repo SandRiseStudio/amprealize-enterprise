@@ -36,8 +36,8 @@ import { razeLog } from '../telemetry/raze';
 export const conversationKeys = {
   all: ['conversations'] as const,
   lists: () => [...conversationKeys.all, 'list'] as const,
-  list: (projectId: string, filters?: Record<string, unknown>) =>
-    [...conversationKeys.lists(), projectId, filters] as const,
+  list: (projectId: string | null, filters?: Record<string, unknown>) =>
+    [...conversationKeys.lists(), projectId ?? 'global', filters] as const,
   details: () => [...conversationKeys.all, 'detail'] as const,
   detail: (conversationId: string) =>
     [...conversationKeys.details(), conversationId] as const,
@@ -55,6 +55,33 @@ function isInfiniteMessageData(
   data: MessageListResponse | InfiniteData<MessageListResponse> | undefined,
 ): data is InfiniteData<MessageListResponse> {
   return !!data && typeof data === 'object' && 'pages' in data && Array.isArray(data.pages);
+}
+
+/** API lists messages newest-first; cache merges must keep that order (prepend to page 0). */
+function dedupeMessagesById(items: ConversationMessage[]): ConversationMessage[] {
+  const seen = new Set<string>();
+  const out: ConversationMessage[] = [];
+  for (const m of items) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    out.push(m);
+  }
+  return out;
+}
+
+function stripOptimisticDuplicate(
+  items: ConversationMessage[],
+  incoming: ConversationMessage,
+): ConversationMessage[] {
+  return items.filter((item) => {
+    if (!item.id.startsWith('optimistic-')) return true;
+    const meta = item.metadata as Record<string, unknown> | undefined;
+    if (meta?.optimistic !== true) return true;
+    return !(
+      item.sender_id === incoming.sender_id &&
+      item.content === incoming.content
+    );
+  });
 }
 
 function updateMessageCollections(
@@ -97,38 +124,125 @@ function appendMessageToCollections(
       if (!old) return old;
 
       if (isInfiniteMessageData(old)) {
-        if (old.pages.some((page) => page.items.some((item) => item.id === message.id))) {
-          return old;
+        const pagesStripped = old.pages.map((page) => ({
+          ...page,
+          items: stripOptimisticDuplicate(page.items, message),
+        }));
+
+        if (pagesStripped.some((page) => page.items.some((item) => item.id === message.id))) {
+          return {
+            ...old,
+            pages: pagesStripped.map((page) => ({
+              ...page,
+              items: dedupeMessagesById(page.items),
+            })),
+          };
         }
 
-        const lastPageIndex = old.pages.length - 1;
+        const first = pagesStripped[0];
         return {
           ...old,
-          pages: old.pages.map((page, index) => {
-            if (index !== lastPageIndex) {
-              return page;
-            }
+          pages: [
+            {
+              ...first,
+              items: dedupeMessagesById([message, ...first.items]),
+            },
+            ...pagesStripped.slice(1).map((page) => ({
+              ...page,
+              items: dedupeMessagesById(page.items),
+            })),
+          ],
+        };
+      }
 
+      const stripped = stripOptimisticDuplicate(old.items, message);
+      if (stripped.some((item) => item.id === message.id)) {
+        return { ...old, items: dedupeMessagesById(stripped) };
+      }
+
+      return {
+        ...old,
+        items: dedupeMessagesById([message, ...stripped]),
+      };
+    },
+  );
+}
+
+function removeMessageFromCollections(
+  qc: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+  messageId: string,
+): void {
+  qc.setQueriesData(
+    { queryKey: conversationKeys.messagesPrefix(conversationId) },
+    (old: MessageListResponse | InfiniteData<MessageListResponse> | undefined) => {
+      if (!old) return old;
+
+      if (isInfiniteMessageData(old)) {
+        return {
+          ...old,
+          pages: old.pages.map((page) => {
+            const nextItems = page.items.filter((item) => item.id !== messageId);
             return {
               ...page,
-              items: [...page.items, message],
-              total: page.total + 1,
+              items: nextItems,
+              total: page.total - (page.items.length - nextItems.length),
             };
           }),
         };
       }
 
-      if (old.items.some((item) => item.id === message.id)) {
-        return old;
+      const nextItems = old.items.filter((item) => item.id !== messageId);
+      return {
+        ...old,
+        items: nextItems,
+        total: old.total - (old.items.length - nextItems.length),
+      };
+    },
+  );
+}
+
+function replaceMessageInCollections(
+  qc: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+  messageId: string,
+  replacement: ConversationMessage,
+): boolean {
+  let replaced = false;
+  qc.setQueriesData(
+    { queryKey: conversationKeys.messagesPrefix(conversationId) },
+    (old: MessageListResponse | InfiniteData<MessageListResponse> | undefined) => {
+      if (!old) return old;
+
+      if (isInfiniteMessageData(old)) {
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            items: dedupeMessagesById(
+              page.items.map((item) => {
+                if (item.id !== messageId) return item;
+                replaced = true;
+                return replacement;
+              }),
+            ),
+          })),
+        };
       }
 
       return {
         ...old,
-        items: [...old.items, message],
-        total: old.total + 1,
+        items: dedupeMessagesById(
+          old.items.map((item) => {
+            if (item.id !== messageId) return item;
+            replaced = true;
+            return replacement;
+          }),
+        ),
       };
     },
   );
+  return replaced;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +250,7 @@ function appendMessageToCollections(
 // ---------------------------------------------------------------------------
 
 interface UseConversationsOptions {
-  projectId: string;
+  projectId?: string | null;
   scope?: string;
   includeArchived?: boolean;
   limit?: number;
@@ -148,7 +262,7 @@ export function useConversations(opts: UseConversationsOptions) {
   const { projectId, scope, includeArchived, limit = 50, offset = 0, enabled = true } = opts;
   const filters = { scope, includeArchived, limit, offset };
   return useQuery<ConversationListResponse>({
-    queryKey: conversationKeys.list(projectId, filters),
+    queryKey: conversationKeys.list(projectId ?? null, filters),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scope) params.set('scope', scope);
@@ -156,11 +270,12 @@ export function useConversations(opts: UseConversationsOptions) {
       params.set('limit', String(limit));
       params.set('offset', String(offset));
       const qs = params.toString();
+      const basePath = projectId ? `/v1/projects/${projectId}/conversations` : '/v1/conversations';
       return apiClient.get<ConversationListResponse>(
-        `/v1/projects/${projectId}/conversations${qs ? `?${qs}` : ''}`,
+        `${basePath}${qs ? `?${qs}` : ''}`,
       );
     },
-    enabled: enabled && !!projectId,
+    enabled,
     staleTime: 5_000,
   });
 }
@@ -245,6 +360,139 @@ export function useConversationParticipants(conversationId: string | undefined) 
   });
 }
 
+export interface AvailableLLMModel {
+  model_id: string;
+  api_name?: string;
+  provider: string;
+  display_name: string;
+  context_limit: number;
+  max_output_tokens: number;
+  supports_tool_calls: boolean;
+  supports_structured_output?: boolean;
+  supports_reasoning_delta?: boolean;
+  supports_streaming?: boolean;
+  is_open_model?: boolean;
+  is_default?: boolean;
+  free_endpoint?: boolean;
+  credential_source: string;
+  is_byok: boolean;
+}
+
+export interface ModelAvailabilityResponse {
+  project_id: string;
+  org_id?: string | null;
+  user_id?: string | null;
+  models: AvailableLLMModel[];
+  total_count: number;
+  has_byok: boolean;
+}
+
+export function useProjectModels(
+  projectId: string | undefined,
+  opts: { orgId?: string | null; userId?: string | null; preferUser?: boolean } = {},
+) {
+  return useQuery<ModelAvailabilityResponse>({
+    queryKey: ['llm-models', 'project', projectId, opts.orgId, opts.userId, opts.preferUser],
+    queryFn: async () => {
+      if (!projectId) {
+        return { project_id: '', models: [], total_count: 0, has_byok: false };
+      }
+      const params = new URLSearchParams();
+      if (opts.orgId) params.set('org_id', opts.orgId);
+      if (opts.userId) params.set('user_id', opts.userId);
+      if (opts.preferUser) params.set('prefer_user', 'true');
+      const qs = params.toString();
+      return apiClient.get<ModelAvailabilityResponse>(
+        `/v1/projects/${projectId}/models${qs ? `?${qs}` : ''}`,
+      );
+    },
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+}
+
+export function useUserModels(userId: string | undefined) {
+  return useQuery<ModelAvailabilityResponse>({
+    queryKey: ['llm-models', 'user', userId],
+    queryFn: async () => {
+      if (!userId) {
+        return { project_id: '', user_id: null, models: [], total_count: 0, has_byok: false };
+      }
+      const params = new URLSearchParams({
+        provider_filter: 'nvidia',
+        free_open_only: 'true',
+      });
+      return apiClient.get<ModelAvailabilityResponse>(`/v1/users/${userId}/models?${params.toString()}`);
+    },
+    enabled: !!userId,
+    staleTime: 30_000,
+  });
+}
+
+/** Unified readiness (BYOK + platform) — mirrors ``GET /api/v1/model-readiness``. */
+export interface ModelReadinessResponse {
+  state: string;
+  can_send: boolean;
+  detail?: string | null;
+  suggested_model_id?: string | null;
+  selected_model_id?: string | null;
+  models: AvailableLLMModel[];
+  total_count: number;
+  has_byok: boolean;
+  encryption: Record<string, unknown>;
+  project_id?: string | null;
+  org_id?: string | null;
+  user_id?: string | null;
+  prefer_user?: boolean;
+}
+
+export interface UseModelReadinessOptions {
+  conversationId?: string;
+  projectId?: string;
+  orgId?: string | null;
+  userId?: string;
+  preferUser?: boolean;
+  selectedModelId?: string;
+  enabled?: boolean;
+}
+
+export function useModelReadiness(opts: UseModelReadinessOptions) {
+  const {
+    conversationId,
+    projectId,
+    orgId,
+    userId,
+    preferUser = false,
+    selectedModelId,
+    enabled = true,
+  } = opts;
+
+  return useQuery<ModelReadinessResponse>({
+    queryKey: [
+      'model-readiness',
+      conversationId,
+      projectId,
+      orgId,
+      userId,
+      preferUser,
+      selectedModelId,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (conversationId) params.set('conversation_id', conversationId);
+      if (projectId) params.set('project_id', projectId);
+      if (orgId) params.set('org_id', orgId);
+      if (userId) params.set('user_id', userId);
+      if (preferUser) params.set('prefer_user', 'true');
+      if (selectedModelId) params.set('selected_model_id', selectedModelId);
+      const qs = params.toString();
+      return apiClient.get<ModelReadinessResponse>(`/v1/model-readiness${qs ? `?${qs}` : ''}`);
+    },
+    enabled: enabled && !!userId,
+    staleTime: 15_000,
+  });
+}
+
 interface UseSearchMessagesOptions {
   conversationId: string;
   query: string;
@@ -276,28 +524,64 @@ export function useSearchMessages(opts: UseSearchMessagesOptions) {
 // ---------------------------------------------------------------------------
 
 interface CreateConversationVars {
-  projectId: string;
+  projectId?: string | null;
   scope: string;
   title?: string;
   participantIds?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export function useCreateConversation() {
   const qc = useQueryClient();
   return useMutation<Conversation, ApiError, CreateConversationVars>({
-    mutationFn: async ({ projectId, scope, title, participantIds }) => {
-      return apiClient.post<Conversation>(
-        `/v1/projects/${projectId}/conversations`,
-        {
-          scope,
-          title: title ?? null,
-          participant_ids: participantIds ?? [],
-        },
-      );
+    mutationFn: async ({ projectId, scope, title, participantIds, metadata }) => {
+      const basePath = projectId ? `/v1/projects/${projectId}/conversations` : '/v1/conversations';
+      return apiClient.post<Conversation>(basePath, {
+        scope,
+        title: title ?? null,
+        participant_ids: participantIds ?? [],
+        metadata: metadata ?? {},
+      });
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: conversationKeys.lists() });
-      razeLog('INFO', 'conversation.created', { project_id: vars.projectId });
+      razeLog('INFO', 'conversation.created', { project_id: vars.projectId ?? null, scope: vars.scope });
+    },
+  });
+}
+
+export function useEnsureGlobalHomeConversation() {
+  const qc = useQueryClient();
+  return useMutation<Conversation, ApiError>({
+    mutationFn: async () => {
+      const list = await apiClient.get<ConversationListResponse>(
+        '/v1/conversations?scope=global_user_home&limit=1&offset=0',
+      );
+      const existing = list.items[0];
+      if (existing) {
+        return existing;
+      }
+
+      try {
+        return await apiClient.post<Conversation>('/v1/conversations', {
+          scope: 'global_user_home',
+          title: 'Global chat',
+          participant_ids: [],
+          metadata: {},
+        });
+      } catch (error) {
+        const refresh = await apiClient.get<ConversationListResponse>(
+          '/v1/conversations?scope=global_user_home&limit=1&offset=0',
+        );
+        const refreshed = refresh.items[0];
+        if (refreshed) {
+          return refreshed;
+        }
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: conversationKeys.lists() });
     },
   });
 }
@@ -342,6 +626,7 @@ export function useGetOrCreateDirectConversation() {
 interface SendMessageVars {
   conversationId: string;
   content: string;
+  senderId?: string;
   messageType?: string;
   structuredPayload?: Record<string, unknown>;
   parentId?: string;
@@ -353,7 +638,7 @@ interface SendMessageVars {
 
 export function useSendMessage() {
   const qc = useQueryClient();
-  return useMutation<ConversationMessage, ApiError, SendMessageVars>({
+  return useMutation<ConversationMessage, ApiError, SendMessageVars, { optimisticId?: string }>({
     mutationFn: async ({
       conversationId,
       content,
@@ -379,10 +664,47 @@ export function useSendMessage() {
         },
       );
     },
-    onSuccess: (data, vars) => {
-      appendMessageToCollections(qc, vars.conversationId, data);
-      qc.invalidateQueries({ queryKey: conversationKeys.messagesPrefix(vars.conversationId) });
+    onMutate: async (vars) => {
+      if (!vars.senderId) return {};
+
+      const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      appendMessageToCollections(qc, vars.conversationId, {
+        id: optimisticId,
+        conversation_id: vars.conversationId,
+        sender_id: vars.senderId,
+        sender_type: 'user',
+        content: vars.content,
+        message_type: vars.messageType ?? 'text',
+        structured_payload: vars.structuredPayload ?? null,
+        parent_id: vars.parentId ?? null,
+        run_id: vars.runId ?? null,
+        behavior_id: vars.behaviorId ?? null,
+        work_item_id: vars.workItemId ?? null,
+        is_edited: false,
+        edited_at: null,
+        is_deleted: false,
+        deleted_at: null,
+        metadata: {
+          ...(vars.metadata ?? {}),
+          optimistic: true,
+        },
+        created_at: new Date().toISOString(),
+        reactions: [],
+        reply_count: 0,
+      });
+
+      return { optimisticId };
+    },
+    onSuccess: (data, vars, context) => {
+      if (!context?.optimisticId || !replaceMessageInCollections(qc, vars.conversationId, context.optimisticId, data)) {
+        appendMessageToCollections(qc, vars.conversationId, data);
+      }
       razeLog('INFO', 'conversation.message.sent', { conversation_id: vars.conversationId });
+    },
+    onError: (_error, vars, context) => {
+      if (context?.optimisticId) {
+        removeMessageFromCollections(qc, vars.conversationId, context.optimisticId);
+      }
     },
   });
 }

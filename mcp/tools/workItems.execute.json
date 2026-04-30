@@ -34,7 +34,7 @@
         "description": "User ID initiating the execution"
       }
     },
-    "required": ["work_item_id", "project_id"]
+    "required": ["work_item_id"]
   },
   "output": {
     "description": "Returns execution status with run_id, status, phase, and metrics",

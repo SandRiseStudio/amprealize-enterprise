@@ -6,6 +6,7 @@ Follows the board_api_v2.py factory pattern.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -27,7 +28,10 @@ from amprealize.conversation_contracts import (
     SearchResultsResponse,
     SendMessageRequest,
     UpdateParticipantRequest,
+    normalize_conversation_scope,
 )
+from amprealize.llm.credential_factory import build_credential_store
+from amprealize.llm.model_readiness import validate_and_enrich_chat_message_metadata
 from amprealize.services.conversation_circuit_breaker import (
     AmplificationCircuitBreaker,
 )
@@ -47,7 +51,6 @@ from amprealize.services.conversation_service import (
     Message,
     MessageNotFoundError,
 )
-
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +74,7 @@ def create_conversation_routes(
     tags: Optional[List[str | Enum]] = None,
     rate_limiter: Optional[ConversationRateLimiter] = None,
     circuit_breaker: Optional[AmplificationCircuitBreaker] = None,
+    conversation_reply_service: Optional[Any] = None,
 ) -> APIRouter:
     """Create FastAPI router for conversation/messaging endpoints.
 
@@ -98,6 +102,39 @@ def create_conversation_routes(
     def _get_org_id(request: Request) -> Optional[str]:
         return getattr(request.state, "org_id", None)
 
+    def _validate_model_metadata(
+        *,
+        metadata: Dict[str, Any],
+        conversation_id: str,
+        user_id: str,
+        org_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Validate optional chat model selection metadata before persistence."""
+        model_id = metadata.get("llm_model_id")
+        provider = metadata.get("llm_provider")
+        credential_scope = metadata.get("credential_scope")
+        if model_id is None and provider is None and credential_scope is None:
+            return metadata
+
+        conversation = conversation_service.get_conversation(
+            conversation_id,
+            org_id=org_id,
+            user_id=user_id,
+        )
+        try:
+            return validate_and_enrich_chat_message_metadata(
+                credential_store=build_credential_store(),
+                conversation=conversation,
+                user_id=user_id,
+                effective_org_id=org_id or conversation.org_id,
+                metadata=metadata,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
     # =========================================================================
     # Conversations
     # =========================================================================
@@ -118,6 +155,31 @@ def create_conversation_routes(
         try:
             conv = conversation_service.create_conversation(
                 project_id=project_id,
+                scope=body.scope,
+                title=body.title,
+                created_by=user_id,
+                participant_ids=body.participant_ids,
+                org_id=org_id,
+            )
+            return _conv_to_response(conv)
+        except ConversationServiceError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    @router.post(
+        "/v1/conversations",
+        response_model=ConversationResponse,
+        status_code=status.HTTP_201_CREATED,
+        summary="Create global or project conversation",
+    )
+    def create_conversation_any_scope(
+        request: Request,
+        body: CreateConversationRequest,
+    ) -> ConversationResponse:
+        user_id = _get_user_id(request)
+        org_id = _get_org_id(request)
+        try:
+            conv = conversation_service.create_conversation(
+                project_id=body.project_id,
                 scope=body.scope,
                 title=body.title,
                 created_by=user_id,
@@ -171,16 +233,60 @@ def create_conversation_routes(
     ) -> ConversationListResponse:
         user_id = _get_user_id(request)
         org_id = _get_org_id(request)
-        scope_enum = ConversationScope(scope) if scope else None
-        convs, total = conversation_service.list_conversations(
-            project_id=project_id,
-            user_id=user_id,
-            org_id=org_id,
-            scope=scope_enum,
-            include_archived=include_archived,
-            limit=limit,
-            offset=offset,
+        try:
+            scope_enum = (
+                normalize_conversation_scope(ConversationScope(scope))
+                if scope
+                else None
+            )
+            convs, total = conversation_service.list_conversations(
+                project_id=project_id,
+                user_id=user_id,
+                org_id=org_id,
+                scope=scope_enum,
+                include_archived=include_archived,
+                limit=limit,
+                offset=offset,
+            )
+        except (ConversationServiceError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return ConversationListResponse(
+            items=[_conv_to_response(c) for c in convs],
+            total=total,
         )
+
+    @router.get(
+        "/v1/conversations",
+        response_model=ConversationListResponse,
+        summary="List global or project conversations",
+    )
+    def list_conversations_any_scope(
+        request: Request,
+        project_id: Optional[str] = Query(default=None, description="Filter by project"),
+        scope: Optional[str] = Query(default=None, description="Filter by scope"),
+        include_archived: bool = Query(default=False),
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> ConversationListResponse:
+        user_id = _get_user_id(request)
+        org_id = _get_org_id(request)
+        try:
+            scope_enum = (
+                normalize_conversation_scope(ConversationScope(scope))
+                if scope
+                else None
+            )
+            convs, total = conversation_service.list_conversations(
+                project_id=project_id,
+                user_id=user_id,
+                org_id=org_id,
+                scope=scope_enum,
+                include_archived=include_archived,
+                limit=limit,
+                offset=offset,
+            )
+        except (ConversationServiceError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         return ConversationListResponse(
             items=[_conv_to_response(c) for c in convs],
             total=total,
@@ -235,13 +341,19 @@ def create_conversation_routes(
         status_code=status.HTTP_201_CREATED,
         summary="Send message",
     )
-    def send_message(
+    async def send_message(
         request: Request,
         body: SendMessageRequest,
         conversation_id: str,
     ) -> MessageResponse:
         user_id = _get_user_id(request)
         org_id = _get_org_id(request)
+        body.metadata = _validate_model_metadata(
+            metadata=body.metadata,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            org_id=org_id,
+        )
 
         # --- Rate limiting (AMPREALIZE-593) ---
         is_agent = bool(body.metadata.get("actor_type") == "agent") if body.metadata else False
@@ -273,6 +385,7 @@ def create_conversation_routes(
                 run_id=body.run_id,
                 behavior_id=body.behavior_id,
                 work_item_id=body.work_item_id,
+                resource_links=body.resource_links,
                 metadata=body.metadata,
                 org_id=org_id,
             )
@@ -280,6 +393,78 @@ def create_conversation_routes(
             # Record agent message for circuit breaker tracking
             if is_agent:
                 cb.record_agent_message(conversation_id, user_id)
+
+            if (
+                conversation_reply_service is not None
+                and not is_agent
+                and body.message_type.value == "text"
+                and body.content
+                and body.metadata.get("llm_model_id")
+            ):
+                from amprealize.services.conversation_reply_service import ReplyRequest
+
+                conversation = conversation_service.get_conversation(
+                    conversation_id,
+                    org_id=org_id,
+                    user_id=user_id,
+                )
+                reply_metadata = {
+                    **body.metadata,
+                    "conversation_scope": conversation.scope.value,
+                }
+
+                async def _run_reply() -> None:
+                    await conversation_reply_service.generate_reply(
+                        ReplyRequest(
+                            conversation_id=conversation_id,
+                            user_message_id=msg.id,
+                            user_message_content=body.content,
+                            user_id=user_id,
+                            work_item_id=body.work_item_id,
+                            run_id=body.run_id,
+                            org_id=org_id or conversation.org_id,
+                            project_id=conversation.project_id,
+                            metadata=reply_metadata,
+                        )
+                    )
+
+                reply_task = asyncio.create_task(_run_reply())
+
+                def _log_reply_task_done(t: asyncio.Task) -> None:
+                    try:
+                        exc = t.exception()
+                    except asyncio.CancelledError:
+                        return
+                    if exc is not None:
+                        logger.error(
+                            "conversation_reply.task_failed conversation_id=%s user_message_id=%s",
+                            conversation_id,
+                            msg.id,
+                            exc_info=exc,
+                        )
+
+                reply_task.add_done_callback(_log_reply_task_done)
+                logger.info(
+                    "conversation_reply.scheduled conversation_id=%s user_message_id=%s model=%s",
+                    conversation_id,
+                    msg.id,
+                    body.metadata.get("llm_model_id"),
+                )
+            elif body.message_type.value == "text" and body.content and not is_agent:
+                skip_reasons: list[str] = []
+                if conversation_reply_service is None:
+                    skip_reasons.append("no_reply_service")
+                if not body.metadata.get("llm_model_id"):
+                    skip_reasons.append("no_llm_model_id_in_metadata")
+                if skip_reasons:
+                    logger.info(
+                        "conversation_reply.skipped_rest conversation_id=%s user_message_id=%s "
+                        "reasons=%s metadata_keys=%s",
+                        conversation_id,
+                        msg.id,
+                        ",".join(skip_reasons),
+                        sorted(body.metadata.keys()) if body.metadata else [],
+                    )
 
             return _msg_to_response(msg)
         except AccessDeniedError as exc:
@@ -296,6 +481,13 @@ def create_conversation_routes(
         request: Request,
         conversation_id: str,
         parent_id: Optional[str] = Query(default=None, description="Filter to thread replies"),
+        include_thread_replies: bool = Query(
+            default=False,
+            description=(
+                "When true and parent_id is omitted, include replies (e.g. assistant messages "
+                "with parent_id set). Default is roots-only for backward compatibility."
+            ),
+        ),
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> MessageListResponse:
@@ -306,6 +498,7 @@ def create_conversation_routes(
             user_id=user_id,
             org_id=org_id,
             parent_id=parent_id,
+            include_thread_replies=include_thread_replies,
             limit=limit,
             offset=offset,
         )

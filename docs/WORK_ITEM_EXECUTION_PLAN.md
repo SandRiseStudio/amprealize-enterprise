@@ -2,21 +2,25 @@
 
 ## 0. Status
 
-**Status:** ✅ PR Mode Implementation Complete
+**Status:** ✅ Gateway-First Architecture Documented
 
-This document defines how a Work Item assigned to an agent is explicitly started and executed end-to-end using the Amprealize Execution Protocol (GEP), with full step logging, concise outcome summaries, and configurable autonomy/gates per agent.
+This document defines how a Work Item assigned to an agent is explicitly started and executed end-to-end using the Amprealize Execution Protocol (GEP), with full step logging, concise outcome summaries, configurable autonomy/gates per agent, and a canonical `ExecutionGateway` start boundary.
 
 **Summary:**
+- ✅ **ExecutionGateway Migration**: `ExecutionGateway` is the canonical start boundary for board UI, chat, REST API, MCP, and CLI-shaped requests. The contract models execute vs plan-only intent, surface/chat linkage, policy context, idempotency, output target, and normalized queue payload metadata.
 - ✅ **Backend Services**: WorkItemExecutionService (1419 lines), AgentExecutionLoop (1603 lines), AgentLLMClient (704 lines) fully implemented
 - ✅ **REST API**: 7 endpoints operational in `work_item_execution_api.py` (565 lines)
 - ✅ **MCP Tools**: Handlers (451 lines) and manifests (5 tools) fully integrated in `mcp_server.py`
 - ✅ **BYOK LLM Credentials**: Full DB persistence, encryption, CRUD endpoints
 - ✅ **LLM Adapters**: Anthropic ✅, OpenAI ✅, OpenRouter ⏳, Local ⏳
 - ✅ **Execution Surface Enforcement**: Actor surface detection → write mode (PR vs local)
+- ✅ **ExecutionGateway Start Boundary**: REST and MCP start paths route through `ExecutionGateway` by default, with `AMPREALIZE_EXECUTION_GATEWAY_ENABLED=false` as an explicit legacy fallback
+- ✅ **Queue-First Dispatch Contract**: `ExecutionGateway` supports `dispatch_mode="queue"` to create run/task-cycle metadata, enqueue a normalized `GatewayQueuePayload`, and fail before record creation when no queue publisher is configured
 - ✅ **BYOK GitHub Tokens**: Per-project GitHub credential storage (parallel to LLM creds)
 - ✅ **PR Write Mode**: Branch naming, PR creation, file change accumulation
 - 🔮 **Cloud IDE**: Codespaces, Gitpod, Fleet integration (design complete, implementation deferred)
 - ✅ **UI**: Core components implemented in `@amprealize/collab-client` + `web-console` (status badges, timeline, execution controls)
+- ✅ **Chat Governance**: typed chat action routing, governed platform/agent lifecycle actions, plan cards, run cards, and validation tests align with OSS
 
 ### Implementation Status Summary
 
@@ -26,7 +30,7 @@ This document defines how a Work Item assigned to an agent is explicitly started
 | **AgentExecutionLoop** | ✅ Implemented | `amprealize/agent_execution_loop.py` (1603 lines) |
 | **AgentLLMClient** | ✅ Implemented | `amprealize/agent_llm_client.py` (704 lines) |
 | **LLM Adapters** | ⚠️ Partial | Anthropic ✅, OpenAI ✅, OpenRouter ⏳ TODO, Local ⏳ TODO |
-| **Contracts & Models** | ✅ Implemented | `amprealize/work_item_execution_contracts.py` (595 lines) |
+| **Contracts & Models** | ⚙️ Gateway migration in progress | `amprealize/work_item_execution_contracts.py`, `amprealize/execution_gateway_contracts.py` |
 | **REST API Endpoints (7)** | ✅ Implemented | `amprealize/services/work_item_execution_api.py` (565 lines) |
 | **MCP Tool Handlers (5)** | ✅ Implemented | `amprealize/mcp/handlers/work_item_execution_handlers.py` (451 lines) |
 | **MCP Tool Manifests (5)** | ✅ Created | `mcp/tools/workItems.{execute,executionStatus,cancelExecution,provideClarification,listExecutions}.json` |
@@ -37,6 +41,7 @@ This document defines how a Work Item assigned to an agent is explicitly started
 | **ToolExecutor** | ✅ Implemented | `amprealize/tool_executor.py` (772 lines) |
 | **MODEL_CATALOG** | ✅ Implemented | `amprealize/work_item_execution_contracts.py:107` (5 models) |
 | **Execution Wiring** | ✅ Complete | `amprealize/execution_wiring.py` (248 lines) |
+| **ExecutionGateway Adapter** | ✅ Implemented | `amprealize/execution_gateway_adapter.py` wraps REST/MCP starts while preserving legacy response shapes |
 | **Execution Surface Detection** | ✅ Implemented | `WorkItemExecutionService.execute()` step 5.5 |
 | **ExecutionMode Settings** | ✅ Implemented | `amprealize/multi_tenant/settings.py` (enum + ProjectSettings field) |
 | **Surface Enforcement Error** | ✅ Implemented | `ExecutionSurfaceRestrictedError` with guidance |
@@ -48,7 +53,58 @@ This document defines how a Work Item assigned to an agent is explicitly started
 
 > **Cross-Reference**: UI implementation must follow `docs/COLLAB_SAAS_REQUIREMENTS.md` for performance targets, animation system, and dual-user paradigm (agents + humans).
 
-_Last updated: 2026-01-14_
+_Last updated: 2026-04-25_
+
+### Gateway-First Start Boundary
+
+Enterprise follows the same `GUIDEAI-1046` reality as OSS: `ExecutionGateway` is the canonical start boundary for REST and MCP work item execution starts. The API and MCP bootstraps initialize the gateway by default and pass it into the legacy route/handler factories, which wrap only the start path through `GatewayWorkItemExecutionAdapter`. Non-start operations such as status, cancel, clarification, listing, and gate approval continue to delegate to the legacy execution service while migration proceeds.
+
+Set `AMPREALIZE_EXECUTION_GATEWAY_ENABLED=false` only as an explicit incident-response fallback to restore legacy start behavior.
+
+The stale assumption to retire is that `WorkItemExecutionService` alone owns run starts. It remains the legacy compatibility service for non-start operations and fallback behavior, but new start paths should enter through the gateway so policy, source resolution, idempotency, plan-only behavior, and queue payloads are composed once.
+
+### Migration Path And Surface Matrix
+
+| Surface | Start path | Status | Migration note |
+| --- | --- | --- | --- |
+| Board / Web UI | `ExecutionRequest(surface="web")` through board controls and drawer actions | ✅ Supported | Uses shared execution control model and gateway-compatible run states. |
+| Amprealize Chat | `ExecutionRequest(surface="chat")` with `conversation_id`, `message_id`, `intent`, approval, and plan artifact linkage | ✅ Supported | Chat actions route through typed candidates, policy composition, and append-only audit records before dispatch. |
+| REST API | `GatewayWorkItemExecutionAdapter` wrapping legacy execute response shape | ✅ Supported | Legacy response compatibility remains while start creation moves to the gateway. |
+| MCP | Work item execution handlers using the same adapter path | ✅ Supported | Start parity is validated against REST, CLI-shaped, and chat-shaped gateway requests. |
+| CLI | CLI-shaped request metadata and idempotency keys | ⚠️ Adapter-shaped validation | Canonical request parity is tested; dedicated user-facing CLI command wiring remains a follow-up where absent. |
+| Queue workers | `GatewayQueuePayload` from resolved gateway request | ⚠️ Dispatch contract supported | Requires an `ExecutionQueuePublisher`; misconfiguration fails before orphan records are created. |
+
+Parity evidence lives in `tests/test_execution_gateway_adapter.py`, which compares REST, MCP, CLI-shaped, and chat-shaped request signatures and verifies REST/MCP cancel and clarification controls remain consistent during migration.
+
+### Queue-First Dispatch Contract
+
+Enterprise now matches the `GUIDEAI-1047` gateway dispatch contract. `ExecutionGateway` accepts a `queue_publisher` and `dispatch_mode="queue"` so API and MCP start paths can create canonical run/task-cycle records, link the run back to the work item, and enqueue an `ExecutionJob` instead of owning long-running execution inside the API process. The queued job payload is produced by `GatewayQueuePayload.from_resolved()` and preserves gateway request ID, intent, surface, source, output target, chat linkage, policy evaluation, approval state, idempotency key, execution mode, and compatibility metadata for workers.
+
+If queue mode is enabled without a publisher, the gateway fails visibly before creating run or task-cycle records. `dispatch_mode="background"` remains available for local development and migration validation only.
+
+### Plan Artifact Contract
+
+Enterprise now matches the `GUIDEAI-1054` plan artifact contract. `PlanArtifact` in `amprealize/plan_artifact_contracts.py` defines durable plan-only output with stable `plan-*` IDs, immutable version history, links to work item/project/org/chat/message/agent/source run, and lifecycle states for draft, approved, discarded, and executed plans.
+
+A draft plan artifact is created from a plan-only run, can be revised while preserving previous versions, can be approved by a user, can be discarded while remaining auditable, and can be marked executed only after approval when a separate execution run starts. The contract intentionally separates approval from execution: `PlanArtifact.can_start_execution` is true only for approved artifacts.
+
+### Plan-Only Gateway Mode
+
+Enterprise now matches the `GUIDEAI-1055` plan-only gateway mode. `ExecutionIntent.PLAN_ONLY` requests pass through the canonical gateway validation, agent/model/source resolution, policy composition, and Run + TaskCycle record creation, but they do not enqueue workers or launch background executors.
+
+The gateway derives a read-only/tool-limited `ExecutionPolicy`, denies write and platform-mutating tools, creates a draft `PlanArtifact`, completes the run with `run_type=plan_only`, and returns a `summary_card` plus `plan_artifact_id` in `ExecutionGatewayResult.compatibility`. Approval of that artifact remains separate from execution; only a later approved-plan execution run can mutate files, boards, agents, projects, or org resources.
+
+### Plan Approval Flow
+
+Enterprise now matches the `GUIDEAI-1056` approval flow. `PlanApprovalService` in `amprealize/plan_approval_service.py` owns the lifecycle bridge from draft plan artifacts to separate execution runs through a `PlanArtifactRepository` boundary.
+
+The service supports revision, discard, approval, and approve-and-start execution. Revisions append immutable versions and reset approval to draft. Discarded plans remain auditable but cannot start execution. `approve_and_start_execution()` builds a fresh `ExecutionRequest` with `intent=execute`, `plan_artifact_id`, approval context, agent/work item/chat links, and optional mode/output/model overrides, then calls `ExecutionGateway.execute()`. The plan artifact is marked executed only after the gateway returns a successful new `run_id`.
+
+### Chat-Originated Permission Boundary
+
+Enterprise now matches the OSS chat permission and governance path. `amprealize/conversation_contracts.py` defines permission surfaces for global chat, project spaces, group chats, work item threads, run threads, agent lifecycle actions, MCP tools, attachments, and platform actions. `PolicyCompositionEngine` composes those requirements with user, org, project, conversation, agent, tool, attachment, and action-risk signals before dispatch.
+
+Chat linkage fields (`conversation_id`, `message_id`) provide audit context only; they do not grant project, agent, tool, attachment, or platform-action access. `tests/test_chat_governance_boundaries.py` validates that inaccessible global-chat resource links are withheld before synthesis, group-chat execution requires conversation/project/agent scopes, MCP tool grants require approval, attachments require project or conversation scope, and agent lifecycle policy denial blocks registry dispatch.
 
 ## 1. Goals
 
@@ -65,7 +121,7 @@ _Last updated: 2026-01-14_
 
 - Auto-merge PRs
 - Multi-agent parallel execution on a single work item
-- New UI beyond a minimal “Start” control and “Execution log” view
+- New UI beyond the implemented board controls, work item drawer, and chat artifact/control surfaces
 - Deep policy engine for tool allowlisting (beyond basic org/project gating)
 
 ## 3. Core Concepts
@@ -98,9 +154,11 @@ Default gate behavior is defined in `TASK_CYCLE_SERVICE_CONTRACT.md`, but **gate
 
 Work items assigned to agents do not execute until a user triggers execution via:
 
-- UI: “Start” button on the work item
+- UI: “Start” button on the work item, board card, or work item drawer
+- Chat: typed execution or plan-only action after governance and approval checks
 - MCP: `workItems.execute`
 - REST: `/api/v1/work-items/{id}/execute`
+- CLI: gateway-compatible command/request path where enabled
 
 ### 4.2 Idempotency
 

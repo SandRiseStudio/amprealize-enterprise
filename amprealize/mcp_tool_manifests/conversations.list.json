@@ -1,17 +1,17 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "conversations.list",
-  "description": "List conversations for a project. Filters by scope, archived status, and user participation.",
+  "description": "List conversations visible to a user. Optionally filter by project, target scope, and archived status.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_id": {
         "type": "string",
-        "description": "Project ID to list conversations for (required)"
+        "description": "Optional project ID to list conversations for"
       },
       "scope": {
         "type": "string",
-        "enum": ["project_room", "direct_message", "agent_thread", "topic"],
+        "enum": ["project_room", "agent_dm", "global_user_home", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
         "description": "Optional filter by conversation scope"
       },
       "include_archived": {
@@ -41,7 +41,7 @@
         "description": "Number of conversations to skip for pagination"
       }
     },
-    "required": ["project_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

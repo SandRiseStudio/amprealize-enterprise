@@ -4,6 +4,8 @@
 
 | Timestamp | Operation | Details |
 |-----------|-----------|---------|
+| 2026-04-26 | create | Created in-practice/llm-routing-in-amprealize.md: LLM Routing in Amprealize — advanced |
+| 2026-04-26 | update | Updated index.md — added LLM Routing in Amprealize under In Practice |
 | 2026-04-09 | bootstrap | Created concepts/tokenization.md (beginner) |
 | 2026-04-09 | bootstrap | Created concepts/embeddings.md (beginner) |
 | 2026-04-09 | bootstrap | Created concepts/prompt-engineering.md (beginner) |

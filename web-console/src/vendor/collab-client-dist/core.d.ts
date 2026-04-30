@@ -375,8 +375,14 @@ interface ExecutionStreamEvents {
     error: (code: string, message: string) => void;
 }
 declare enum ConversationScope {
+    GlobalUserHome = "global_user_home",
+    ProjectSpace = "project_space",
     ProjectRoom = "project_room",
-    AgentDm = "agent_dm"
+    Dm = "dm",
+    AgentDm = "agent_dm",
+    GroupChat = "group_chat",
+    WorkItemThread = "work_item_thread",
+    RunThread = "run_thread"
 }
 declare enum ActorType {
     User = "user",
@@ -404,7 +410,7 @@ declare enum NotificationPreference {
 }
 interface Conversation {
     id: string;
-    project_id: string;
+    project_id: string | null;
     org_id?: string | null;
     scope: ConversationScope | string;
     title?: string | null;
@@ -760,6 +766,7 @@ declare class ConversationStreamClient extends TypedEventEmitter<ConversationStr
         message_type?: MessageType | string;
         structured_payload?: Record<string, unknown> | null;
         parent_id?: string | null;
+        metadata?: Record<string, unknown>;
     }): void;
     editMessage(messageId: string, content: string): void;
     deleteMessage(messageId: string): void;

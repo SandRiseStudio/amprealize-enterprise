@@ -6,13 +6,21 @@
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { useSendMessage, useConversationParticipants } from '../../api/conversations';
+import {
+  useConversation,
+  useConversationParticipants,
+  useModelReadiness,
+  useProjectModels,
+  useUserModels,
+  useSendMessage,
+} from '../../api/conversations';
 import type { ConversationParticipant } from '../../lib/collab-client';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface MessageComposerProps {
   conversationId: string | null;
+  currentUserId?: string;
   disabled?: boolean;
   placeholder?: string;
   onTyping?: (isTyping: boolean) => void;
@@ -24,6 +32,7 @@ export interface MessageComposerProps {
 
 export const MessageComposer = memo(function MessageComposer({
   conversationId,
+  currentUserId,
   disabled = false,
   placeholder = 'Send a message...',
   onTyping,
@@ -34,11 +43,48 @@ export const MessageComposer = memo(function MessageComposer({
   const [value, setValue] = useState('');
   const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const [mentionAnchor, setMentionAnchor] = useState<number | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState('');
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sendMessage = useSendMessage();
+  const { data: conversation } = useConversation(conversationId ?? undefined);
   const { data: participantsData } = useConversationParticipants(conversationId ?? undefined);
+  const projectId = conversation?.project_id ?? undefined;
+  const globalUserId = projectId ? undefined : currentUserId ?? conversation?.created_by;
+  const {
+    data: projectModelAvailability,
+    isError: projectModelsError,
+    isLoading: projectModelsLoading,
+  } = useProjectModels(projectId, {
+    orgId: conversation?.org_id,
+    userId: currentUserId ?? undefined,
+  });
+  const {
+    data: userModelAvailability,
+    isError: userModelsError,
+    isLoading: userModelsLoading,
+  } = useUserModels(globalUserId);
+  const useReadinessGate = !!(conversationId && currentUserId);
+  const {
+    data: readiness,
+    isLoading: readinessLoading,
+    isError: readinessError,
+  } = useModelReadiness({
+    conversationId: conversationId ?? undefined,
+    projectId,
+    orgId: conversation?.org_id,
+    userId: currentUserId,
+    preferUser: !projectId,
+    selectedModelId: selectedModelId || undefined,
+    enabled: useReadinessGate,
+  });
   const participants = participantsData?.items ?? [];
+  const modelAvailability = projectModelAvailability ?? userModelAvailability;
+  const availableModels =
+    readiness?.models?.length ? readiness.models : (modelAvailability?.models ?? []);
+  const modelsLoading = projectId ? projectModelsLoading : userModelsLoading;
+  const modelsError = projectId ? projectModelsError : userModelsError;
+  const selectedModel = availableModels.find((model) => model.model_id === selectedModelId);
 
   // ── Auto-resize textarea ─────────────────────────────────────────────────
 
@@ -52,6 +98,16 @@ export const MessageComposer = memo(function MessageComposer({
   useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  useEffect(() => {
+    if (availableModels.length === 0) {
+      if (selectedModelId) setSelectedModelId('');
+      return;
+    }
+    if (selectedModelId && availableModels.some((model) => model.model_id === selectedModelId)) return;
+    const defaultModel = availableModels.find((model) => model.is_default) ?? availableModels[0];
+    setSelectedModelId(defaultModel.model_id);
+  }, [availableModels, selectedModelId]);
 
   // ── Typing indicator ─────────────────────────────────────────────────────
 
@@ -125,9 +181,12 @@ export const MessageComposer = memo(function MessageComposer({
     checkForMention(newValue, e.target.selectionStart);
   }, [handleTypingDebounce, checkForMention]);
 
+  const sendBlockedByReadiness =
+    useReadinessGate && (readinessLoading || (readiness && !readiness.can_send));
+
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || !conversationId || disabled || sendMessage.isPending) return;
+    if (!trimmed || !conversationId || disabled || sendMessage.isPending || sendBlockedByReadiness) return;
 
     // Clear typing indicator
     if (typingTimeoutRef.current) {
@@ -135,16 +194,49 @@ export const MessageComposer = memo(function MessageComposer({
     }
     emitTyping(false);
 
+    // Resolve model at send time so we still attach llm_model_id if the user sends
+    // before the default-model useEffect runs (otherwise the API never schedules a reply).
+    const modelForMetadata =
+      selectedModel ??
+      (availableModels.length > 0
+        ? (availableModels.find((m) => m.model_id === selectedModelId) ??
+            availableModels.find((m) => m.is_default) ??
+            availableModels[0])
+        : undefined);
+
+    if (!modelForMetadata) {
+      return;
+    }
+
     sendMessage.mutate({
       conversationId,
       content: trimmed,
+      senderId: currentUserId,
       parentId: replyToMessageId ?? undefined,
+      metadata: {
+        llm_model_id: modelForMetadata.model_id,
+        llm_provider: modelForMetadata.provider,
+        credential_scope: modelForMetadata.credential_source,
+      },
     });
 
     setValue('');
     onCancelReply?.();
     textareaRef.current?.focus();
-  }, [value, conversationId, disabled, sendMessage, emitTyping, replyToMessageId, onCancelReply]);
+  }, [
+    value,
+    conversationId,
+    disabled,
+    sendMessage,
+    emitTyping,
+    currentUserId,
+    replyToMessageId,
+    onCancelReply,
+    selectedModel,
+    availableModels,
+    selectedModelId,
+    sendBlockedByReadiness,
+  ]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle mention picker navigation
@@ -179,6 +271,16 @@ export const MessageComposer = memo(function MessageComposer({
   // ── Render ───────────────────────────────────────────────────────────────
 
   const isDisabled = disabled || !conversationId;
+
+  const readinessStatusText = (() => {
+    if (!useReadinessGate) return null;
+    if (readinessLoading) return 'Checking model readiness…';
+    if (readinessError) return 'Could not verify model readiness.';
+    if (readiness && !readiness.can_send) {
+      return readiness.detail || `Chat setup required (${readiness.state}).`;
+    }
+    return null;
+  })();
 
   return (
     <div className="msg-composer">
@@ -215,7 +317,9 @@ export const MessageComposer = memo(function MessageComposer({
           type="button"
           className="msg-composer-send-btn pressable"
           onClick={handleSend}
-          disabled={isDisabled || !value.trim() || sendMessage.isPending}
+          disabled={
+            isDisabled || !value.trim() || sendMessage.isPending || sendBlockedByReadiness
+          }
           aria-label="Send message"
           data-haptic="light"
         >
@@ -226,6 +330,46 @@ export const MessageComposer = memo(function MessageComposer({
           )}
         </button>
       </div>
+
+      {(availableModels.length > 0 ||
+        modelsLoading ||
+        modelsError ||
+        modelAvailability ||
+        readinessLoading ||
+        readinessError ||
+        readinessStatusText) && (
+        <div className="msg-composer-model-row">
+          <label className="msg-composer-model-label" htmlFor="msg-composer-model-select">
+            Model
+          </label>
+          {availableModels.length > 0 ? (
+            <select
+              id="msg-composer-model-select"
+              className="msg-composer-model-select"
+              value={selectedModelId}
+              disabled={isDisabled || sendMessage.isPending || readinessLoading}
+              onChange={(event) => setSelectedModelId(event.target.value)}
+              aria-label="Choose chat model"
+            >
+              {availableModels.map((model) => (
+                <option key={model.model_id} value={model.model_id}>
+                  {model.display_name} ({model.provider}/{model.credential_source})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="msg-composer-model-status">
+              {readinessStatusText
+                ? readinessStatusText
+                : modelsLoading || readinessLoading
+                  ? 'Loading available models…'
+                  : modelsError || readinessError
+                    ? 'Could not load models for this chat.'
+                    : 'No models available. Configure a platform API key or BYOK for this scope.'}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Mention picker */}
       {mentionSearch !== null && filteredParticipants.length > 0 && (

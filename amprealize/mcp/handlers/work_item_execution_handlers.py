@@ -28,6 +28,10 @@ from ...work_item_execution_contracts import (
 from ...services.board_service import Actor, BoardService
 
 
+class WorkItemExecutionToolValidationError(ValueError):
+    """Raised when a work item execution MCP tool is missing runtime arguments."""
+
+
 # ==============================================================================
 # Serialization Helpers
 # ==============================================================================
@@ -69,10 +73,19 @@ def _response_to_dict(response: Any) -> Dict[str, Any]:
 
 def _get_actor(arguments: Dict[str, Any]) -> Actor:
     """Extract actor from arguments or create default."""
-    user_id = arguments.get("user_id", "mcp-user")
+    session = arguments.get("_session", {})
+    user_id = arguments.get("user_id") or session.get("user_id") or "mcp-user"
     role = arguments.get("actor_role", "user")
     surface = arguments.get("actor_surface", "mcp")
     return Actor(id=user_id, role=role, surface=surface)
+
+
+def _require(arguments: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not arguments.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise WorkItemExecutionToolValidationError(f"Missing required {label}: {', '.join(missing)}")
 
 
 # ==============================================================================
@@ -287,16 +300,26 @@ WORK_ITEM_EXECUTION_TOOLS = [
 def create_work_item_execution_handlers(
     service: WorkItemExecutionService,
     board_service: Optional[BoardService] = None,
+    execution_gateway: Optional[Any] = None,
 ) -> Dict[str, callable]:
     """Create handler functions for work item execution tools.
 
     Args:
         service: The WorkItemExecutionService instance
         board_service: Optional BoardService for resolving display IDs
+        execution_gateway: Optional ExecutionGateway for gateway-backed starts
 
     Returns:
         Dict mapping tool names to handler functions
     """
+    execution_start_service: Any = service
+    if execution_gateway is not None:
+        from ...execution_gateway_adapter import GatewayWorkItemExecutionAdapter
+
+        execution_start_service = GatewayWorkItemExecutionAdapter(
+            gateway=execution_gateway,
+            legacy_service=service,
+        )
 
     def _resolve_id(identifier: str, arguments: Dict[str, Any]) -> str:
         """Resolve display ID to internal ID if board_service available."""
@@ -310,6 +333,7 @@ def create_work_item_execution_handlers(
 
     async def handle_execute(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.execute tool call."""
+        _require(arguments, "work_item_id", "project_id")
         actor = _get_actor(arguments)
 
         try:
@@ -343,7 +367,7 @@ def create_work_item_execution_handlers(
                 },
             )
 
-            response = await service.execute(request)
+            response = await execution_start_service.execute(request)
 
             return {
                 "success": True,
@@ -403,6 +427,7 @@ def create_work_item_execution_handlers(
 
     async def handle_execution_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.executionStatus tool call."""
+        _require(arguments, "work_item_id", "project_id")
         try:
             work_item_id = _resolve_id(arguments["work_item_id"], arguments)
             response = await service.get_status(
@@ -433,6 +458,7 @@ def create_work_item_execution_handlers(
 
     async def handle_cancel_execution(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.cancelExecution tool call."""
+        _require(arguments, "work_item_id", "project_id")
         actor = _get_actor(arguments)
 
         try:
@@ -459,6 +485,7 @@ def create_work_item_execution_handlers(
 
     async def handle_provide_clarification(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.provideClarification tool call."""
+        _require(arguments, "work_item_id", "project_id", "clarification_id", "response")
         actor = _get_actor(arguments)
 
         try:
@@ -488,6 +515,7 @@ def create_work_item_execution_handlers(
 
     async def handle_list_executions(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.listExecutions tool call."""
+        _require(arguments, "project_id")
         try:
             status_filter = None
             if "status" in arguments:
@@ -519,6 +547,7 @@ def create_work_item_execution_handlers(
 
     async def handle_approve_gate(arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Handle workItems.approveGate tool call."""
+        _require(arguments, "work_item_id", "project_id")
         actor = _get_actor(arguments)
 
         try:

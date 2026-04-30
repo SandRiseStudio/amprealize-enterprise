@@ -26,6 +26,16 @@ export interface MessageListProps {
 
 const GROUPING_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
+/** REST returns newest-first pages; chat UI is oldest → newest (newest at bottom). */
+function sortMessagesChronological(messages: ConversationMessage[]): ConversationMessage[] {
+  return [...messages].sort((a, b) => {
+    const ta = new Date(a.created_at ?? 0).getTime();
+    const tb = new Date(b.created_at ?? 0).getTime();
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 interface MessageRow {
   kind: 'message';
   message: ConversationMessage;
@@ -134,7 +144,7 @@ export const MessageList = memo(function MessageList({
 
   const hasNextPage = hasNextPageRaw ?? false;
   const allMessages = useMemo(
-    () => infiniteData?.pages.flatMap((p) => p.items) ?? [],
+    () => sortMessagesChronological(infiniteData?.pages.flatMap((p) => p.items) ?? []),
     [infiniteData],
   );
 

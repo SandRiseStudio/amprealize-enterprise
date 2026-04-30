@@ -15,20 +15,29 @@ AMPREALIZE-581: Integrate ContextComposer with agent execution loop for conversa
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from amprealize.chat_action_router import ChatActionRouteRequest, ChatRouteGateway
 from amprealize.context_composer import ContextComposer, ComposedContext
-from amprealize.conversation_contracts import ActorType, MessageType
+from amprealize.conversation_contracts import (
+    ActorType,
+    ConversationScope,
+    MessageType,
+    ParticipantRole,
+)
 from amprealize.conversation_event_hub import (
     EVENT_COMPLETE,
     EVENT_ERROR,
     EVENT_TOKEN,
     ConversationEventHub,
 )
+from amprealize.session_audit import GovernedChatAuditEventType, GovernedChatAuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +138,8 @@ Use the provided context to give accurate, relevant answers:
         llm_client: Optional[Any] = None,  # LLMClient
         event_hub: Optional[ConversationEventHub] = None,
         telemetry: Optional[Any] = None,
+        route_gateway: Optional[ChatRouteGateway] = None,
+        governed_chat_audit: Optional[GovernedChatAuditLogger] = None,
     ):
         """Initialize ConversationReplyService.
 
@@ -144,6 +155,8 @@ Use the provided context to give accurate, relevant answers:
         self._llm_client = llm_client
         self._event_hub = event_hub
         self._telemetry = telemetry
+        self._route_gateway = route_gateway or ChatRouteGateway()
+        self._governed_chat_audit = governed_chat_audit
 
     def set_llm_client(self, client: Any) -> None:
         """Set the LLM client (avoids circular import)."""
@@ -173,8 +186,40 @@ Use the provided context to give accurate, relevant answers:
         """
         t_start = time.monotonic()
         message_id = f"msg-{uuid.uuid4().hex[:12]}"
+        logger.info(
+            "conversation_reply.generate_reply.start conversation_id=%s "
+            "user_message_id=%s model=%s project_id=%s org_id=%s",
+            request.conversation_id,
+            request.user_message_id,
+            (request.metadata or {}).get("llm_model_id"),
+            request.project_id,
+            request.org_id,
+        )
 
         try:
+            route_result = self._route_user_message(request)
+            route_metadata = {
+                "chat_route": route_result.to_dict(),
+                "chat_route_mode": (
+                    route_result.primary.metadata.get("route_mode", "deterministic")
+                    if route_result.primary
+                    else "deterministic"
+                ),
+                "chat_route_confidence": (
+                    route_result.primary.confidence if route_result.primary else None
+                ),
+                "chat_route_requires_clarification": route_result.requires_clarification,
+                "chat_route_requires_approval": (
+                    route_result.primary.requires_approval if route_result.primary else False
+                ),
+                "chat_route_policy_context": (
+                    route_result.primary.to_policy_context()
+                    if route_result.primary
+                    else {}
+                ),
+            }
+            self._log_route_audit(request, route_metadata)
+
             # Step 1: Compose context
             composed = await self._composer.compose(
                 conversation_id=request.conversation_id,
@@ -208,10 +253,22 @@ Use the provided context to give accurate, relevant answers:
                 messages=messages,
                 conversation_id=request.conversation_id,
                 message_id=message_id,
+                metadata=request.metadata,
+                project_id=request.project_id,
+                org_id=request.org_id,
+                user_id=request.user_id,
             )
 
             # Step 4: Store the reply
             if self._conversation_service is not None:
+                self._conversation_service.add_participant(
+                    request.conversation_id,
+                    actor_id=request.agent_id,
+                    actor_type=ActorType.AGENT,
+                    role=ParticipantRole.MEMBER,
+                    added_by=request.user_id,
+                    org_id=request.org_id,
+                )
                 self._conversation_service.send_message(
                     request.conversation_id,
                     sender_id=request.agent_id,
@@ -222,12 +279,13 @@ Use the provided context to give accurate, relevant answers:
                     work_item_id=request.work_item_id,
                     metadata={
                         **request.metadata,
+                        **route_metadata,
                         "generated": True,
                         "composed_context_tokens": composed.total_tokens,
                         "sources_used": composed.sources_included,
                     },
                     org_id=request.org_id,
-                    actor_type=ActorType.AGENT,
+                    sender_type=ActorType.AGENT,
                 )
 
             latency_ms = (time.monotonic() - t_start) * 1000
@@ -244,9 +302,18 @@ Use the provided context to give accurate, relevant answers:
                         "response_length": len(response_content),
                         "latency_ms": latency_ms,
                         "sources_count": len(composed.sources_included),
+                        **route_metadata,
                     },
                 )
 
+            logger.info(
+                "conversation_reply.generate_reply.done conversation_id=%s "
+                "stream_message_id=%s latency_ms=%.1f response_chars=%s",
+                request.conversation_id,
+                message_id,
+                latency_ms,
+                len(response_content),
+            )
             return ReplyResult(
                 message_id=message_id,
                 content=response_content,
@@ -257,18 +324,27 @@ Use the provided context to give accurate, relevant answers:
             )
 
         except Exception as exc:
-            logger.error(f"Failed to generate reply: {exc}", exc_info=True)
+            logger.error(
+                "conversation_reply.generate_reply.failed conversation_id=%s "
+                "user_message_id=%s stream_message_id=%s err=%s",
+                request.conversation_id,
+                request.user_message_id,
+                message_id,
+                exc,
+                exc_info=True,
+            )
             latency_ms = (time.monotonic() - t_start) * 1000
 
             # Emit error event to SSE
             if self._event_hub:
-                await self._event_hub.publish(
-                    event_type=EVENT_ERROR,
-                    conversation_id=request.conversation_id,
-                    payload={
+                self._event_hub.publish_token(
+                    request.conversation_id,
+                    message_id,
+                    {
                         "message_id": message_id,
                         "error": str(exc),
                     },
+                    event_type=EVENT_ERROR,
                 )
 
             return ReplyResult(
@@ -278,11 +354,12 @@ Use the provided context to give accurate, relevant answers:
                 composed_context=ComposedContext(
                     composed_text="",
                     total_tokens=0,
+                    fragments_included=[],
+                    fragments_excluded=[],
                     sources_included=[],
-                    sources_excluded=[],
-                    budget_used={},
-                    budget_remaining={},
-                    elapsed_ms=0.0,
+                    token_allocation={},
+                    budget_utilization=0.0,
+                    composition_time_ms=0.0,
                 ),
                 token_count=0,
                 latency_ms=latency_ms,
@@ -295,6 +372,10 @@ Use the provided context to give accurate, relevant answers:
         messages: List[Dict[str, str]],
         conversation_id: str,
         message_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> str:
         """Generate LLM response with optional token streaming.
 
@@ -306,42 +387,169 @@ Use the provided context to give accurate, relevant answers:
         Returns:
             Complete generated text
         """
-        # Check if LLM client supports streaming
-        if hasattr(self._llm_client, "stream"):
+        selected_model = (metadata or {}).get("llm_model_id")
+        prefer_user_credential = (metadata or {}).get("credential_scope") == "user"
+
+        # Check if LLM client supports async streaming
+        if hasattr(self._llm_client, "astream"):
+            tokens: List[str] = []
+            last_stream_response: Any = None
+            async for chunk in self._llm_client.astream(
+                messages,
+                model=selected_model,
+                project_id=project_id,
+                org_id=org_id,
+                user_id=user_id,
+                prefer_user_credential=prefer_user_credential,
+            ):
+                err = getattr(chunk, "error", None)
+                if err:
+                    raise RuntimeError(str(err))
+                resp = getattr(chunk, "response", None)
+                if resp is not None:
+                    last_stream_response = resp
+                token = getattr(chunk, "text", None) or getattr(chunk, "reasoning", None) or ""
+                if not token:
+                    continue
+                tokens.append(token)
+
+                # Broadcast token via event hub
+                if self._event_hub:
+                    self._event_hub.publish_token(
+                        conversation_id,
+                        message_id,
+                        {
+                            "message_id": message_id,
+                            "token": token,
+                        },
+                        event_type=EVENT_TOKEN,
+                    )
+
+            content = "".join(tokens)
+            if (not content or not str(content).strip()) and last_stream_response is not None:
+                fallback = getattr(last_stream_response, "content", None) or ""
+                if str(fallback).strip():
+                    content = fallback
+
+        elif hasattr(self._llm_client, "stream"):
             tokens = []
             async for token in self._llm_client.stream(messages):
                 tokens.append(token)
 
                 # Broadcast token via event hub
                 if self._event_hub:
-                    await self._event_hub.publish(
-                        event_type=EVENT_TOKEN,
-                        conversation_id=conversation_id,
-                        payload={
+                    self._event_hub.publish_token(
+                        conversation_id,
+                        message_id,
+                        {
                             "message_id": message_id,
                             "token": token,
                         },
+                        event_type=EVENT_TOKEN,
                     )
 
             content = "".join(tokens)
 
         else:
             # Non-streaming fallback
-            response = self._llm_client.call(messages)
+            response = self._llm_client.call(
+                messages,
+                model=selected_model,
+                project_id=project_id,
+                org_id=org_id,
+                user_id=user_id,
+                prefer_user_credential=prefer_user_credential,
+            )
             content = response.content if hasattr(response, "content") else str(response)
 
         # Publish completion event
         if self._event_hub:
-            await self._event_hub.publish(
-                event_type=EVENT_COMPLETE,
-                conversation_id=conversation_id,
-                payload={
+            self._event_hub.publish_token(
+                conversation_id,
+                message_id,
+                {
                     "message_id": message_id,
                     "content": content,
                 },
+                event_type=EVENT_COMPLETE,
             )
 
         return content
+
+    def _route_user_message(self, request: ReplyRequest):
+        conversation_scope = request.metadata.get("conversation_scope")
+        if not conversation_scope:
+            conversation_scope = (
+                ConversationScope.PROJECT_SPACE.value
+                if request.project_id
+                else ConversationScope.GLOBAL_USER_HOME.value
+            )
+        route_request = ChatActionRouteRequest(
+            message=request.user_message_content,
+            conversation_scope=ConversationScope(conversation_scope),
+            user_id=request.user_id,
+            org_id=request.org_id,
+            project_id=request.project_id,
+            conversation_id=request.conversation_id,
+            resource_links=request.metadata.get("resource_links", ()),
+            metadata=request.metadata,
+        )
+        return self._route_gateway.route(route_request)
+
+    def _log_route_audit(
+        self,
+        request: ReplyRequest,
+        route_metadata: Dict[str, Any],
+    ) -> None:
+        audit = self._governed_chat_audit
+        if audit is None and self._telemetry is not None:
+            audit = GovernedChatAuditLogger(telemetry=self._telemetry)
+        if audit is None:
+            return
+
+        route = route_metadata.get("chat_route", {})
+        candidates = route.get("candidates", [])
+        primary = candidates[0] if candidates else {}
+        audit.log(
+            event_type=GovernedChatAuditEventType.INTENT_CLASSIFICATION,
+            user_id=request.user_id,
+            action=str(primary.get("action_id") or "chat.unclassified"),
+            decision=(
+                "clarification_required"
+                if route_metadata.get("chat_route_requires_clarification")
+                else "classified"
+            ),
+            chat_scope=str(
+                request.metadata.get("conversation_scope")
+                or (
+                    ConversationScope.PROJECT_SPACE.value
+                    if request.project_id
+                    else ConversationScope.GLOBAL_USER_HOME.value
+                )
+            ),
+            target_resources=[
+                {
+                    "type": primary.get("target_resource_type") or "conversation",
+                    "id": request.conversation_id,
+                }
+            ],
+            run_id=request.run_id,
+            work_item_id=request.work_item_id,
+            conversation_id=request.conversation_id,
+            message_id=request.user_message_id,
+            metadata={
+                "route_mode": route_metadata.get("chat_route_mode"),
+                "selected_model": request.metadata.get("llm_model_id"),
+                "credential_scope": request.metadata.get("credential_scope"),
+                "confidence": route_metadata.get("chat_route_confidence"),
+                "requires_approval": route_metadata.get("chat_route_requires_approval"),
+                "requires_clarification": route_metadata.get(
+                    "chat_route_requires_clarification"
+                ),
+                "permission_surface": primary.get("permission_surface"),
+                "permission_action": primary.get("permission_action"),
+            },
+        )
 
     async def generate_reply_stream(
         self,

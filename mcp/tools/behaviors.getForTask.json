@@ -56,7 +56,7 @@
         "description": "Optional actor context for audit logging"
       }
     },
-    "required": ["task_description"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

@@ -28,6 +28,7 @@ import {
   useSendVerificationEmail,
 } from '../api/identity';
 import type { OAuthProvider, MfaDevice } from '../types/auth';
+import { UserLLMCredentialsSection } from './UserLLMCredentialsSection';
 import './SecuritySettings.css';
 
 // ---------------------------------------------------------------------------
@@ -545,6 +546,8 @@ export function SecuritySettings() {
           </button>
         </section>
       )}
+
+      <UserLLMCredentialsSection userId={userId} />
 
       {/* Email Verification Section */}
       <section className="settings-section">

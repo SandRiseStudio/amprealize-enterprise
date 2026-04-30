@@ -182,6 +182,100 @@ describe('MessageBubble', () => {
     expect(container.querySelector('.msg-card--status')).toBeInTheDocument();
   });
 
+  it('renders work item artifact cards from structured payload', () => {
+    render(
+      <MessageBubble
+        message={makeMessage({
+          message_type: MessageType.StatusCard,
+          structured_payload: {
+            card_kind: 'work_item',
+            title: 'Implement governed chat cards',
+            status: 'In progress',
+            priority: 'High',
+            assignee: 'Nick',
+            agent: 'GuideAI',
+            branch: 'feature/guideai-1061',
+            progress_pct: 45,
+            summary: 'Rendering status for a chat-managed work item.',
+            run_id: 'run-123',
+          },
+        })}
+        {...defaultBubbleProps}
+      />,
+      { wrapper: createWrapper() }
+    );
+
+    expect(screen.getByRole('article', { name: /Work item Implement governed chat cards/i })).toBeInTheDocument();
+    expect(screen.getByText('Status: In progress')).toBeInTheDocument();
+    expect(screen.getByLabelText('Progress 45%')).toBeInTheDocument();
+    expect(screen.getByText('Related run: run-123')).toBeInTheDocument();
+  });
+
+  it('renders run artifact cards with queue and phase status', () => {
+    render(
+      <MessageBubble
+        message={makeMessage({
+          message_type: MessageType.StatusCard,
+          structured_payload: {
+            card_kind: 'run',
+            title: 'Governed execution run',
+            queue_state: 'queued',
+            phase: 'policy review',
+            recent_activity: 'Waiting for approval',
+            progress_pct: 20,
+            completion_summary: 'Policy checks are still running.',
+          },
+        })}
+        {...defaultBubbleProps}
+      />,
+      { wrapper: createWrapper() }
+    );
+
+    expect(screen.getByRole('article', { name: /Run Governed execution run/i })).toBeInTheDocument();
+    expect(screen.getByText('Queue: queued')).toBeInTheDocument();
+    expect(screen.getByText('Phase: policy review')).toBeInTheDocument();
+    expect(screen.getByText('Cancel')).toBeInTheDocument();
+  });
+
+  it('renders plan and recovery artifact cards', () => {
+    render(
+      <>
+        <MessageBubble
+          message={makeMessage({
+            id: 'msg-plan',
+            message_type: MessageType.StatusCard,
+            structured_payload: {
+              card_kind: 'plan',
+              title: 'Execution plan',
+              status: 'awaiting approval',
+              plan_artifact_id: 'plan-123',
+              summary: 'A durable plan is ready for review.',
+            },
+          })}
+          {...defaultBubbleProps}
+        />
+        <MessageBubble
+          message={makeMessage({
+            id: 'msg-recovery',
+            message_type: MessageType.StatusCard,
+            structured_payload: {
+              card_kind: 'recovery',
+              title: 'Run needs recovery',
+              summary: 'The agent failed a tool permission check.',
+            },
+          })}
+          {...defaultBubbleProps}
+        />
+      </>,
+      { wrapper: createWrapper() }
+    );
+
+    expect(screen.getByRole('article', { name: /Plan plan-123/i })).toBeInTheDocument();
+    expect(screen.getByText('Review plan')).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /Recovery action Run needs recovery/i })).toBeInTheDocument();
+    expect(screen.getByText('Show details')).toBeInTheDocument();
+  });
+
   it('has accessible class for message bubble', () => {
     const { container } = render(
       <MessageBubble message={makeMessage()} {...defaultBubbleProps} />,

@@ -14,6 +14,9 @@ for _env_file in [".env", ".env.github-oauth", ".env.google-oauth"]:
     _env_path = _project_root / _env_file
     if _env_path.exists():
         _load_dotenv(_env_path)
+_workspace_env_path = _project_root.parent / ".env"
+if _workspace_env_path.exists():
+    _load_dotenv(_workspace_env_path)
 
 # Apply active context DSN(s) to environment after loading .env.
 # In normal runtime we force the active context to win over localhost .env
@@ -42,7 +45,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from fastapi import FastAPI, HTTPException, Query, Response, status, Request, Form, Body
+from fastapi import FastAPI, HTTPException, Query, Response, status, Request, Form, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -50,6 +53,50 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _resolve_user_credential_target(
+    *,
+    requested_user_id: str,
+    current_user: Dict[str, Any],
+    actor_id: Optional[str] = None,
+) -> str:
+    """Resolve and authorize the user whose BYOK credentials are being managed."""
+    acting_user_id = current_user.get("user_id")
+    if not acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    if actor_id and actor_id != acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="actor_id must match the authenticated user",
+        )
+
+    target_user_id = acting_user_id if requested_user_id in {"me", "self"} else requested_user_id
+    if target_user_id != acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User credentials can only be managed by the owning user",
+        )
+    return target_user_id
+
+
+def _normalize_credential_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept both flat and FastAPI-embedded BYOK request bodies."""
+    nested_payload = payload.get("payload")
+    if isinstance(nested_payload, dict):
+        return nested_payload
+    return payload
+
+
+def _build_llm_credential_store() -> Any:
+    """Build a credential store that can resolve DB-backed BYOK credentials."""
+    from amprealize.llm.credential_factory import build_credential_store
+
+    return build_credential_store()
 
 
 class _UnavailableFeatureAdapter:
@@ -167,6 +214,7 @@ from .collaboration_service_postgres import PostgresCollaborationService
 from .projects_api import create_project_routes
 from .run_service import RunService, RunNotFoundError
 from .run_service_postgres import PostgresRunService
+from .execution_gateway_bootstrap import is_execution_gateway_enabled
 from .utils.dsn import resolve_optional_postgres_dsn
 from .services.board_service import BoardService
 from .services.assignment_service import AssignmentService
@@ -185,11 +233,12 @@ except ImportError:
 # Work Item Execution Service (optional - requires dependencies)
 try:
     from .work_item_execution_service import WorkItemExecutionService
-    from .execution_wiring import wire_execution_service
+    from .execution_wiring import wire_execution_gateway, wire_execution_service
     WORK_ITEM_EXECUTION_AVAILABLE = True
 except Exception as exc:
     WORK_ITEM_EXECUTION_AVAILABLE = False
     WorkItemExecutionService = None  # type: ignore[assignment, misc]
+    wire_execution_gateway = None  # type: ignore[assignment, misc]
     wire_execution_service = None  # type: ignore[assignment, misc]
     logger.warning("Work item execution imports unavailable: %s", exc)
 
@@ -705,6 +754,7 @@ class _ServiceContainer:
         # Work Item Execution Service (optional - uses PostgreSQL)
         # Uses wire_execution_service to connect AgentExecutionLoop + AgentLLMClient
         self.work_item_execution_service: Optional[Any] = None
+        self.execution_gateway: Optional[Any] = None
         explicit_execution_dsn = os.getenv("AMPREALIZE_EXECUTION_PG_DSN")
         execution_dsn = resolve_optional_postgres_dsn(
             service="EXECUTION",
@@ -739,6 +789,24 @@ class _ServiceContainer:
                         gate_notifier=self.gate_notifier,
                     )
                     logger.info("WorkItemExecutionService initialized with AgentExecutionLoop wired")
+                    gateway_enabled = is_execution_gateway_enabled(
+                        os.getenv("AMPREALIZE_EXECUTION_GATEWAY_ENABLED")
+                    )
+                    if gateway_enabled and wire_execution_gateway is not None:
+                        self.execution_gateway = wire_execution_gateway(
+                            dsn=execution_dsn,
+                            board_service=self.board_service,
+                            run_service=self.run_service,
+                            telemetry=telemetry,
+                            agent_registry=self.agent_registry_service,
+                            settings_service=self.settings_service,
+                        )
+                        logger.info("ExecutionGateway initialized for work item execution starts")
+                    elif not gateway_enabled:
+                        logger.info(
+                            "ExecutionGateway disabled by AMPREALIZE_EXECUTION_GATEWAY_ENABLED; "
+                            "using legacy work item execution starts"
+                        )
                 except Exception as exc:
                     logger.warning(
                         "Work item execution service initialization failed: %s; disabling", exc
@@ -1186,11 +1254,16 @@ def create_app(
     cors_origins = _parse_cors_origins(os.getenv("AMPREALIZE_CORS_ORIGINS"))
     cors_origin_regex = os.getenv("AMPREALIZE_CORS_ORIGIN_REGEX")
     allow_localhost_regex = os.getenv("AMPREALIZE_CORS_ALLOW_LOCALHOST", "true").lower() in ("true", "1", "yes")
-    if allow_localhost_regex and not cors_origin_regex:
-        cors_origin_regex = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
 
-    # Default allowed origins for CORS header injection on error responses
-    default_cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+    default_cors_origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    merged_cors_origins = list(dict.fromkeys([*default_cors_origins, *cors_origins]))
+
+    _localhost_cors_origin_re = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if allow_localhost_regex:
+        if cors_origin_regex:
+            cors_origin_regex = f"(?:{cors_origin_regex})|(?:{_localhost_cors_origin_re})"
+        else:
+            cors_origin_regex = _localhost_cors_origin_re
 
     # ------------------------------------------------------------------
     # Exception Handler with CORS headers
@@ -1209,7 +1282,7 @@ def create_app(
         # Determine if origin is allowed
         allowed = False
         if origin:
-            if origin in default_cors_origins or origin in cors_origins:
+            if origin in merged_cors_origins:
                 allowed = True
             elif cors_origin_regex:
                 allowed = bool(re.match(cors_origin_regex, origin))
@@ -1260,7 +1333,7 @@ def create_app(
 
     # Always add auth middleware when device_flow_manager is available (for ga_* token validation)
     # This ensures OAuth users get their user_id populated in request.state
-    from amprealize.auth.middleware import AuthMiddleware, AuthConfig
+    from amprealize.auth.middleware import AuthMiddleware, AuthConfig, get_current_user
 
     _skip_paths = {
         "/health", "/health/", "/metrics", "/docs", "/openapi.json", "/redoc",
@@ -2136,8 +2209,10 @@ def create_app(
     def get_project_model_availability(
         project_id: str,
         org_id: Optional[str] = Query(None, description="Organization ID (if project belongs to an org)"),
+        user_id: Optional[str] = Query(None, description="User ID for user-scoped BYOK credentials"),
+        prefer_user: bool = Query(False, description="Prefer user-scoped BYOK over project-scoped BYOK"),
         include_pricing: bool = Query(True, description="Include pricing information"),
-        provider_filter: Optional[str] = Query(None, description="Filter by provider (anthropic, openai, openrouter, local)"),
+        provider_filter: Optional[str] = Query(None, description="Filter by provider"),
     ) -> Dict[str, Any]:
         """Get available LLM models for a project.
 
@@ -2148,10 +2223,9 @@ def create_app(
 
         Works for both user-owned projects and org projects.
         """
-        from .work_item_execution_service import CredentialStore
         from .mcp.handlers.config_handlers import handle_get_model_availability
 
-        credential_store = CredentialStore()
+        credential_store = _build_llm_credential_store()
 
         try:
             return handle_get_model_availability(
@@ -2159,6 +2233,8 @@ def create_app(
                 {
                     "project_id": project_id,
                     "org_id": org_id,
+                    "user_id": user_id,
+                    "prefer_user": prefer_user,
                     "include_pricing": include_pricing,
                     "provider_filter": provider_filter,
                 },
@@ -2174,6 +2250,65 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
+    @app.get("/api/v1/model-readiness")
+    def get_model_readiness(
+        request: Request,
+        conversation_id: Optional[str] = Query(
+            None, description="Conversation to derive project/org context from",
+        ),
+        project_id: Optional[str] = Query(None, description="Explicit project scope"),
+        org_id: Optional[str] = Query(None, description="Explicit organization scope"),
+        user_id: Optional[str] = Query(None, description="User scope (defaults to authenticated user)"),
+        prefer_user: bool = Query(False, description="Prefer user-scoped BYOK over project BYOK"),
+        selected_model_id: Optional[str] = Query(None, description="Model to validate for send"),
+        provider_filter: Optional[str] = Query(None, description="Filter catalog by provider"),
+        free_open_only: bool = Query(False, description="Only include free/open chat models"),
+    ) -> Dict[str, Any]:
+        """Return model readiness for chat and execution (BYOK + platform credentials)."""
+        from amprealize.llm.model_readiness import compute_model_readiness_payload
+
+        acting_user = getattr(request.state, "user_id", None) or user_id
+        if not acting_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required (or pass user_id for dev-only flows)",
+            )
+
+        eff_project = project_id
+        eff_org = org_id
+        if conversation_id:
+            conv_service = getattr(request.app.state, "conversation_service", None)
+            if conv_service is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Conversation service unavailable",
+                )
+            try:
+                conv = conv_service.get_conversation(
+                    conversation_id,
+                    org_id=org_id,
+                    user_id=acting_user,
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Conversation not found: {exc}",
+                ) from exc
+            eff_project = conv.project_id
+            eff_org = org_id or conv.org_id
+
+        store = _build_llm_credential_store()
+        return compute_model_readiness_payload(
+            store,
+            user_id=acting_user,
+            org_id=eff_org,
+            project_id=eff_project,
+            prefer_user=prefer_user,
+            provider_filter=provider_filter,
+            free_open_only=free_open_only,
+            selected_model_id=selected_model_id,
+        )
+
     @app.get("/api/v1/config/models")
     def list_all_available_models(
         include_pricing: bool = Query(True, description="Include pricing information"),
@@ -2184,18 +2319,52 @@ def create_app(
         Returns models that have platform-level credentials configured.
         Use /api/v1/projects/{project_id}/models for project-specific availability.
         """
-        from .work_item_execution_service import CredentialStore
         from .mcp.handlers.config_handlers import handle_get_model_availability
 
-        credential_store = CredentialStore()
+        credential_store = _build_llm_credential_store()
 
         try:
             return handle_get_model_availability(
                 credential_store,
                 {
-                    "project_id": "_platform",  # Special ID for platform-level query
+                    "project_id": None,
                     "include_pricing": include_pricing,
                     "provider_filter": provider_filter,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    @app.get("/api/v1/users/{user_id}/models")
+    def get_user_model_availability(
+        user_id: str,
+        org_id: Optional[str] = Query(None, description="Organization ID for org fallback"),
+        include_pricing: bool = Query(True, description="Include pricing information"),
+        provider_filter: Optional[str] = Query("nvidia", description="Filter by provider"),
+        free_open_only: bool = Query(True, description="Only include free open models"),
+    ) -> Dict[str, Any]:
+        """Get available LLM models for a user's personal chat context.
+
+        Personal/global chat defaults to the NVIDIA free/open model plan.
+        """
+        from .mcp.handlers.config_handlers import handle_get_model_availability
+
+        credential_store = _build_llm_credential_store()
+
+        try:
+            return handle_get_model_availability(
+                credential_store,
+                {
+                    "project_id": None,
+                    "org_id": org_id,
+                    "user_id": user_id,
+                    "prefer_user": True,
+                    "include_pricing": include_pricing,
+                    "provider_filter": provider_filter,
+                    "free_open_only": free_open_only,
                 },
             )
         except ValueError as exc:
@@ -2207,6 +2376,161 @@ def create_app(
     # ------------------------------------------------------------------
     # BYOK Credentials (Section 11.6 - Credential Management)
     # ------------------------------------------------------------------
+
+    @app.post("/api/v1/users/{user_id}/credentials", status_code=status.HTTP_201_CREATED)
+    def create_user_credential(
+        user_id: str,
+        payload: Dict[str, Any] = Body(...),
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Add or replace a BYOK credential for a user."""
+        from .auth.llm_credential_repository import (
+            CreateCredentialRequest,
+            CredentialScopeType,
+            LLMCredentialRepository,
+        )
+        from .llm.types import ProviderType
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+        credential_payload = _normalize_credential_payload(payload)
+
+        provider = credential_payload.get("provider")
+        api_key = credential_payload.get("api_key")
+        name = credential_payload.get("name") or f"{provider} API Key"
+        if not provider:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider is required")
+        if provider not in ProviderType._value2member_map_:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider: {provider}")
+        if not api_key:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="api_key is required")
+
+        from amprealize.llm.byok_policy import assert_byok_persistence_allowed
+
+        try:
+            assert_byok_persistence_allowed()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.create(
+            CreateCredentialRequest(
+                scope_type=CredentialScopeType.USER,
+                scope_id=target_user_id,
+                provider=provider,
+                api_key=api_key,
+                name=name,
+                created_by=acting_user_id,
+            )
+        )
+        return credential.to_dict()
+
+    @app.get("/api/v1/users/{user_id}/credentials")
+    def list_user_credentials(
+        user_id: str,
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> List[Dict[str, Any]]:
+        """List BYOK credentials for a user without returning raw API keys."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credentials = repo.get_for_scope(
+            scope_type=CredentialScopeType.USER,
+            scope_id=target_user_id,
+            decrypt=False,
+        )
+        return [cred.to_dict() for cred in credentials]
+
+    @app.delete("/api/v1/users/{user_id}/credentials/{credential_id}")
+    def delete_user_credential(
+        user_id: str,
+        credential_id: str,
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Delete a user-scoped BYOK credential."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.get_by_id(credential_id)
+        if not credential:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+        if credential.scope_type != CredentialScopeType.USER or credential.scope_id != target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Credential does not belong to this user",
+            )
+
+        if repo.delete(credential_id, actor_id=acting_user_id):
+            return {"deleted": True, "credential_id": credential_id}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+
+    @app.post("/api/v1/users/{user_id}/credentials/{credential_id}:re-enable")
+    def reenable_user_credential(
+        user_id: str,
+        credential_id: str,
+        payload: Dict[str, Any] = Body(...),
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Re-enable a disabled user-scoped BYOK credential after providing a new key."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.get_by_id(credential_id)
+        if not credential:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+        if credential.scope_type != CredentialScopeType.USER or credential.scope_id != target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Credential does not belong to this user",
+            )
+
+        credential_payload = _normalize_credential_payload(payload)
+        new_api_key = credential_payload.get("api_key")
+        if not new_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_key is required to re-enable a credential",
+            )
+
+        updated = repo.re_enable(credential_id, new_api_key, actor_id=acting_user_id)
+        if updated:
+            return updated.to_dict()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
 
     @app.post("/api/v1/projects/{project_id}/credentials", status_code=status.HTTP_201_CREATED)
     def create_project_credential(
@@ -7471,7 +7795,8 @@ def create_app(
                     detail="User service not available",
                 )
 
-            devices = container.user_auth_service.get_user_mfa_devices(user_id, verified_only=True)
+            get_devices = getattr(container.user_auth_service, "get_user_mfa_devices", None)
+            devices = get_devices(user_id, verified_only=True) if get_devices else []
 
             return {
                 "user_id": user_id,
@@ -7560,8 +7885,11 @@ def create_app(
                     detail="User service not available",
                 )
 
-            has_mfa = container.user_auth_service.user_has_verified_mfa(user_id)
-            devices = container.user_auth_service.get_user_mfa_devices(user_id, verified_only=True)
+            get_devices = getattr(container.user_auth_service, "get_user_mfa_devices", None)
+            devices = get_devices(user_id, verified_only=True) if get_devices else []
+
+            has_verified_mfa = getattr(container.user_auth_service, "user_has_verified_mfa", None)
+            has_mfa = has_verified_mfa(user_id) if has_verified_mfa else len(devices) > 0
 
             return {
                 "user_id": user_id,
@@ -8246,6 +8574,7 @@ def create_app(
 
         execution_routes = create_work_item_execution_routes(
             service=container.work_item_execution_service,
+            execution_gateway=container.execution_gateway,
         )
         app.include_router(execution_routes, prefix="/api")
         logger.info("Work item execution routes registered at /api/v1/work-items/*")
@@ -8318,22 +8647,89 @@ def create_app(
             from amprealize.storage.postgres_pool import PostgresPool as _MsgPool
             from amprealize.services.conversation_service import ConversationService
             from amprealize.services.conversation_api import create_conversation_routes
+            from amprealize.services.conversation_reply_service import ConversationReplyService
             from amprealize.conversation_event_hub import ConversationEventHub
+            from amprealize.conversation_realtime_redis import RedisConversationRealtimeBackend
+            from amprealize.llm.client import LLMClient
+            from amprealize.llm.types import MODEL_CATALOG
             from amprealize.services.conversation_events_api import (
                 create_conversation_ws_routes,
                 register_conversation_ws,
             )
 
             msg_pool = _MsgPool(conversation_dsn, "messaging")
-            conversation_event_hub = ConversationEventHub()
+            realtime_backend = None
+            realtime_mode = os.environ.get("AMPREALIZE_CHAT_REALTIME_BACKEND", "auto").strip().lower()
+            redis_url = os.environ.get("AMPREALIZE_REDIS_URL") or os.environ.get("REDIS_URL")
+            if realtime_mode in {"auto", "redis"} and redis_url:
+                realtime_backend = RedisConversationRealtimeBackend(
+                    redis_url=redis_url,
+                    replay_ttl_seconds=int(os.environ.get("AMPREALIZE_CHAT_REPLAY_TTL_SECONDS", "900")),
+                    stream_maxlen=int(os.environ.get("AMPREALIZE_CHAT_STREAM_MAXLEN", "1000")),
+                )
+                logger.info(
+                    "Conversation realtime backend enabled mode=%s backend=redis",
+                    realtime_mode,
+                )
+            elif realtime_mode == "redis":
+                logger.warning(
+                    "Conversation realtime backend requested redis but no AMPREALIZE_REDIS_URL/REDIS_URL is set; using memory"
+                )
+            else:
+                logger.info("Conversation realtime backend enabled mode=%s backend=memory", realtime_mode)
+
+            _max_remote_raw = os.environ.get("AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS", "")
+            _max_remote: Optional[int] = None
+            if _max_remote_raw.strip():
+                try:
+                    _max_remote = int(_max_remote_raw.strip())
+                except ValueError:
+                    logger.warning(
+                        "Invalid AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS=%r; ignoring cap",
+                        _max_remote_raw,
+                    )
+
+            conversation_event_hub = ConversationEventHub(
+                realtime_backend=realtime_backend,
+                max_remote_subscriptions=_max_remote,
+            )
             conversation_service = ConversationService(
                 dsn=conversation_dsn,
                 pool=msg_pool,
                 event_hub=conversation_event_hub,
             )
+            llm_credential_store = _build_llm_credential_store()
+
+            def _conversation_llm_credential_resolver(
+                provider_name: str,
+                project_id: Optional[str] = None,
+                org_id: Optional[str] = None,
+                user_id: Optional[str] = None,
+                prefer_user_credential: bool = False,
+            ) -> Optional[str]:
+                for model in MODEL_CATALOG.values():
+                    if model.provider.value != provider_name:
+                        continue
+                    credential = llm_credential_store.get_credential_for_model(
+                        model.model_id,
+                        project_id=project_id,
+                        org_id=org_id,
+                        user_id=user_id,
+                        prefer_user=prefer_user_credential,
+                    )
+                    if credential:
+                        return credential[0]
+                return None
+
+            conversation_reply_service = ConversationReplyService(
+                conversation_service=conversation_service,
+                llm_client=LLMClient(credential_resolver=_conversation_llm_credential_resolver),
+                event_hub=conversation_event_hub,
+            )
             conversation_routes = create_conversation_routes(
                 conversation_service=conversation_service,
                 tags=["conversations"],
+                conversation_reply_service=conversation_reply_service,
             )
             app.include_router(conversation_routes, prefix="/api")
 
@@ -8345,10 +8741,16 @@ def create_app(
             app.include_router(conversation_ws_routes, prefix="/api")
 
             # WebSocket endpoint (must be registered on app directly)
-            register_conversation_ws(app, conversation_event_hub, conversation_service)
+            register_conversation_ws(
+                app,
+                conversation_event_hub,
+                conversation_service,
+                conversation_reply_service=conversation_reply_service,
+            )
 
             app.state.conversation_event_hub = conversation_event_hub
             app.state.conversation_service = conversation_service
+            app.state.conversation_reply_service = conversation_reply_service
             logger.info("Conversation routes + WS/SSE registered at /api/v1/conversations/*")
         except Exception as exc:
             logger.warning("Conversation routes unavailable: %s", exc)
@@ -8648,12 +9050,9 @@ def create_app(
     # Add CORS middleware last so it wraps everything (outermost layer)
     # This ensures CORS headers are present even on 500 errors from inner layers
     #
-    # Origins are resolved from AMPREALIZE_CORS_ORIGINS (comma-separated), with
-    # an opt-in localhost regex (default on) for dev convenience.
-    _cors_allow_origins = cors_origins if cors_origins else default_cors_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_allow_origins,
+        allow_origins=merged_cors_origins,
         allow_origin_regex=cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],

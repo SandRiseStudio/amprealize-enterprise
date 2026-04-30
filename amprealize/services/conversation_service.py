@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from amprealize.conversation_contracts import (
     ActorType,
     Conversation,
+    ConversationResourceLink,
     ConversationScope,
     ExternalBinding,
     ExternalProvider,
@@ -25,6 +26,8 @@ from amprealize.conversation_contracts import (
     Participant,
     ParticipantRole,
     Reaction,
+    conversation_scope_storage_values,
+    normalize_conversation_scope,
 )
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.utils.dsn import resolve_postgres_dsn
@@ -145,6 +148,7 @@ def _row_to_participant(cols: List[str], row: tuple) -> Participant:
 
 def _row_to_message(cols: List[str], row: tuple) -> Message:
     d = dict(zip(cols, row))
+    metadata = _parse_jsonb(d.get("metadata"))
     return Message(
         id=str(d["id"]),
         conversation_id=str(d["conversation_id"]),
@@ -157,11 +161,12 @@ def _row_to_message(cols: List[str], row: tuple) -> Message:
         run_id=d.get("run_id"),
         behavior_id=d.get("behavior_id"),
         work_item_id=d.get("work_item_id"),
+        resource_links=metadata.get("resource_links", []),
         is_edited=d.get("is_edited", False),
         edited_at=d.get("edited_at"),
         is_deleted=d.get("is_deleted", False),
         deleted_at=d.get("deleted_at"),
-        metadata=_parse_jsonb(d.get("metadata")),
+        metadata=metadata,
         created_at=d.get("created_at"),
     )
 
@@ -221,17 +226,36 @@ class ConversationService:
     # Conversations
     # =========================================================================
 
+    @staticmethod
+    def _normalize_and_validate_scope(
+        scope: ConversationScope,
+        project_id: Optional[str],
+    ) -> ConversationScope:
+        normalized_scope = normalize_conversation_scope(scope)
+        if normalized_scope.is_global:
+            if project_id is not None:
+                raise ConversationServiceError(
+                    "global_user_home conversations must not include project_id"
+                )
+            return normalized_scope
+        if normalized_scope.is_project_scoped and not project_id:
+            raise ConversationServiceError(
+                f"{normalized_scope.value} conversations require project_id"
+            )
+        return normalized_scope
+
     def create_conversation(
         self,
         *,
-        project_id: str,
-        scope: ConversationScope = ConversationScope.AGENT_DM,
+        project_id: Optional[str],
+        scope: ConversationScope = ConversationScope.DM,
         title: Optional[str] = None,
         created_by: str,
         participant_ids: Optional[List[str]] = None,
         org_id: Optional[str] = None,
     ) -> Conversation:
         """Create a new conversation and add participants."""
+        scope = self._normalize_and_validate_scope(scope, project_id)
         now = _now()
         conv_id = _new_id()
         participants = participant_ids or []
@@ -270,7 +294,11 @@ class ConversationService:
         self._pool.run_transaction(
             operation="conversation.create",
             service_prefix="messaging",
-            metadata={"conversation_id": conv_id, "project_id": project_id},
+            metadata={
+                "conversation_id": conv_id,
+                "project_id": project_id,
+                "scope": scope.value,
+            },
             executor=_execute,
             telemetry=self._telemetry,
         )
@@ -279,7 +307,7 @@ class ConversationService:
     def get_or_create_direct_conversation(
         self,
         *,
-        project_id: str,
+        project_id: Optional[str],
         user_id: str,
         target_participant_id: str,
         target_actor_type: Optional[str] = None,
@@ -301,14 +329,14 @@ class ConversationService:
         def _execute(conn: Any) -> Optional[str]:
             _set_messaging_search_path(conn, org_id, user_id)
             with conn.cursor() as cur:
-                # Look for an existing AGENT_DM between these two participants
+                # Look for an existing target or legacy DM between these participants
                 # Lock matching rows to prevent racing inserts.
                 cur.execute(
                     """
                     SELECT c.id
                     FROM messaging.conversations c
                     WHERE c.project_id = %s
-                      AND c.scope = %s
+                      AND c.scope = ANY(%s)
                       AND c.is_archived = false
                       AND EXISTS (
                           SELECT 1 FROM messaging.participants p1
@@ -325,8 +353,12 @@ class ConversationService:
                     FOR UPDATE OF c
                     LIMIT 1
                     """,
-                    (project_id, ConversationScope.AGENT_DM.value,
-                     user_id, target_participant_id),
+                    (
+                        project_id,
+                        list(conversation_scope_storage_values(ConversationScope.DM)),
+                        user_id,
+                        target_participant_id,
+                    ),
                 )
                 existing = cur.fetchone()
                 if existing:
@@ -341,7 +373,7 @@ class ConversationService:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (conv_id, project_id, org_id,
-                     ConversationScope.AGENT_DM.value, None,
+                     ConversationScope.DM.value, None,
                      user_id, json.dumps({}), now, now),
                 )
                 # Add creator as USER participant
@@ -439,15 +471,22 @@ class ConversationService:
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[Conversation], int]:
-        """List conversations the user participates in within a project."""
+        """List conversations the user participates in."""
         limit = min(limit, MAX_PAGE_SIZE)
+        if scope is not None:
+            scope = normalize_conversation_scope(scope)
+            if scope.is_project_scoped and project_id is None:
+                raise ConversationServiceError(f"{scope.value} requires project_id")
+            if scope.is_global and project_id is not None:
+                raise ConversationServiceError(
+                    "global_user_home conversations must not include project_id"
+                )
 
         def _query(conn: Any) -> Tuple[List[Conversation], int]:
             _set_messaging_search_path(conn, org_id, user_id)
             with conn.cursor() as cur:
                 # Base conditions
                 conditions = [
-                    "c.project_id = %s",
                     """EXISTS (
                         SELECT 1 FROM messaging.participants p
                         WHERE p.conversation_id = c.id
@@ -455,14 +494,18 @@ class ConversationService:
                           AND p.left_at IS NULL
                     )""",
                 ]
-                params: List[Any] = [project_id, user_id]
+                params: List[Any] = [user_id]
+
+                if project_id is not None:
+                    conditions.insert(0, "c.project_id = %s")
+                    params.insert(0, project_id)
 
                 if not include_archived:
                     conditions.append("c.is_archived = false")
 
                 if scope:
-                    conditions.append("c.scope = %s")
-                    params.append(scope.value)
+                    conditions.append("c.scope = ANY(%s)")
+                    params.append(list(conversation_scope_storage_values(scope)))
 
                 where = " AND ".join(conditions)
 
@@ -760,6 +803,7 @@ class ConversationService:
         run_id: Optional[str] = None,
         behavior_id: Optional[str] = None,
         work_item_id: Optional[str] = None,
+        resource_links: Optional[List[ConversationResourceLink | Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         org_id: Optional[str] = None,
     ) -> Message:
@@ -769,6 +813,12 @@ class ConversationService:
         """
         now = _now()
         msg_id = _new_id()
+        message_metadata = dict(metadata or {})
+        if resource_links:
+            message_metadata["resource_links"] = [
+                link.model_dump() if hasattr(link, "model_dump") else dict(link)
+                for link in resource_links
+            ]
 
         def _execute(conn: Any) -> None:
             _set_messaging_search_path(conn, org_id, sender_id)
@@ -809,7 +859,7 @@ class ConversationService:
                      content, message_type.value,
                      json.dumps(structured_payload) if structured_payload else None,
                      parent_id, run_id, behavior_id, work_item_id,
-                     json.dumps(metadata or {}), now),
+                     json.dumps(message_metadata), now),
                 )
 
                 # Touch conversation updated_at
@@ -891,12 +941,17 @@ class ConversationService:
         user_id: str,
         org_id: Optional[str] = None,
         parent_id: Optional[str] = None,
+        include_thread_replies: bool = False,
         before: Optional[datetime] = None,
         after: Optional[datetime] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[Message], int, bool]:
         """List messages in a conversation.
+
+        Args:
+            include_thread_replies: When ``True`` and ``parent_id`` is omitted, return all
+                messages (roots and replies). When ``False`` (default), only root messages.
 
         Returns:
             (messages, total_count, has_more)
@@ -915,8 +970,7 @@ class ConversationService:
                 if parent_id is not None:
                     conditions.append("m.parent_id = %s")
                     params.append(parent_id)
-                else:
-                    # Top-level messages only by default
+                elif not include_thread_replies:
                     conditions.append("m.parent_id IS NULL")
 
                 if before:

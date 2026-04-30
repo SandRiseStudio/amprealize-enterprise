@@ -201,17 +201,27 @@ class ExecutionStepsResponse(BaseModel):
 
 def create_work_item_execution_routes(
     service: WorkItemExecutionService,
+    execution_gateway: Optional[Any] = None,
 ) -> APIRouter:
     """Create FastAPI router for work item execution.
 
     Args:
         service: The WorkItemExecutionService instance
+        execution_gateway: Optional ExecutionGateway for gateway-backed starts
 
     Returns:
         APIRouter with all execution endpoints
     """
 
     router = APIRouter(tags=["work-item-execution"])
+    execution_start_service: Any = service
+    if execution_gateway is not None:
+        from ..execution_gateway_adapter import GatewayWorkItemExecutionAdapter
+
+        execution_start_service = GatewayWorkItemExecutionAdapter(
+            gateway=execution_gateway,
+            legacy_service=service,
+        )
 
     def _get_actor(request: Request) -> Actor:
         """Extract actor from request context."""
@@ -264,11 +274,13 @@ def create_work_item_execution_routes(
                 model_id=body.model_override,
                 agent_execution_mode=agent_exec_mode,
                 metadata={
+                    "idempotency_key": body.idempotency_key,
+                    "agent_id_override": body.agent_id,
                     "callback_url": body.callback_url,
-                } if body.callback_url else {},
+                },
             )
 
-            response = await service.execute(exec_request)
+            response = await execution_start_service.execute(exec_request)
 
             return ExecuteResponse(
                 success=True,

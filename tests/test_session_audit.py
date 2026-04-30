@@ -15,6 +15,8 @@ pytestmark = pytest.mark.unit
 from amprealize.session_audit import (
     EscalationDetector,
     EscalationSignal,
+    GovernedChatAuditEventType,
+    GovernedChatAuditLogger,
     SessionAuditLogger,
     _sanitize_value,
 )
@@ -229,6 +231,81 @@ class TestSessionAuditLogger:
         call = _make_tool_call("read_file")
         logger.log_tool_call(call, _make_result(), elapsed_ms=1)
         assert len(sink.events) == 1  # Telemetry still works
+
+    def test_log_tool_call_writes_governed_chat_record(self):
+        client, _ = _make_telemetry()
+        governed = GovernedChatAuditLogger()
+        logger = SessionAuditLogger(
+            run_id="run-1",
+            telemetry=client,
+            governed_chat_audit=governed,
+            user_id="user-1",
+        )
+
+        call = _make_tool_call("delete_file", {"path": "/tmp/secret.txt"})
+        result = _make_result(success=False, error="Tool denied by policy")
+        logger.log_tool_call(call, result, elapsed_ms=4)
+
+        records = governed.denied_or_review_required()
+        assert len(records) == 1
+        assert records[0].event_type == "tool_call"
+        assert records[0].decision == "denied"
+        assert records[0].run_id == "run-1"
+
+
+class TestGovernedChatAuditLogger:
+    def test_log_appends_record_and_emits_sanitized_telemetry(self):
+        client, sink = _make_telemetry()
+        logger = GovernedChatAuditLogger(telemetry=client)
+
+        record = logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            chat_scope="work_item_thread",
+            target_resources=[{"type": "work_item", "id": "wi-1"}],
+            action="execute",
+            decision="review_required",
+            policy_ids=["CHAT_PERMISSION_MATRIX"],
+            run_id="run-1",
+            work_item_id="wi-1",
+            conversation_id="conv-1",
+            request_id="req-1",
+            metadata={"prompt": "token=super-secret-value"},
+        )
+
+        assert logger.records == [record]
+        assert len(sink.events) == 1
+        payload = sink.events[0].payload
+        assert payload["decision"] == "review_required"
+        assert "super-secret-value" not in json.dumps(payload)
+        assert "REDACTED" in json.dumps(payload)
+
+    def test_denied_and_review_required_records_are_queryable(self):
+        logger = GovernedChatAuditLogger()
+        logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            action="read",
+            decision="allow",
+        )
+        logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            action="execute",
+            decision="review_required",
+            work_item_id="wi-1",
+        )
+        logger.log(
+            event_type=GovernedChatAuditEventType.DENIAL,
+            user_id="user-2",
+            action="delete",
+            decision="denied",
+            work_item_id="wi-2",
+        )
+
+        records = logger.denied_or_review_required()
+        assert [record.decision for record in records] == ["review_required", "denied"]
+        assert logger.query(work_item_id="wi-1")[0].action == "execute"
 
 
 # ===========================================================================

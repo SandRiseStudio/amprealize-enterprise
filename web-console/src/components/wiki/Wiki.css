@@ -384,6 +384,15 @@
   text-align: center;
 }
 
+.wiki-sidebar-item-icon--domain {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.wiki-sidebar-item--domain .wiki-sidebar-item-copy > span:first-child {
+  font-weight: var(--font-medium);
+}
+
 /* ---------------------------------------------------------------------------
    Domain Landing
    --------------------------------------------------------------------------- */

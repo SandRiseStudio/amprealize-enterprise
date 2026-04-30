@@ -5,7 +5,7 @@
  * All endpoints are read-only.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { apiClient } from './client';
 import {
   fetchStaticPage,
@@ -85,15 +85,34 @@ export const wikiKeys = {
 // same response shapes — the M1 amprealize.ai preview runs entirely without
 // a server. See src/api/staticWiki.ts and scripts/build-static-wiki.mjs.
 
+export async function fetchWikiTree(domain: string): Promise<WikiTreeResponse> {
+  if (isStaticWiki) {
+    return fetchStaticTree(domain);
+  }
+  return apiClient.get<WikiTreeResponse>(`/v1/wiki/${encodeURIComponent(domain)}/pages`);
+}
+
 export function useWikiTree(domain: string) {
   return useQuery({
     queryKey: wikiKeys.tree(domain),
-    queryFn: () =>
-      isStaticWiki
-        ? fetchStaticTree(domain)
-        : apiClient.get<WikiTreeResponse>(`/v1/wiki/${encodeURIComponent(domain)}/pages`),
+    queryFn: () => fetchWikiTree(domain),
     staleTime: 5 * 60 * 1000,
     enabled: !!domain,
+  });
+}
+
+/**
+ * Parallel tree fetches for multiple domains (public-preview sidebar).
+ * Shares cache with useWikiTree when domains overlap.
+ */
+export function useWikiTreesForDomains(domains: readonly string[], enabled: boolean) {
+  return useQueries({
+    queries: domains.map((domain) => ({
+      queryKey: wikiKeys.tree(domain),
+      queryFn: () => fetchWikiTree(domain),
+      staleTime: 5 * 60 * 1000,
+      enabled: enabled && domains.length > 0 && !!domain,
+    })),
   });
 }
 

@@ -59,6 +59,7 @@ from amprealize.multi_tenant.board_contracts import (
     WorkItemType,
     is_valid_status_transition,
     normalize_item_type,
+    validate_research_url,
 )
 from amprealize.agents.work_item_planner.prompts import validate_title as _gws_validate_title
 from amprealize.storage.postgres_pool import PostgresPool
@@ -379,7 +380,7 @@ class BoardService:
                     """
                     SELECT wi.id
                     FROM work_items wi
-                    JOIN projects p ON p.project_id = wi.project_id
+                    JOIN auth.projects p ON p.project_id = wi.project_id
                     WHERE p.slug = %s
                       AND wi.display_number = %s
                       AND p.archived_at IS NULL
@@ -442,7 +443,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT slug FROM projects WHERE project_id = %s AND archived_at IS NULL",
+                    "SELECT slug FROM auth.projects WHERE project_id = %s AND archived_at IS NULL",
                     (project_id,),
                 )
                 row = cur.fetchone()
@@ -1224,11 +1225,16 @@ class BoardService:
     def create_work_item(
         self, request: CreateWorkItemRequest, actor: Actor, *, org_id: Optional[str] = None
     ) -> WorkItem:
-        """Create a work item (goal, feature, task, or bug)."""
+        """Create a work item (goal, feature, task, bug, or research)."""
         # GWS title validation at the service layer
         title_error = _gws_validate_title(request.item_type.value, request.title)
         if title_error:
             raise WorkItemValidationError(title_error)
+        if request.item_type == WorkItemType.RESEARCH:
+            try:
+                validate_research_url(request.metadata)
+            except ValueError as exc:
+                raise WorkItemValidationError(str(exc)) from exc
 
         timestamp = _now()
 
@@ -1280,15 +1286,27 @@ class BoardService:
                 if project_id:
                     display_num = self._next_display_number(cur, project_id, "work_item")
 
+                # New items stack at the top of the column: shift existing positions down.
+                if column_id and request.board_id:
+                    cur.execute(
+                        """
+                        UPDATE work_items
+                        SET position = position + 1
+                        WHERE board_id = %s::uuid AND column_id = %s::uuid
+                        """,
+                        (request.board_id, column_id),
+                    )
+
                 cur.execute(
                     """
                     INSERT INTO work_items (
                         item_type, project_id, board_id, column_id, parent_id,
                         title, description, status, priority, position,
+                        points,
                         labels, metadata,
                         created_at, updated_at, display_number
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     RETURNING id
                     """,
@@ -1298,6 +1316,7 @@ class BoardService:
                         request.board_id, column_id, request.parent_id,
                         request.title, request.description,
                         initial_status.value, priority_int, 0,
+                        request.points,
                         request.labels,  # Postgres array, not JSON
                         json.dumps(request.metadata),
                         timestamp, timestamp,
@@ -1356,7 +1375,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM work_items WHERE id = ANY(%s) ORDER BY created_at",
+                    "SELECT * FROM work_items WHERE id = ANY(%s::uuid[]) ORDER BY created_at",
                     (item_ids,),
                 )
                 cols = [d[0] for d in cur.description]
@@ -1392,7 +1411,11 @@ class BoardService:
             status=WorkItemStatus(row["status"]),
             priority=WorkItemPriority(priority_str),
             position=row.get("position", 0),
-            story_points=row.get("points") or row.get("story_points"),  # Works pre- and post-migration
+            story_points=(
+                row["story_points"]
+                if row.get("story_points") is not None
+                else row.get("points")
+            ),  # Prefer story_points; optional legacy `points` column name
             estimated_hours=row.get("estimated_hours"),
             actual_hours=row.get("actual_hours"),
             assignee_id=row.get("assignee_id"),
@@ -1573,6 +1596,14 @@ class BoardService:
             if title_error:
                 raise WorkItemValidationError(title_error)
 
+        effective_type = request.item_type or item.item_type
+        effective_metadata = request.metadata if request.metadata is not None else item.metadata
+        if effective_type == WorkItemType.RESEARCH:
+            try:
+                validate_research_url(effective_metadata)
+            except ValueError as exc:
+                raise WorkItemValidationError(str(exc)) from exc
+
         # Validate status transition
         if request.status and not is_valid_status_transition(item.status, request.status):
             raise WorkItemTransitionError(
@@ -1621,8 +1652,7 @@ class BoardService:
             if request.position is not None:
                 updates.append("position = %s"); values.append(request.position)
             if request.points is not None:
-                # Use story_points (pre-migration) or points (post-migration)
-                updates.append("story_points = %s"); values.append(request.points)
+                updates.append("points = %s"); values.append(request.points)
             if request.estimated_hours is not None:
                 updates.append("estimated_hours = %s"); values.append(float(request.estimated_hours))
             if request.actual_hours is not None:
@@ -1869,8 +1899,8 @@ class BoardService:
             "updated_at": "w.updated_at",
             "due_date": "w.due_date",
             "title": "w.title",
-            "story_points": "w.story_points",
-            "points": "w.story_points",
+            "story_points": "w.points",
+            "points": "w.points",
         }
 
         def _query(conn: Any) -> List[Dict]:
@@ -1930,7 +1960,7 @@ class BoardService:
             sort_col_expr = SORT_COLUMNS.get(sort_by, None) if sort_by else None
             if sort_col_expr:
                 # Add NULLS LAST for nullable columns so nulls don't dominate
-                nulls_clause = "NULLS LAST" if sort_by in ("due_date", "story_points", "points") else ""  # sort maps to w.story_points
+                nulls_clause = "NULLS LAST" if sort_by in ("due_date", "story_points", "points") else ""
                 order_clause = f"ORDER BY {sort_col_expr} {sort_direction} {nulls_clause}".strip()
             else:
                 order_clause = "ORDER BY w.position, w.created_at"
@@ -2926,14 +2956,22 @@ class BoardService:
             with conn.cursor() as cur:
                 if author_type == "user":
                     cur.execute(
-                        "SELECT 1 FROM auth.users WHERE user_id = %s",
-                        (author_id,),
+                        "SELECT 1 FROM auth.users WHERE id = %s OR email = %s",
+                        (author_id, author_id),
                     )
                 else:  # agent
                     cur.execute(
                         "SELECT 1 FROM execution.agents WHERE agent_id = %s",
                         (author_id,),
                     )
+                    if cur.fetchone() is not None:
+                        return True
+
+                    # Runtime MCP actors such as "system" or "cursor-agent" can
+                    # author append-only comments without being registered as
+                    # executable agents. Assignment/execution paths still validate
+                    # against execution.agents separately.
+                    return True
                 return cur.fetchone() is not None
 
         exists = self._pool.run_query(

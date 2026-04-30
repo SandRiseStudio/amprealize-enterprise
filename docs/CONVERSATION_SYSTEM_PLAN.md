@@ -2,8 +2,9 @@
 
 > **Goal**: Enable users and agents to communicate in real-time within project scope, with built-in group chat, direct messages, context-aware agent replies, and Slack bridge integration.
 
-**Status**: Approved Plan
+**Status**: Gateway-era workspace model implemented across contracts, persistence, and runtime surfaces
 **Date**: 2026-03-30
+**Last Updated**: 2026-04-25
 **Display ID**: AMPREALIZE-361
 
 ---
@@ -43,6 +44,48 @@ The conversation system introduces real-time messaging between users and agents 
 - Messages stream token-by-token for agent replies
 - Structured message types (status cards, blocker cards, code blocks) alongside plain text
 - Built-in chat is the canonical store; Slack is a bridge
+
+### Chat Action Router
+
+Enterprise matches the `guideai-1057` typed action router in `amprealize/chat_action_router.py`. It maps natural-language chat requests and preset commands to `ChatActionCandidate` objects so policy, approval, cards, and service dispatch can share the same typed contract before any tool or platform mutation happens.
+
+The first router slice covers these action families: read/synthesis, work management, agent management, execution planning, execution start, MCP tool invocation, attachment handling, and invite/share. Each candidate includes confidence, permission surface/action, required scopes from `CHAT_PERMISSION_MATRIX`, risk level, approval requirement, clarification requirement, target resource type, and policy-context serialization. Ambiguous requests such as "plan and execute" ask for clarification, while high-risk actions such as execution, agent lifecycle changes, MCP tool invocation, and invites require approval before dispatch.
+
+### Agent Lifecycle Actions
+
+Enterprise matches the `guideai-1058` governed action boundary in `amprealize/agent_lifecycle_actions.py`. It supports discover, assign-to-project, create custom agent, modify tools, modify policy, publish, and archive/delete actions for chat-originated agent registry operations.
+
+Every lifecycle action builds a `PolicyCompositionEngine` request with `agent_lifecycle` chat surface metadata and writes a `GovernedChatAuditLogger` platform-action record. Mutating tool/policy edits, publish, and archive/delete actions require explicit approval before registry dispatch. Approved actions call the existing typed registry/project services rather than ad hoc tool calls, preserving the same audit and policy envelope for chat, MCP, REST, and future UI cards.
+
+### Platform Management Actions
+
+Enterprise matches the `guideai-1059` governed action boundary in `amprealize/platform_management_actions.py`. It covers chat-originated project, org, board, work item, invite/share, file, upload, image, and MCP-tool access changes.
+
+The service validates that sensitive actions include an explicit target, requires file/upload/image actions to carry project or conversation scope, evaluates `PolicyCompositionEngine`, and emits `GovernedChatAuditLogger` platform-action records. Approved actions dispatch to configured typed services by resource family instead of issuing ad hoc MCP/tool calls. Invite/share and MCP tool access changes require explicit approval before dispatch.
+
+### Unified Chat Interface
+
+Enterprise matches the `guideai-1060` context-aware shell contract in `web-console/src/components/conversations/UnifiedConversationWindow.tsx`. The window accepts `contextKind="global" | "project"` and an optional `contextLabel`, renders a scope badge and hint in the header, updates its accessible dialog label, and adjusts empty-state copy for global versus project chat. The CSS keeps the disciplined glass style with translucent panes, blur, crisp borders, teal-compatible accents, and no shadows or gradients.
+
+### Live Plan And Run Cards
+
+Enterprise matches the `guideai-1061` structured artifact card contract in `web-console/src/components/conversations/MessageBubble.tsx`. `structured_payload.card_kind` can render `work_item`, `run`, `plan`, and `recovery` cards without adding new message types.
+
+These cards keep the existing structured-message contract while adding fields for work item status, priority, assignee, agent, branch, run queue state, execution phase, progress percentage, plan artifact ID, completion summaries, and primary/secondary actions. That gives global and project chat a shared inline artifact shape for plan approval, execution progress, blocked recovery, and work-item handoff moments.
+
+### Unified Execution Controls
+
+Enterprise matches the `guideai-1062` shared execution-control model in `web-console/src/lib/executionControls.ts`. The model normalizes `pending`, `queued`, `running`, `paused`, `needs_clarification`, `failed`, `completed`, and `cancelled` states and derives the same start/cancel/open/refresh labels, disabled-state titles, active-run semantics, and missing-agent/unavailable copy across surfaces.
+
+Board cards and `WorkItemDrawer` both use that model for start/cancel gating and status copy. Chat run artifact cards use the same action language, so execution controls read consistently whether a user starts from the board, opens the drawer, or sees the run inline in Amprealize Chat.
+
+### Cross-Surface Validation And Migration Evidence
+
+Enterprise matches the `guideai-1063` gateway parity tests. `tests/test_execution_gateway_adapter.py` validates that REST, MCP, CLI-shaped requests, and chat-shaped requests share equivalent canonical gateway metadata while retaining their source labels, and that REST/MCP cancel and clarification controls remain consistent during migration.
+
+Enterprise also matches the `guideai-1064` chat governance boundary tests. `tests/test_chat_governance_boundaries.py` covers global chat denial for inaccessible links, mixed human/agent group-chat execution scopes, project-space work item mutations, attachment scope requirements, MCP tool approval flow, agent lifecycle policy denial, and execution-policy tool denial.
+
+The current migration path is gateway-first for starts, compatibility-preserving for deployed REST/MCP response shapes, and policy-first for chat-originated actions. Deferred work should add dedicated CLI UX where absent and continue moving legacy non-start controls from `WorkItemExecutionService` delegation to gateway-native status/control contracts.
 
 ---
 
@@ -271,13 +314,18 @@ Uses `tiktoken` (already a dependency in BCI service) with the `cl100k_base` enc
 ```
 User message arrives
   → ConversationService saves to DB
-  → ConversationService calls ContextComposer.assemble(conversation_id, message)
-  → ContextComposer queries 6 sources in parallel (asyncio.gather)
+  → ConversationReplyService emits reply.started with stable stream_message_id
+  → ConversationService calls ContextComposer.compose(conversation_id, message)
+  → ContextComposer queries configured sources in parallel (asyncio.gather)
   → Scores and ranks all chunks
   → Greedy-packs into budget (tier 1 first, then tier 2 sorted by score, then tier 3)
   → Returns structured prompt: system_message + context_blocks + conversation_messages
+  → Direct workspace lookup answers simple inventory questions without LLM latency when possible
+  → ConversationReplyService emits reply.step for context and generation phases
   → Agent execution produces streaming response
-  → Tokens broadcast via SSE to client
+  → ConversationEventHub broadcasts reply/token events locally and through Redis when configured
+  → SSE/WebSocket clients receive reply.token and legacy token once, with short replay for late stream subscribers
+  → Persisted answer emits reply.complete and legacy complete
 ```
 
 ---
@@ -319,6 +367,11 @@ Connection: `ws://host/api/v1/conversations/{conversation_id}/ws`
 | `presence.update` | `{ actor_id, presence_status }` |
 | `pin.updated` | `{ message_id }` |
 | `system.announcement` | `{ content, announcement_type }` |
+| `reply.started` | `{ stream_message_id, user_message_id, conversation_id, phase, label }` |
+| `reply.step` | `{ stream_message_id, user_message_id, conversation_id, phase, label, source_counts?, trace_steps?, source_rows?, badge? }` |
+| `reply.token` | `{ stream_message_id, conversation_id, phase, label, token }` |
+| `reply.complete` | `{ stream_message_id, user_message_id, conversation_id, phase, label, content, source_counts?, trace_steps?, source_rows?, badge? }` |
+| `reply.error` | `{ stream_message_id, user_message_id, conversation_id, phase, label, error }` |
 
 ### SSE Stream (Agent Token Streaming)
 
@@ -333,7 +386,41 @@ Endpoint: `GET /v1/conversations/{conversation_id}/stream/{message_id}`
 | `error` | `{ code, message }` |
 | `heartbeat` | `{ ts }` |
 
-**Design**: The SSE stream fires concurrently with the WebSocket `message.new` event. The WS event carries the message shell (id, sender, type), and the SSE fills in the content token by token. When `complete` fires, the client replaces the streaming content with the final content.
+**Design**: Each scheduled assistant reply uses one stable `stream_message_id`, supplied by the client when possible and generated server-side otherwise. The user message also carries that ID as scheduling metadata, but the web console only treats a matching assistant/agent message as the persisted streamed reply. The SSE stream exposes rich `reply.*` lifecycle events for progress UI while preserving legacy `token`, `complete`, and `error` event names. The web console shows an immediate progress row, updates labels such as "Gathering workspace context" and "Generating answer", typewriter-reveals streamed text when motion is allowed, and shows a collapsible trace with phases, source counts, cited rows, and deterministic answer badges.
+
+### Realtime Hot Path
+
+`ConversationEventHub` is the app-facing facade for both local and distributed realtime delivery. Its public API remains stable (`publish`, `publish_token`, `subscribe_queue`, `connect`, `disconnect`, `set_typing`), but it can now attach a pluggable realtime backend:
+
+- `memory`: process-local WebSocket/SSE fanout for lightweight OSS and tests.
+- `redis`: Redis Pub/Sub for current fanout plus Redis Streams for short best-effort replay.
+- `auto`: use Redis when `AMPREALIZE_REDIS_URL` or `REDIS_URL` is present; otherwise use memory.
+
+Redis stores only ephemeral event envelopes and replay windows. Durable messages, search, permissions, resource links, context reads, and audit-worthy history continue to live in the configured Postgres database, whether that is local Postgres, Neon, or an enterprise Postgres deployment. Redis replay is therefore a UX recovery path for in-flight replies, not a source of truth.
+
+**Replay surfaces:** On `connect`, each WebSocket receives the same **conversation-scoped** short replay as `subscribe_queue` without a `message_id` (envelope shape matches live events). Per-`message_id` SSE streams still call `subscribe_queue(..., message_id=…)` for replay of that agent reply only; WebSocket clients do not open a per-message hub subscription, so token/reply replay for a specific stream remains SSE-first. For gaps longer than the Redis window, clients should reconcile from Postgres (REST/MCP) as today.
+
+Straightforward workspace inventory questions can bypass the LLM after context composition. For example, questions such as "what agents are assigned to the GuideAI project?", "what projects do I have?", "what active runs do I have?", or "what work items are blocked?" are answered directly from accessible inventory, then persisted and streamed through the same reply lifecycle. These replies carry structured artifact payloads (`project_list`, `assignment`, `agent_list`, `run_list`, `work_item_list`) and cited source rows for transcript inspection. This keeps deterministic facts fast while leaving synthesis, explanation, and ambiguous requests on the model path.
+
+### Curated Context Layer
+
+Global chat context now treats context as an explicit product layer. `WorkspaceInventoryProvider` can include always-on workspace rules (`AMPREALIZE_CHAT_WORKSPACE_RULES`), endorsed project IDs (`AMPREALIZE_CHAT_ENDORSED_PROJECT_IDS`), retrieved guide/wiki hits, behavior guidance, and accessible inventory. Fragment metadata includes `context_sources` plus a `source_priority_policy` so admin surfaces can explain what context was included and why.
+
+### Chat Observability
+
+`ConversationReplyService` emits telemetry for `chat.fast_path.hit`, `chat.fast_path.miss`, `chat.context.source_count`, and `chat.phase.latency_ms`. These events are intended to power a Context Studio-style view of slow phases, missing deterministic handlers, and source coverage gaps.
+
+Configuration:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AMPREALIZE_CHAT_REALTIME_BACKEND` | `auto` | `memory`, `redis`, or `auto`. |
+| `AMPREALIZE_REDIS_URL` / `REDIS_URL` | unset | Redis connection URL used by the realtime backend. |
+| `AMPREALIZE_CHAT_REPLAY_TTL_SECONDS` | `900` | TTL for ephemeral Redis stream replay keys. |
+| `AMPREALIZE_CHAT_STREAM_MAXLEN` | `1000` | Approximate max events per replay stream. |
+| `AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS` | unset (no cap) | Optional upper bound on concurrent Redis Pub/Sub listeners (one per subscribed conversation). When at capacity, new conversations still get local WS/SSE delivery but cross-worker fan-in is skipped until a listener slot frees. Use `0` or omit for unlimited. |
+
+Every realtime payload carries `_event_id`, `_origin_id`, and for reply streams `_stream_message_id`. The backend uses those IDs to avoid local/Redis loopback duplication, while the web console also ignores duplicate replay/live SSE payloads. When the last local subscriber for a conversation disconnects, the hub closes that conversation’s Redis Pub/Sub listener so workers do not accumulate idle subscriptions.
 
 ---
 
@@ -451,7 +538,14 @@ Agents can proactively post to **project rooms only** (not DMs) using system-sty
 
 ### Panel Design
 
-A **collapsible right panel** (360px width) that slides in from the right side of the board page.
+The board-only right panel plan is superseded by a **two-state global chat surface**:
+
+| State | Behavior | Primary use |
+| --- | --- | --- |
+| **Resting dock** | A slim frosted bottom dock labeled "Amprealize Chat" with the active global/project context. | Always-available global or project chat entry without blocking the app. |
+| **Full draggable window** | The dock expands directly into a larger Slack-like chat window with vertical spaces/DMs and a message pane. | Planning, running work, reviewing status, and chatting with humans or agents. |
+
+There is no intermediate peek sheet. `GUIDEAI-1037` mounts `AmprealizeChatDock` from `WorkspaceShell`, defaults to global chat outside project routes, automatically switches to project-room chat on project/board routes, and removes the legacy horizontal-avatar `ChatHub` launcher from board pages.
 
 #### Layout
 
@@ -479,19 +573,21 @@ A **collapsible right panel** (360px width) that slides in from the right side o
 - **Width**: 360px default, resizable to 280px–480px via drag handle
 - **Z-index**: Same layer as board content (not overlay) — board columns compress to make room
 
-#### Entry Points (5)
+#### Entry Points
 
-1. **Chat bubble FAB** — persistent floating action button in bottom-right corner of board page
-2. **Agent avatar click** — clicking an agent in `BoardAgentPresenceRail` opens DM with that agent
-3. **Keyboard shortcut** — `Cmd+Shift+M` toggles panel
-4. **Work item context menu** — "Discuss with agent" opens DM pre-filled with work item context
-5. **Header icon** — chat icon in the board page header bar
+1. **Global bottom dock** — persistent entry for user-home chat across accessible resources.
+2. **Project chat dock state** — same surface contextualized to the active project space on project/board routes.
+3. **Agent/user conversations** — the full window sidebar groups spaces, project rooms, DMs, and group conversations vertically.
+4. **Work item / run card action** — opens the related inline thread or seeds the composer with resource context.
+5. **Header or command entry** — optional secondary visible entry for users who prefer top-level navigation.
 
 #### Component Tree
 
 ```
-ConversationPanel/
-├── ConversationSidebar          -- conversation list (rooms + DMs)
+AmprealizeChatSurface/
+├── ChatDock                     -- bottom frosted entry and collapsed status
+├── UnifiedConversationWindow    -- expanded / draggable glass shell
+├── ConversationSidebar          -- global/project spaces, rooms, DMs, threads
 │   ├── ConversationSearch       -- search input
 │   ├── ConversationListItem[]   -- each conversation with unread badge
 │   └── NewConversationButton    -- start DM picker

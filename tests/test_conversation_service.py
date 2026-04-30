@@ -486,6 +486,38 @@ class TestMessageLifecycle:
         for r in replies:
             assert r.parent_id == parent.id
 
+    def test_list_messages_include_thread_replies(self, service, conversation, user_id, org_id):
+        """Flat transcript includes assistant-style replies (non-null parent_id)."""
+        root = service.send_message(
+            conversation.id,
+            sender_id=user_id,
+            content="User asks",
+            org_id=org_id,
+        )
+        service.send_message(
+            conversation.id,
+            sender_id=user_id,
+            content="Assistant reply",
+            parent_id=root.id,
+            org_id=org_id,
+        )
+        roots_only, total_roots, _ = service.list_messages(
+            conversation.id,
+            user_id=user_id,
+            org_id=org_id,
+        )
+        assert total_roots == 1
+        assert len(roots_only) == 1
+
+        flat, total_flat, _ = service.list_messages(
+            conversation.id,
+            user_id=user_id,
+            org_id=org_id,
+            include_thread_replies=True,
+        )
+        assert total_flat == 2
+        assert len(flat) == 2
+
 
 # =============================================================================
 # Reactions

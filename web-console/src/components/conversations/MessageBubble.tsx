@@ -10,6 +10,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useDeleteMessage, useAddReaction, useRemoveReaction } from '../../api/conversations';
 import { MessageType, ActorType, type ConversationMessage, type ConversationReaction } from '../../lib/collab-client';
+import { buildExecutionControlModel } from '../../lib/executionControls';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -225,6 +226,20 @@ function MessageContent({
   message: ConversationMessage;
   msgType: ConversationMessage['message_type'] | null | undefined;
 }) {
+  const cardKind = String(message.structured_payload?.card_kind ?? '');
+  if (cardKind === 'work_item') {
+    return <WorkItemArtifactCard payload={message.structured_payload} />;
+  }
+  if (cardKind === 'run') {
+    return <RunArtifactCard payload={message.structured_payload} />;
+  }
+  if (cardKind === 'plan') {
+    return <PlanArtifactCard payload={message.structured_payload} />;
+  }
+  if (cardKind === 'recovery') {
+    return <RecoveryArtifactCard payload={message.structured_payload} />;
+  }
+
   switch (msgType) {
     case MessageType.StatusCard:
       return <StatusCard payload={message.structured_payload} />;
@@ -261,7 +276,127 @@ interface CardPayload {
   eta?: string;
   language?: string;
   code?: string;
+  card_kind?: string;
+  priority?: string;
+  assignee?: string;
+  agent?: string;
+  branch?: string;
+  phase?: string;
+  queue_state?: string;
+  recent_activity?: string;
+  progress_pct?: number;
+  completion_summary?: string;
+  plan_artifact_id?: string;
+  work_item_id?: string;
+  cta_label?: string;
+  secondary_cta_label?: string;
   [key: string]: unknown;
+}
+
+function pctValue(value: unknown): number {
+  return typeof value === 'number' ? Math.min(100, Math.max(0, value)) : 0;
+}
+
+function ArtifactProgress({ value }: { value: unknown }) {
+  const pct = pctValue(value);
+  return (
+    <div className="msg-artifact-progress" aria-label={`Progress ${pct}%`}>
+      <div className="msg-artifact-progress-track">
+        <div className="msg-artifact-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="msg-artifact-progress-value">{pct}%</span>
+    </div>
+  );
+}
+
+function ArtifactActions({
+  primary,
+  secondary,
+}: {
+  primary?: string;
+  secondary?: string;
+}) {
+  if (!primary && !secondary) return null;
+  return (
+    <div className="msg-artifact-actions">
+      {primary && <button type="button" className="msg-card-cta pressable">{primary}</button>}
+      {secondary && <button type="button" className="msg-card-cta msg-card-cta--secondary pressable">{secondary}</button>}
+    </div>
+  );
+}
+
+function WorkItemArtifactCard({ payload }: { payload?: Record<string, unknown> | null }) {
+  const p = (payload ?? {}) as CardPayload;
+  return (
+    <article className="msg-artifact-card msg-artifact-card--work-item" aria-label={`Work item ${p.title ?? p.work_item_id ?? ''}`}>
+      <div className="msg-artifact-kicker">Work item</div>
+      <div className="msg-artifact-title">{p.title ?? 'Untitled work item'}</div>
+      <div className="msg-artifact-meta">
+        {p.status && <span>Status: {p.status}</span>}
+        {p.priority && <span>Priority: {p.priority}</span>}
+        {p.assignee && <span>Assignee: {p.assignee}</span>}
+        {p.agent && <span>Agent: {p.agent}</span>}
+        {p.branch && <span>Branch: {p.branch}</span>}
+      </div>
+      {typeof p.progress_pct === 'number' && <ArtifactProgress value={p.progress_pct} />}
+      {p.summary && <div className="msg-artifact-summary">{p.summary}</div>}
+      {p.run_id && <span className="msg-card-link">Related run: {p.run_id}</span>}
+      <ArtifactActions primary={p.cta_label ?? 'Open work item'} secondary={p.secondary_cta_label} />
+    </article>
+  );
+}
+
+function RunArtifactCard({ payload }: { payload?: Record<string, unknown> | null }) {
+  const p = (payload ?? {}) as CardPayload;
+  const controls = buildExecutionControlModel({
+    rawState: p.queue_state ?? p.status,
+    hasExecution: true,
+    hasAgentAssignment: true,
+  });
+  return (
+    <article className="msg-artifact-card msg-artifact-card--run" aria-label={`Run ${p.run_id ?? p.title ?? ''}`}>
+      <div className="msg-artifact-kicker">Run</div>
+      <div className="msg-artifact-title">{p.title ?? p.run_id ?? 'Execution run'}</div>
+      <div className="msg-artifact-meta">
+        {p.queue_state && <span>Queue: {p.queue_state}</span>}
+        {p.phase && <span>Phase: {p.phase}</span>}
+        {p.recent_activity && <span>{p.recent_activity}</span>}
+      </div>
+      {typeof p.progress_pct === 'number' && <ArtifactProgress value={p.progress_pct} />}
+      {(p.completion_summary || p.summary) && (
+        <div className="msg-artifact-summary">{p.completion_summary ?? p.summary}</div>
+      )}
+      <ArtifactActions primary={p.cta_label ?? controls.openRunLabel} secondary={p.secondary_cta_label ?? controls.cancelLabel} />
+    </article>
+  );
+}
+
+function PlanArtifactCard({ payload }: { payload?: Record<string, unknown> | null }) {
+  const p = (payload ?? {}) as CardPayload;
+  return (
+    <article className="msg-artifact-card msg-artifact-card--plan" aria-label={`Plan ${p.plan_artifact_id ?? p.title ?? ''}`}>
+      <div className="msg-artifact-kicker">Plan</div>
+      <div className="msg-artifact-title">{p.title ?? 'Plan artifact'}</div>
+      {p.summary && <div className="msg-artifact-summary">{p.summary}</div>}
+      <div className="msg-artifact-meta">
+        {p.status && <span>Status: {p.status}</span>}
+        {p.plan_artifact_id && <span>{p.plan_artifact_id}</span>}
+      </div>
+      <ArtifactActions primary={p.cta_label ?? 'Review plan'} secondary={p.secondary_cta_label ?? 'Revise'} />
+    </article>
+  );
+}
+
+function RecoveryArtifactCard({ payload }: { payload?: Record<string, unknown> | null }) {
+  const p = (payload ?? {}) as CardPayload;
+  return (
+    <article className="msg-artifact-card msg-artifact-card--recovery" aria-label={`Recovery action ${p.title ?? ''}`}>
+      <div className="msg-artifact-kicker">Needs attention</div>
+      <div className="msg-artifact-title">{p.title ?? 'Action failed'}</div>
+      {p.summary && <div className="msg-artifact-summary">{p.summary}</div>}
+      <ArtifactActions primary={p.cta_label ?? 'Retry'} secondary={p.secondary_cta_label ?? 'Show details'} />
+    </article>
+  );
 }
 
 function StatusCard({ payload }: { payload?: Record<string, unknown> | null }) {

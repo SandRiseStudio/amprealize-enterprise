@@ -4562,14 +4562,24 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_subparsers = conversation_parser.add_subparsers(dest="conversation_command")
 
     # conversation list
+    conversation_scope_choices = [
+        "project_room",
+        "agent_dm",
+        "global_user_home",
+        "project_space",
+        "dm",
+        "group_chat",
+        "work_item_thread",
+        "run_thread",
+    ]
     conv_list_parser = conv_subparsers.add_parser(
-        "list", help="List conversations in a project",
+        "list", help="List conversations",
     )
-    conv_list_parser.add_argument("--project-id", required=True, help="Project ID")
+    conv_list_parser.add_argument("--project-id", default=None, help="Optional project ID")
     conv_list_parser.add_argument("--user-id", default=DEFAULT_ACTOR_ID, help="User ID")
     conv_list_parser.add_argument("--org-id", default=None, help="Organization ID")
     conv_list_parser.add_argument(
-        "--scope", choices=["project_room", "agent_dm"], default=None,
+        "--scope", choices=conversation_scope_choices, default=None,
         help="Filter by conversation scope",
     )
     conv_list_parser.add_argument(
@@ -4597,9 +4607,13 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_create_parser = conv_subparsers.add_parser(
         "create", help="Create a new conversation",
     )
-    conv_create_parser.add_argument("--project-id", required=True, help="Project ID")
     conv_create_parser.add_argument(
-        "--scope", choices=["project_room", "agent_dm"], default="agent_dm",
+        "--project-id",
+        default=None,
+        help="Project ID (required for project-scoped conversations)",
+    )
+    conv_create_parser.add_argument(
+        "--scope", choices=conversation_scope_choices, default="dm",
         help="Conversation scope",
     )
     conv_create_parser.add_argument("--title", default=None, help="Conversation title")

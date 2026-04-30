@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from amprealize.conversation_contracts import ALL_CONVERSATION_SCOPE_VALUES
+
 pytestmark = [pytest.mark.unit]
 
 
@@ -24,7 +26,7 @@ MCP_TOOLS_DIR = Path(__file__).resolve().parent.parent / "mcp" / "tools"
 # Canonical enums from conversation_contracts.py
 # =============================================================================
 
-CANONICAL_SCOPES = {"project_room", "agent_dm"}
+CANONICAL_SCOPES = set(ALL_CONVERSATION_SCOPE_VALUES)
 
 CANONICAL_MESSAGE_TYPES = {
     "text",

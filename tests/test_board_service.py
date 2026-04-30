@@ -445,6 +445,63 @@ class TestGoalLifecycle:
         assert goal.status == WorkItemStatus.BACKLOG
         assert goal.priority == WorkItemPriority.HIGH
 
+    def test_create_work_items_stack_at_top_of_column(
+        self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
+    ) -> None:
+        """New work items in a column get position 0; prior items in that column shift down."""
+        board = service.create_board(
+            CreateBoardRequest(
+                project_id=test_project_id,
+                name="Stack Board",
+                create_default_columns=True,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        board_with_cols = service.get_board(
+            board.board_id, include_columns=True, org_id=test_org_id
+        )
+        backlog_col = next(c for c in board_with_cols.columns if c.name == "Backlog")
+
+        first = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="First",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert first.position == 0
+
+        second = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Second",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert second.position == 0
+        assert service.get_work_item(first.item_id, org_id=test_org_id).position == 1
+
+        third = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Third",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert third.position == 0
+        assert service.get_work_item(second.item_id, org_id=test_org_id).position == 1
+        assert service.get_work_item(first.item_id, org_id=test_org_id).position == 2
+
     def test_goal_status_transitions(
         self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
     ):

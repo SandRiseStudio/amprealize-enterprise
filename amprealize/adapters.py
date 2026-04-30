@@ -25,6 +25,8 @@ from .behavior_service import (
     BehaviorService,
     CreateBehaviorDraftRequest,
     DeprecateBehaviorRequest,
+    ProposeBehaviorRequest,
+    RoleContext,
     SearchBehaviorsRequest,
     UpdateBehaviorDraftRequest,
 )
@@ -771,6 +773,33 @@ class MCPBehaviorServiceAdapter(BehaviorAdapterBase):
         version = self._service.create_behavior_draft(request, actor)
         return self._behavior_detail(version.behavior_id)
 
+    def propose(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        actor = self._build_actor(payload.get("actor", {}))
+        role_context = None
+        if payload.get("role_context"):
+            rc = payload["role_context"]
+            role_context = RoleContext(
+                role=rc.get("role", payload.get("proposed_by_role", "Strategist")),
+                rationale=rc.get("rationale", ""),
+                behaviors_cited=rc.get("behaviors_cited", []),
+            )
+        request = ProposeBehaviorRequest(
+            name=payload["name"],
+            description=payload["description"],
+            instruction=payload["instruction"],
+            role_focus=payload["role_focus"],
+            trigger_keywords=list(payload.get("trigger_keywords", [])),
+            tags=list(payload.get("tags", [])),
+            examples=list(payload.get("examples", [])),
+            metadata=dict(payload.get("metadata", {})),
+            confidence_score=float(payload.get("confidence_score", 0.0)),
+            historical_validations=list(payload.get("historical_validations", [])),
+            pattern_id=payload.get("pattern_id"),
+            proposed_by_role=payload.get("proposed_by_role", "Strategist"),
+            rationale=payload.get("rationale"),
+        )
+        return self._service.propose_behavior(request, actor, role_context)
+
     def update(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         actor = self._build_actor(payload.get("actor", {}))
         request = UpdateBehaviorDraftRequest(
@@ -823,11 +852,9 @@ class MCPBehaviorServiceAdapter(BehaviorAdapterBase):
 
     def get_for_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Get relevant behaviors for a task before execution."""
-        from .behavior_service import RoleContext
-
         actor = self._build_actor(payload.get("actor", {}))
         role = payload.get("role", "Student")
-        task_description = payload["task_description"]
+        task_description = payload.get("task_description") or "Start a new Amprealize task using the current session context"
         limit = min(int(payload.get("limit", 5)), 20)
 
         role_context = None
@@ -4903,16 +4930,16 @@ class CLIConversationServiceAdapter:
     def create_conversation(
         self,
         *,
-        project_id: str,
-        scope: str = "agent_dm",
+        project_id: Optional[str],
+        scope: str = "dm",
         title: Optional[str] = None,
         created_by: str,
         participant_ids: Optional[List[str]] = None,
         org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        from .conversation_contracts import ConversationScope
+        from .conversation_contracts import ConversationScope, normalize_conversation_scope
 
-        scope_enum = ConversationScope(scope)
+        scope_enum = normalize_conversation_scope(ConversationScope(scope))
         conv = self._service.create_conversation(
             project_id=project_id,
             scope=scope_enum,
@@ -4926,7 +4953,7 @@ class CLIConversationServiceAdapter:
     def list_conversations(
         self,
         *,
-        project_id: str,
+        project_id: Optional[str],
         user_id: str,
         org_id: Optional[str] = None,
         scope: Optional[str] = None,
@@ -4934,9 +4961,9 @@ class CLIConversationServiceAdapter:
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        from .conversation_contracts import ConversationScope
+        from .conversation_contracts import ConversationScope, normalize_conversation_scope
 
-        scope_enum = ConversationScope(scope) if scope else None
+        scope_enum = normalize_conversation_scope(ConversationScope(scope)) if scope else None
         convs, total = self._service.list_conversations(
             project_id=project_id,
             user_id=user_id,
@@ -5012,6 +5039,7 @@ class CLIConversationServiceAdapter:
         user_id: str,
         org_id: Optional[str] = None,
         parent_id: Optional[str] = None,
+        include_thread_replies: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
@@ -5020,6 +5048,7 @@ class CLIConversationServiceAdapter:
             user_id=user_id,
             org_id=org_id,
             parent_id=parent_id,
+            include_thread_replies=include_thread_replies,
             limit=limit,
             offset=offset,
         )

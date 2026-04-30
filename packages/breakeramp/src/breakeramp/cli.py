@@ -35,6 +35,11 @@ from .service import BreakerAmpService
 from .executors import PodmanExecutor
 from .models import PlanRequest, ApplyRequest, DestroyRequest
 from .display import LiveProgressDisplay, render_header, render_summary
+from .health_wait import (
+    default_direct_api_health_url,
+    default_gateway_health_url,
+    wait_for_stack_health,
+)
 
 app = typer.Typer(
     name="breakeramp",
@@ -42,6 +47,35 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _run_stack_wait_poll(
+    *,
+    strict: bool,
+    max_wait_s: float,
+    interval_s: float,
+    direct_api: bool,
+    gateway_health_url: Optional[str],
+    api_health_url: Optional[str],
+) -> Dict[str, Any]:
+    """Poll gateway (and optionally direct API) /health until ready or timeout."""
+    gw = gateway_health_url or default_gateway_health_url()
+    direct = (api_health_url or default_direct_api_health_url()) if direct_api else None
+    res = wait_for_stack_health(
+        gateway_health_url=gw,
+        direct_api_health_url=direct,
+        strict=strict,
+        max_wait_s=max_wait_s,
+        interval_s=interval_s,
+    )
+    return {
+        "ok": res.ok,
+        "gateway_health_url": gw,
+        "direct_api_health_url": direct,
+        "attempts": res.attempts,
+        "elapsed_s": round(res.elapsed_s, 2),
+        "last_error": res.last_error,
+    }
 
 
 def get_service() -> BreakerAmpService:
@@ -1481,6 +1515,45 @@ def restart(
         "--json", "-j",
         help="Output as JSON",
     ),
+    wait: bool = typer.Option(
+        False,
+        "--wait", "-w",
+        help="Poll gateway /health until HTTP 200 (after restart, or alone if nothing to restart)",
+    ),
+    wait_timeout: float = typer.Option(
+        300.0,
+        "--wait-timeout",
+        min=1.0,
+        help="Max seconds for --wait (default 300)",
+    ),
+    wait_interval: float = typer.Option(
+        2.0,
+        "--wait-interval",
+        min=0.2,
+        help="Seconds between health polls during --wait",
+    ),
+    wait_strict: bool = typer.Option(
+        False,
+        "--wait-strict",
+        help="Require JSON body status=healthy on /health (not just HTTP 200)",
+    ),
+    wait_direct_api: bool = typer.Option(
+        False,
+        "--wait-direct-api",
+        help="Also poll direct API /health (e.g. localhost:8000)",
+    ),
+    gateway_health_url: Optional[str] = typer.Option(
+        None,
+        "--gateway-health-url",
+        envvar="AMPREALIZE_GATEWAY_HEALTH_URL",
+        help="Gateway /health URL (default AMPREALIZE_GATEWAY_URL + /health)",
+    ),
+    api_health_url: Optional[str] = typer.Option(
+        None,
+        "--api-health-url",
+        envvar="AMPREALIZE_API_HEALTH_URL",
+        help="Direct API /health URL (defaults to localhost:8000/health)",
+    ),
 ) -> None:
     """Restart containers in an environment.
 
@@ -1495,6 +1568,7 @@ def restart(
         breakeramp restart --all                # Restart all containers in latest env
         breakeramp restart -s postgres-amprealize  # Restart specific service
         breakeramp restart amp-abc123 --force   # Force restart all in specific env
+        breakeramp restart --wait               # Wait for gateway health after restart
     """
     import subprocess
 
@@ -1589,121 +1663,131 @@ def restart(
                     target_services.append(svc_name)
 
     if not target_services:
-        console.print("[green]✓ All services are healthy - nothing to restart[/green]")
-        if json_output:
-            console.print(json.dumps({"restarted": [], "status": "healthy"}))
-        return
+        if not wait:
+            console.print("[green]✓ All services are healthy - nothing to restart[/green]")
+            if json_output:
+                console.print(json.dumps({"restarted": [], "status": "healthy"}))
+            return
 
-    # First, check if containers actually exist
-    missing_containers = []
-    existing_containers = []
-    for svc_name in target_services:
-        svc_info = outputs.get(svc_name, {})
-        container_id = svc_info.get("container_id")
-        if container_id:
-            check = subprocess.run(
-                podman_cmd + ["container", "exists", container_id],
-                capture_output=True,
-            )
-            if check.returncode != 0:
-                missing_containers.append(svc_name)
-            else:
-                existing_containers.append(svc_name)
-        else:
-            missing_containers.append(svc_name)
+    results: Dict[str, Any] = {"restarted": [], "failed": [], "skipped": [], "missing": []}
 
-    # If all containers are missing, suggest using 'up' instead
-    if missing_containers and not existing_containers:
-        console.print("[yellow]⚠ All containers have been removed[/yellow]")
-        console.print(
-            "[dim]Environment manifest exists but containers were deleted (e.g., by 'breakeramp nuke')[/dim]"
-        )
-        console.print()
-        console.print("[bold]To recreate the environment:[/bold]")
-        blueprint = run_data.get("blueprint_name", "development")
-        # Simplify suggestion - 'development' is the default so no arg needed
-        if blueprint == "development":
-            console.print("  [cyan]breakeramp up[/cyan]")
-        else:
-            console.print(f"  [cyan]breakeramp up {blueprint}[/cyan]")
-        console.print()
-        console.print("[dim]Or to start fresh:[/dim]")
-        if blueprint == "development":
-            console.print("  [dim]breakeramp plan && breakeramp apply <plan-id>[/dim]")
-        else:
-            console.print(f"  [dim]breakeramp plan {blueprint} && breakeramp apply <plan-id>[/dim]")
-        if json_output:
-            console.print(
-                json.dumps(
-                    {
-                        "error": "containers_missing",
-                        "missing": missing_containers,
-                        "suggestion": "breakeramp up" if blueprint == "development" else f"breakeramp up {blueprint}",
-                    }
-                )
-            )
-        raise typer.Exit(1)
-
-    # If some containers are missing, warn but continue with existing ones
-    if missing_containers:
-        console.print(f"[yellow]⚠ {len(missing_containers)} container(s) no longer exist:[/yellow]")
-        for svc in missing_containers:
-            console.print(f"  [dim]• {svc}[/dim]")
-        console.print(f"[dim]Continuing with {len(existing_containers)} existing container(s)...[/dim]")
-        console.print()
-        target_services = existing_containers
-
-    results = {"restarted": [], "failed": [], "skipped": [], "missing": missing_containers}
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Restarting services...", total=len(target_services))
+    if target_services:
+        # First, check if containers actually exist
+        missing_containers: List[str] = []
+        existing_containers: List[str] = []
         for svc_name in target_services:
-            progress.update(task, description=f"Restarting {svc_name}...")
             svc_info = outputs.get(svc_name, {})
             container_id = svc_info.get("container_id")
-
-            if not container_id:
-                results["skipped"].append({"service": svc_name, "reason": "no container_id"})
-                progress.advance(task)
-                continue
-
-            try:
-                # Stop container
-                try:
-                    subprocess.run(
-                        podman_cmd + ["stop", "-t", "10", container_id],
-                        capture_output=True,
-                        timeout=30,
-                    )
-                except Exception:
-                    pass  # Container might already be stopped
-
-                # Start container
-                result = subprocess.run(
-                    podman_cmd + ["start", container_id],
+            if container_id:
+                check = subprocess.run(
+                    podman_cmd + ["container", "exists", container_id],
                     capture_output=True,
-                    text=True,
-                    timeout=30,
                 )
-
-                if result.returncode == 0:
-                    results["restarted"].append(svc_name)
+                if check.returncode != 0:
+                    missing_containers.append(svc_name)
                 else:
-                    results["failed"].append(
+                    existing_containers.append(svc_name)
+            else:
+                missing_containers.append(svc_name)
+
+        # If all containers are missing, suggest using 'up' instead
+        if missing_containers and not existing_containers:
+            console.print("[yellow]⚠ All containers have been removed[/yellow]")
+            console.print(
+                "[dim]Environment manifest exists but containers were deleted (e.g., by 'breakeramp nuke')[/dim]"
+            )
+            console.print()
+            console.print("[bold]To recreate the environment:[/bold]")
+            blueprint = run_data.get("blueprint_name", "development")
+            if blueprint == "development":
+                console.print("  [cyan]breakeramp up[/cyan]")
+            else:
+                console.print(f"  [cyan]breakeramp up {blueprint}[/cyan]")
+            console.print()
+            console.print("[dim]Or to start fresh:[/dim]")
+            if blueprint == "development":
+                console.print("  [dim]breakeramp plan && breakeramp apply <plan-id>[/dim]")
+            else:
+                console.print(f"  [dim]breakeramp plan {blueprint} && breakeramp apply <plan-id>[/dim]")
+            if json_output:
+                console.print(
+                    json.dumps(
                         {
-                            "service": svc_name,
-                            "error": result.stderr.strip() or "Unknown error",
+                            "error": "containers_missing",
+                            "missing": missing_containers,
+                            "suggestion": "breakeramp up"
+                            if blueprint == "development"
+                            else f"breakeramp up {blueprint}",
                         }
                     )
-            except Exception as e:
-                results["failed"].append({"service": svc_name, "error": str(e)})
+                )
+            raise typer.Exit(1)
 
-            progress.advance(task)
+        # If some containers are missing, warn but continue with existing ones
+        if missing_containers:
+            console.print(
+                f"[yellow]⚠ {len(missing_containers)} container(s) no longer exist:[/yellow]"
+            )
+            for svc in missing_containers:
+                console.print(f"  [dim]• {svc}[/dim]")
+            console.print(
+                f"[dim]Continuing with {len(existing_containers)} existing container(s)...[/dim]"
+            )
+            console.print()
+            target_services = existing_containers
+
+        results["missing"] = missing_containers
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Restarting services...", total=len(target_services))
+            for svc_name in target_services:
+                progress.update(task, description=f"Restarting {svc_name}...")
+                svc_info = outputs.get(svc_name, {})
+                container_id = svc_info.get("container_id")
+
+                if not container_id:
+                    results["skipped"].append({"service": svc_name, "reason": "no container_id"})
+                    progress.advance(task)
+                    continue
+
+                try:
+                    try:
+                        subprocess.run(
+                            podman_cmd + ["stop", "-t", "10", container_id],
+                            capture_output=True,
+                            timeout=30,
+                        )
+                    except Exception:
+                        pass
+
+                    result = subprocess.run(
+                        podman_cmd + ["start", container_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+
+                    if result.returncode == 0:
+                        results["restarted"].append(svc_name)
+                    else:
+                        results["failed"].append(
+                            {
+                                "service": svc_name,
+                                "error": result.stderr.strip() or "Unknown error",
+                            }
+                        )
+                except Exception as e:
+                    results["failed"].append({"service": svc_name, "error": str(e)})
+
+                progress.advance(task)
+
+    elif wait and not json_output:
+        console.print("[dim]No restart needed — waiting for gateway health (--wait)...[/dim]")
 
     # Update manifest phase back to APPLIED if we successfully restarted containers
     if results["restarted"] and not results["failed"]:
@@ -1712,8 +1796,26 @@ def restart(
             with open(env_path, "w") as f:
                 json.dump(run_data, f, indent=2, default=str)
 
+    wait_payload: Optional[Dict[str, Any]] = None
+    if wait:
+        if not json_output:
+            console.print("[dim]Waiting for stack health...[/dim]")
+        wait_payload = _run_stack_wait_poll(
+            strict=wait_strict,
+            max_wait_s=wait_timeout,
+            interval_s=wait_interval,
+            direct_api=wait_direct_api,
+            gateway_health_url=gateway_health_url,
+            api_health_url=api_health_url,
+        )
+
     if json_output:
-        console.print(json.dumps(results, indent=2))
+        payload_out: Dict[str, Any] = dict(results)
+        if wait_payload is not None:
+            payload_out["wait_health"] = wait_payload
+        console.print(json.dumps(payload_out, indent=2))
+        if wait and wait_payload is not None and not wait_payload.get("ok"):
+            raise typer.Exit(1)
         return
 
     # Display results
@@ -1729,6 +1831,95 @@ def restart(
 
     if results["skipped"]:
         console.print(f"[yellow]⊘ Skipped {len(results['skipped'])} service(s)[/yellow]")
+
+    if wait and wait_payload is not None:
+        if wait_payload.get("ok"):
+            console.print(
+                f"[green]✓ Stack healthy[/green] "
+                f"[dim]({wait_payload.get('attempts')} attempts, "
+                f"{wait_payload.get('elapsed_s')}s)[/dim]"
+            )
+        else:
+            console.print(
+                f"[red]✗ Stack health check failed: {wait_payload.get('last_error')}[/red]"
+            )
+            raise typer.Exit(1)
+
+
+# =============================================================================
+# Wait for stack health (gateway / API)
+# =============================================================================
+
+
+@app.command("wait-health")
+def wait_health(
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Require JSON body status=healthy (not just HTTP 200)",
+    ),
+    max_wait: float = typer.Option(
+        300.0,
+        "--timeout",
+        min=1.0,
+        help="Max seconds to poll (default 300)",
+    ),
+    interval: float = typer.Option(
+        2.0,
+        "--interval",
+        min=0.2,
+        help="Seconds between attempts",
+    ),
+    direct_api: bool = typer.Option(
+        False,
+        "--direct-api",
+        help="Also require direct API :8000 /health to succeed",
+    ),
+    gateway_health_url: Optional[str] = typer.Option(
+        None,
+        "--gateway-health-url",
+        envvar="AMPREALIZE_GATEWAY_HEALTH_URL",
+    ),
+    api_health_url: Optional[str] = typer.Option(
+        None,
+        "--api-health-url",
+        envvar="AMPREALIZE_API_HEALTH_URL",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json", "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Poll the gateway (and optionally the direct API) until /health is ready.
+
+    Default URLs: ``http://localhost:8080/health`` and ``http://localhost:8000/health``.
+    Set ``AMPREALIZE_GATEWAY_URL`` or use ``--gateway-health-url`` to override the base.
+    """
+    if not json_output:
+        console.print("[dim]Waiting for stack health...[/dim]")
+    payload = _run_stack_wait_poll(
+        strict=strict,
+        max_wait_s=max_wait,
+        interval_s=interval,
+        direct_api=direct_api,
+        gateway_health_url=gateway_health_url,
+        api_health_url=api_health_url,
+    )
+    if json_output:
+        console.print(json.dumps(payload, indent=2))
+    else:
+        if payload.get("ok"):
+            console.print(
+                f"[green]✓ Stack healthy[/green] "
+                f"[dim]({payload.get('attempts')} attempts, {payload.get('elapsed_s')}s)[/dim]"
+            )
+        else:
+            console.print(
+                f"[red]✗ Health check failed: {payload.get('last_error')}[/red]"
+            )
+    if not payload.get("ok"):
+        raise typer.Exit(1)
 
 
 # =============================================================================

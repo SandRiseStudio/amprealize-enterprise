@@ -2,7 +2,11 @@
 """Test MCP auth session context implementation."""
 from datetime import datetime, timedelta
 
+import pytest
+
 from amprealize.mcp_server import MCPSessionContext, PUBLIC_TOOLS
+
+pytestmark = pytest.mark.unit
 
 
 def test_session_context():

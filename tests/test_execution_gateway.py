@@ -14,7 +14,9 @@ from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 from amprealize.execution_gateway_contracts import (
+    ExecutionIntent,
     ExecutionRequest,
+    GatewayQueuePayload,
     NewExecutionMode,
     OutputTarget,
     ResolvedExecution,
@@ -23,6 +25,12 @@ from amprealize.execution_gateway_contracts import (
     resolve_output_target,
 )
 from amprealize.multi_tenant.board_contracts import AssigneeType
+from amprealize.session_audit import GovernedChatAuditLogger
+from amprealize.work_item_execution_contracts import (
+    ExecutionPolicy,
+    ExecutionState,
+    ToolPermissionLevel,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -155,6 +163,38 @@ class TestExecutionRequest:
         assert req.mode_override == NewExecutionMode.LOCAL_DIRECT
 
 
+class TestGatewayQueuePayload:
+    """Tests for the normalized queue payload contract."""
+
+    def test_from_resolved_preserves_gateway_context(self):
+        resolved = _make_resolved()
+        resolved.request.intent = ExecutionIntent.PLAN_ONLY
+        resolved.request.surface = "chat"
+        resolved.request.conversation_id = "conv-1"
+        resolved.request.message_id = "msg-1"
+        resolved.request.idempotency_key = "idem-1"
+        resolved.request.policy_context = {"tool_profile": "read_only"}
+        resolved.request.risk_classification = "low"
+        resolved.request.requires_approval = True
+        resolved.request.metadata = {"source": "unit-test"}
+
+        payload = GatewayQueuePayload.from_resolved(resolved).to_dict()
+
+        assert payload["gateway_request_id"] == resolved.request.request_id
+        assert payload["intent"] == "plan_only"
+        assert payload["surface"] == "chat"
+        assert payload["mode"] == "container_isolated"
+        assert payload["output_target"] == "pull_request"
+        assert payload["source_type"] == "github"
+        assert payload["conversation_id"] == "conv-1"
+        assert payload["message_id"] == "msg-1"
+        assert payload["idempotency_key"] == "idem-1"
+        assert payload["policy_context"] == {"tool_profile": "read_only"}
+        assert payload["risk_classification"] == "low"
+        assert payload["requires_approval"] is True
+        assert payload["metadata"] == {"source": "unit-test"}
+
+
 # =============================================================================
 # ExecutionGateway
 # =============================================================================
@@ -198,6 +238,10 @@ def _build_gateway(
     version=None,
     cred_result=("sk-test", "platform", False),
     executor: Optional[Any] = None,
+    queue_publisher: Optional[Any] = None,
+    dispatch_mode: str = "background",
+    telemetry: Optional[Any] = None,
+    governed_chat_audit: Optional[GovernedChatAuditLogger] = None,
 ):
     """Build a gateway with mocked services."""
     from amprealize.execution_gateway import ExecutionGateway
@@ -234,12 +278,173 @@ def _build_gateway(
         task_cycle_service=cycle_service,
         agent_registry=agent_reg,
         credential_store=cred_store,
+        telemetry=telemetry,
         executors=executors,
+        queue_publisher=queue_publisher,
+        dispatch_mode=dispatch_mode,
+        governed_chat_audit=governed_chat_audit,
     )
     return gw
 
 
+class _FakeQueuePublisher:
+    def __init__(self):
+        self.jobs = []
+
+    async def enqueue(self, job):
+        self.jobs.append(job)
+        return "stream-1"
+
+
 class TestExecutionGateway:
+
+    @pytest.mark.asyncio
+    async def test_execute_denied_by_composed_policy_before_records(self):
+        telemetry = MagicMock()
+        gw = _build_gateway(telemetry=telemetry)
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            policy_context={
+                "policy_decisions": {
+                    "org": {
+                        "decision": "deny",
+                        "reason": "Org policy blocks autonomous execution.",
+                    }
+                }
+            },
+        )
+        result = await gw.execute(req)
+
+        assert result.success is False
+        assert "Policy denied execution" in (result.error or "")
+        gw._runs.create_run.assert_not_called()
+        gw._cycles.create_cycle.assert_not_called()
+        telemetry.emit_event.assert_called_once()
+        assert telemetry.emit_event.call_args.kwargs["event_type"] == (
+            "policy.composition.evaluated"
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_review_policy_requires_approval_before_records(self):
+        gw = _build_gateway()
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            risk_classification="critical",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is False
+        assert "Policy review required" in (result.error or "")
+        assert req.requires_approval is True
+        gw._runs.create_run.assert_not_called()
+        gw._cycles.create_cycle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_policy_failure_fails_closed_before_records(self):
+        telemetry = MagicMock()
+        gw = _build_gateway(telemetry=telemetry)
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            policy_context={"policy_decisions": {"not_a_layer": "allow"}},
+        )
+        result = await gw.execute(req)
+
+        assert result.success is False
+        assert "Policy denied execution" in (result.error or "")
+        assert req.policy_context["policy_evaluation"]["failed_closed"] is True
+        gw._runs.create_run.assert_not_called()
+        gw._cycles.create_cycle.assert_not_called()
+        assert telemetry.emit_event.call_args.kwargs["event_type"] == (
+            "policy.composition.failed_closed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_policy_denies_before_records(self):
+        policy = ExecutionPolicy(tool_permissions={"delete_file": ToolPermissionLevel.DENY})
+        gw = _build_gateway(version=_make_version(execution_policy=policy))
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            policy_context={"mcp_tool_name": "delete_file"},
+        )
+        result = await gw.execute(req)
+
+        assert result.success is False
+        assert "Tool policy denies delete_file" in (result.error or "")
+        gw._runs.create_run.assert_not_called()
+        gw._cycles.create_cycle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_denied_policy_writes_governed_chat_audit(self):
+        chat_audit = GovernedChatAuditLogger()
+        gw = _build_gateway(governed_chat_audit=chat_audit)
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            user_id="user-1",
+            surface="api",
+            conversation_id="conv-1",
+            message_id="msg-1",
+            policy_context={
+                "chat_scope": "work_item_thread",
+                "policy_decisions": {
+                    "org": {
+                        "decision": "deny",
+                        "reason": "Org policy blocks autonomous execution.",
+                    }
+                },
+            },
+        )
+        await gw.execute(req)
+
+        blocked_records = chat_audit.denied_or_review_required()
+        assert [record.event_type for record in blocked_records] == [
+            "policy_decision",
+            "denial",
+        ]
+        assert blocked_records[0].conversation_id == "conv-1"
+        assert blocked_records[0].message_id == "msg-1"
+        assert blocked_records[0].target_resources[0] == {
+            "type": "work_item",
+            "id": "task-abc123def456",
+        }
+
+    @pytest.mark.asyncio
+    async def test_execute_success_writes_execution_start_audit(self):
+        chat_audit = GovernedChatAuditLogger()
+        executor = MagicMock()
+        executor.mode = NewExecutionMode.CONTAINER_ISOLATED
+        executor.provision_workspace = AsyncMock(side_effect=lambda r: r)
+        executor.execute = AsyncMock(return_value={})
+        executor.cleanup = AsyncMock()
+        gw = _build_gateway(executor=executor, governed_chat_audit=chat_audit)
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            user_id="user-1",
+            surface="api",
+            conversation_id="conv-1",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is True
+        execution_records = chat_audit.query(event_types={"execution_start"})
+        assert len(execution_records) == 1
+        assert execution_records[0].run_id == "run-test123"
+        assert execution_records[0].conversation_id == "conv-1"
 
     @pytest.mark.asyncio
     async def test_execute_returns_run_id(self):
@@ -303,6 +508,129 @@ class TestExecutionGateway:
         result = await gw.execute(req)
         assert result.success is False
         assert "No available model" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_execute_queue_dispatch_enqueues_without_executor(self):
+        publisher = _FakeQueuePublisher()
+        gw = _build_gateway(
+            queue_publisher=publisher,
+            dispatch_mode="queue",
+        )
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            idempotency_key="idem-1",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is True
+        assert result.message == "Execution queued"
+        assert result.queue_job_id == "stream-1"
+        assert len(publisher.jobs) == 1
+        job = publisher.jobs[0]
+        assert job.run_id == "run-test123"
+        assert job.job_id == "run-test123"
+        assert job.work_item_id == "task-abc123def456"
+        assert job.agent_id == "agent-1"
+        assert job.cycle_id == "cyc-test123"
+        assert job.model_override == "claude-opus-4-6"
+        assert job.payload["gateway_request_id"] == req.request_id
+        assert job.payload["surface"] == "api"
+        assert job.payload["intent"] == "execute"
+        assert job.payload["mode"] == "container_isolated"
+        assert job.payload["output_target"] == "patch_file"
+        assert job.payload["idempotency_key"] == "idem-1"
+
+    @pytest.mark.asyncio
+    async def test_execute_queue_dispatch_requires_publisher_before_records(self):
+        gw = _build_gateway(dispatch_mode="queue")
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is False
+        assert "no queue publisher" in (result.error or "").lower()
+        gw._runs.create_run.assert_not_called()
+        gw._cycles.create_cycle.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_plan_only_creates_artifact_without_dispatch(self):
+        gw = _build_gateway(
+            dispatch_mode="queue",
+        )
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            user_id="user-1",
+            surface="chat",
+            intent=ExecutionIntent.PLAN_ONLY,
+            conversation_id="conv-1",
+            message_id="msg-1",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is True
+        assert result.intent == ExecutionIntent.PLAN_ONLY
+        assert result.message == "Plan artifact created"
+        assert result.queue_job_id is None
+        assert result.plan_artifact_id
+        assert result.plan_artifact_id == req.plan_artifact_id
+        assert result.compatibility["status"] == ExecutionState.COMPLETED.value
+        assert result.compatibility["phase"] == "completed"
+        assert result.compatibility["summary_card"]["type"] == "plan_summary"
+        assert (
+            result.compatibility["summary_card"]["plan_artifact_id"]
+            == result.plan_artifact_id
+        )
+        assert result.compatibility["plan_artifact"]["conversation_id"] == "conv-1"
+
+        create_run_request = gw._runs.create_run.call_args.args[0]
+        assert create_run_request.metadata["run_type"] == "plan_only"
+        assert create_run_request.metadata["execution_intent"] == "plan_only"
+        policy = create_run_request.metadata["execution_policy"]
+        assert policy["write_scope"] == "read_only"
+        assert policy["require_workspace"] is False
+        assert policy["tool_permissions"]["write_file"] == "deny"
+        assert policy["tool_permissions"]["workItems.create"] == "deny"
+
+        final_update = gw._runs.update_run.call_args.args[1]
+        assert final_update.status == "COMPLETED"
+        assert final_update.progress_pct == 100.0
+        assert final_update.metadata["run_type"] == "plan_only"
+        assert final_update.metadata["plan_artifact_id"] == result.plan_artifact_id
+
+    @pytest.mark.asyncio
+    async def test_execute_review_policy_with_approval_enqueues(self):
+        publisher = _FakeQueuePublisher()
+        gw = _build_gateway(
+            queue_publisher=publisher,
+            dispatch_mode="queue",
+        )
+
+        req = ExecutionRequest(
+            work_item_id="task-abc123def456",
+            project_id="proj-1",
+            surface="api",
+            risk_classification="critical",
+            approved_by="user-approver",
+        )
+        result = await gw.execute(req)
+
+        assert result.success is True
+        assert result.queue_job_id == "stream-1"
+        assert req.requires_approval is True
+        assert publisher.jobs[0].payload["requires_approval"] is True
+        assert (
+            publisher.jobs[0].payload["policy_context"]["policy_evaluation"]["decision"]
+            == "review"
+        )
 
     @pytest.mark.asyncio
     async def test_execute_fails_for_non_agent_assignee(self):

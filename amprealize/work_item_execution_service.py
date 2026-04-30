@@ -18,28 +18,34 @@ Execution Modes:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from dotenv import load_dotenv
 
 from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .agent_registry_service import AgentRegistryService
 from .auth.llm_credential_repository import LLMCredentialRepository
-from .boards.contracts import WorkItem, AssigneeType
-from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus
+from .boards.contracts import WorkItem, WorkItemStatus, AssigneeType
+from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus, RunStep
 from .run_service import RunService, RunNotFoundError
 from .services.board_service import BoardService, WorkItemNotFoundError
 from .storage.postgres_pool import PostgresPool
 from .task_cycle_contracts import (
     CyclePhase,
+    CycleResponse,
     CreateCycleRequest,
     GateType,
     PHASE_GATES,
     SubmitClarificationRequest,
+    TimeoutConfig,
     TransitionPhaseRequest,
     TriggerType,
 )
@@ -54,19 +60,28 @@ from .work_item_execution_contracts import (
     ExecutionPolicy,
     ExecutionState,
     ExecutionStatusResponse,
+    GatePolicyType,
     InternetAccessPolicy,
     MODEL_CATALOG,
+    ModelCredential,
+    ModelDefinition,
+    ModelPolicy,
+    PendingFileChange,
+    PRCommitStrategy,
     PRExecutionContext,
+    WorkItemComment,
     WriteScope,
     generate_pr_branch_name,
     get_model,
 )
 from .projects.settings import (
     ExecutionMode,
+    LOCAL_CAPABLE_SURFACES,
     REMOTE_ONLY_SURFACES,
 )
 from .multi_tenant.settings import SettingsService
 from .workspace_agent import (
+    AmprealizeWorkspaceClient,
     WorkspaceConfig,
     WorkspaceInfo,
     WorkspaceProvisionError,
@@ -131,12 +146,12 @@ def _short_id(prefix: str) -> str:
 
 
 class CredentialStore:
-    """Manages LLM provider credentials at platform/org/project scope.
+    """Manages LLM provider credentials at platform/org/project/user scope.
 
-    Resolution order (first match wins):
-    1. Project credential (if present) — BYOK takes priority
-    2. Org credential (if present) — BYOK at org level
-    3. Platform credential (if present) — admin-managed defaults
+    Resolution order depends on context:
+    - Project/agent execution: project -> user -> org -> platform.
+    - Personal chat: user -> org -> platform.
+    - If ``prefer_user`` is true: user -> project -> org -> platform.
     """
 
     def __init__(
@@ -152,7 +167,16 @@ class CredentialStore:
 
     def _load_platform_credentials(self) -> None:
         """Load platform credentials from environment variables."""
-        import os
+        explicit_env_file = os.getenv("AMPREALIZE_ENV_FILE")
+        env_paths = [
+            Path(explicit_env_file).expanduser() if explicit_env_file else None,
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[1] / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+        for env_path in env_paths:
+            if env_path and env_path.exists():
+                load_dotenv(env_path, override=False)
 
         # Load provider API keys from environment
         if api_key := os.getenv("ANTHROPIC_API_KEY"):
@@ -161,18 +185,170 @@ class CredentialStore:
             self._platform_credentials["openai"] = api_key
         if api_key := os.getenv("OPENROUTER_API_KEY"):
             self._platform_credentials["openrouter"] = api_key
+        if api_key := os.getenv("NVIDIA_API_KEY"):
+            self._platform_credentials["nvidia"] = api_key
+        if api_key := os.getenv("TOGETHER_API_KEY"):
+            self._platform_credentials["together"] = api_key
+        if api_key := os.getenv("GROQ_API_KEY"):
+            self._platform_credentials["groq"] = api_key
+        if api_key := os.getenv("FIREWORKS_API_KEY"):
+            self._platform_credentials["fireworks"] = api_key
+
+    def _credential_scope_pairs(
+        self,
+        *,
+        project_id: Optional[str],
+        org_id: Optional[str],
+        user_id: Optional[str],
+        prefer_user: bool,
+    ) -> List[Tuple[Any, str]]:
+        """Return (scope_type, scope_id) tuples in BYOK resolution order."""
+        from amprealize.auth.llm_credential_repository import CredentialScopeType
+
+        scope_order: List[Tuple[Any, Optional[str]]] = []
+        if prefer_user and user_id:
+            scope_order.append((CredentialScopeType.USER, user_id))
+        if project_id:
+            scope_order.append((CredentialScopeType.PROJECT, project_id))
+        if user_id and (CredentialScopeType.USER, user_id) not in scope_order:
+            scope_order.append((CredentialScopeType.USER, user_id))
+        if org_id:
+            scope_order.append((CredentialScopeType.ORG, org_id))
+        return [(st, sid) for st, sid in scope_order if sid]
+
+    def credential_blocked_by_invalid_scoped_byok(
+        self,
+        model_id: str,
+        *,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+    ) -> bool:
+        """True when fail-closed BYOK prevents using platform keys for this model."""
+        model = get_model(model_id)
+        if not model or not self._credential_repository:
+            return False
+        provider = model.provider.value
+        for scope_type, scope_id in self._credential_scope_pairs(
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        ):
+            resolved = self._resolve_scoped_byok(
+                scope_type=scope_type,
+                scope_id=scope_id,
+                provider=provider,
+            )
+            if resolved:
+                api_key, _source, _is_byok, scope_was_configured = resolved
+                if scope_was_configured and not api_key:
+                    return True
+                if api_key:
+                    return False
+        return False
+
+    def get_active_byok_credential_id(
+        self,
+        model_id: str,
+        *,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+    ) -> Optional[str]:
+        """Database id of the BYOK row supplying credentials, if any."""
+        resolved = self.get_credential_for_model(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if not resolved or not self._credential_repository:
+            return None
+        _key, source, is_byok = resolved
+        if not is_byok:
+            return None
+        model = get_model(model_id)
+        if not model:
+            return None
+        provider = model.provider.value
+        from amprealize.auth.llm_credential_repository import CredentialScopeType
+
+        scope_id: Optional[str] = None
+        scope_type: Any = None
+        if source == "user":
+            scope_type, scope_id = CredentialScopeType.USER, user_id
+        elif source == "project":
+            scope_type, scope_id = CredentialScopeType.PROJECT, project_id
+        elif source == "org":
+            scope_type, scope_id = CredentialScopeType.ORG, org_id
+        if not scope_type or not scope_id:
+            return None
+        cred = self._credential_repository.get_for_provider(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            provider=provider,
+            decrypt=False,
+        )
+        return cred.id if cred else None
+
+    def _resolve_scoped_byok(
+        self,
+        *,
+        scope_type: Any,
+        scope_id: Optional[str],
+        provider: str,
+    ) -> Optional[Tuple[Optional[str], str, bool, bool]]:
+        """Resolve one BYOK scope.
+
+        Returns:
+            (api_key, source, is_byok, scope_was_configured) or None when the
+            scope is not applicable.
+        """
+        if not self._credential_repository or not scope_id:
+            return None
+
+        cred = self._credential_repository.get_for_provider(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            provider=provider,
+            decrypt=True,
+            include_invalid=True,
+        )
+        if not cred:
+            return None
+
+        source = scope_type.value
+        if cred.is_valid and cred.decrypted_key:
+            return (cred.decrypted_key, source, True, True)
+
+        logger.warning(
+            "BYOK credential exists for provider %s in %s %s but cannot be used "
+            "(is_valid=%s, decrypted=%s)",
+            provider,
+            source,
+            scope_id,
+            cred.is_valid,
+            cred.decrypted_key is not None,
+        )
+        return (None, source, True, True)
 
     def get_credential_for_model(
         self,
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> Optional[Tuple[str, str, bool]]:
         """Get credential for a model.
 
         Returns:
             Tuple of (api_key, source, is_byok) or None if not available
-            source is one of: "project", "org", "platform"
+            source is one of: "user", "project", "org", "platform"
 
         BYOK Priority:
             If user has configured BYOK for a provider, ONLY that credential
@@ -187,49 +363,29 @@ class CredentialStore:
         provider = model.provider.value
         byok_configured_for_provider = False
 
-        # Check database for project/org BYOK credentials
+        # Check database for scoped BYOK credentials.
         if self._credential_repository:
-            from amprealize.auth.llm_credential_repository import CredentialScopeType
+            scope_order = self._credential_scope_pairs(
+                project_id=project_id,
+                org_id=org_id,
+                user_id=user_id,
+                prefer_user=prefer_user,
+            )
 
-            # 1. Check project-level BYOK credential
-            if project_id:
-                cred = self._credential_repository.get_for_provider(
-                    scope_type=CredentialScopeType.PROJECT,
-                    scope_id=project_id,
+            for scope_type, scope_id in scope_order:
+                resolved = self._resolve_scoped_byok(
+                    scope_type=scope_type,
+                    scope_id=scope_id,
                     provider=provider,
-                    decrypt=True,
                 )
-                if cred:
-                    # User has configured BYOK for this provider at project level
-                    byok_configured_for_provider = True
-                    if cred.is_valid and cred.decrypted_key:
-                        return (cred.decrypted_key, "project", True)
-                    # BYOK exists but can't be used (invalid or decryption failed)
-                    # Do NOT fall back to platform - return None to signal unavailable
-                    logger.warning(
-                        f"BYOK credential exists for provider {provider} in project {project_id} "
-                        f"but cannot be used (is_valid={cred.is_valid}, decrypted={cred.decrypted_key is not None})"
-                    )
-                    return None
-
-            # 2. Check org-level BYOK credential
-            if org_id:
-                cred = self._credential_repository.get_for_provider(
-                    scope_type=CredentialScopeType.ORG,
-                    scope_id=org_id,
-                    provider=provider,
-                    decrypt=True,
-                )
-                if cred:
-                    # User has configured BYOK for this provider at org level
-                    byok_configured_for_provider = True
-                    if cred.is_valid and cred.decrypted_key:
-                        return (cred.decrypted_key, "org", True)
-                    # BYOK exists but can't be used
-                    logger.warning(
-                        f"BYOK credential exists for provider {provider} in org {org_id} "
-                        f"but cannot be used (is_valid={cred.is_valid}, decrypted={cred.decrypted_key is not None})"
-                    )
+                if resolved:
+                    api_key, source, is_byok, scope_was_configured = resolved
+                    if scope_was_configured:
+                        byok_configured_for_provider = True
+                    if api_key:
+                        return (api_key, source, is_byok)
+                    # A scoped BYOK row exists but cannot be used. Fail closed
+                    # instead of silently using a platform key for the same provider.
                     return None
 
         # 3. Fall back to platform credentials from environment
@@ -244,7 +400,9 @@ class CredentialStore:
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         actor_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> None:
         """Record successful use of a BYOK credential.
 
@@ -258,29 +416,15 @@ class CredentialStore:
         if not model:
             return
 
-        provider = model.provider.value
-        from amprealize.auth.llm_credential_repository import CredentialScopeType
-
-        # Find which credential was used
-        if project_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.PROJECT,
-                scope_id=project_id,
-                provider=provider,
-            )
-            if cred and cred.is_valid:
-                self._credential_repository.record_success(cred.id, actor_id)
-                return
-
-        if org_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.ORG,
-                scope_id=org_id,
-                provider=provider,
-            )
-            if cred and cred.is_valid:
-                self._credential_repository.record_success(cred.id, actor_id)
-                return
+        cred_id = self.get_active_byok_credential_id(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if cred_id:
+            self._credential_repository.record_success(cred_id, actor_id)
 
     def record_credential_failure(
         self,
@@ -288,7 +432,9 @@ class CredentialStore:
         error_code: Optional[int] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         actor_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> bool:
         """Record auth failure for a BYOK credential.
 
@@ -316,27 +462,19 @@ class CredentialStore:
         if not model:
             return False
 
-        provider = model.provider.value
-        from amprealize.auth.llm_credential_repository import CredentialScopeType
-
-        # Find which credential was used
-        if project_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.PROJECT,
-                scope_id=project_id,
-                provider=provider,
+        cred_id = self.get_active_byok_credential_id(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if cred_id:
+            return self._credential_repository.record_failure(
+                cred_id,
+                error_code=error_code,
+                run_id=actor_id,
             )
-            if cred:
-                return self._credential_repository.record_failure(cred.id, actor_id)
-
-        if org_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.ORG,
-                scope_id=org_id,
-                provider=provider,
-            )
-            if cred:
-                return self._credential_repository.record_failure(cred.id, actor_id)
 
         return False
 
@@ -344,12 +482,35 @@ class CredentialStore:
         self,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+        provider_filter: Optional[str] = None,
+        free_open_only: bool = False,
     ) -> List[AvailableModel]:
         """Get all models available for a project."""
         available = []
+        credential_cache: Dict[str, Optional[Tuple[str, str, bool]]] = {}
 
         for model_id, model in MODEL_CATALOG.items():
-            cred = self.get_credential_for_model(model_id, project_id, org_id)
+            provider = model.provider.value if hasattr(model.provider, "value") else str(model.provider)
+            if provider_filter and provider != provider_filter:
+                continue
+            if free_open_only and (
+                not model.metadata.get("is_open_model", False)
+                or not model.metadata.get("free_endpoint", False)
+                or not model.metadata.get("chat_model", True)
+            ):
+                continue
+
+            if provider not in credential_cache:
+                credential_cache[provider] = self.get_credential_for_model(
+                    model_id,
+                    project_id,
+                    org_id,
+                    user_id=user_id,
+                    prefer_user=prefer_user,
+                )
+            cred = credential_cache[provider]
             if cred:
                 api_key, source, is_byok = cred
                 available.append(AvailableModel(
@@ -366,9 +527,17 @@ class CredentialStore:
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> bool:
         """Check if a model is available for a project."""
-        return self.get_credential_for_model(model_id, project_id, org_id) is not None
+        return self.get_credential_for_model(
+            model_id,
+            project_id,
+            org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        ) is not None
 
 
 class InternetAccessResolver:

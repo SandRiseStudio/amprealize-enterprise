@@ -141,7 +141,7 @@ breakeramp fresh --force
 breakeramp fresh --skip-backup
 ```
 
-The API container reinstalls Python dependencies on startup. This can take 30–60 seconds. Poll the health endpoint before proceeding.
+The API container reinstalls Python dependencies on startup (unless you use a **baked image** with `AMPREALIZE_API_SKIP_PIP=1`; see below). This can take 30–60 seconds. Poll the health endpoint before proceeding.
 
 ### 5.2 Health Checks
 
@@ -156,6 +156,47 @@ curl -sS -m 5 http://localhost:8000/health
 ```
 
 Wait until both return HTTP 200 before making API calls. The gateway may return 502 while the API is still starting.
+
+**BreakerAmp helpers** (avoid guessing when the stack is ready):
+
+```bash
+# Poll until the gateway succeeds (default timeout 300s)
+breakeramp wait-health
+
+# Strict: require JSON status "healthy" (not just HTTP 200)
+breakeramp wait-health --strict
+
+# Also require direct API :8000 /health to succeed
+breakeramp wait-health --direct-api
+
+# After restart, block until health passes
+breakeramp restart amprealize-api --wait
+
+# Same options as wait-health
+breakeramp restart amprealize-api --wait --wait-strict --wait-direct-api --wait-timeout 600
+```
+
+Override URLs if ports differ: `--gateway-health-url`, `--api-health-url`, or env `AMPREALIZE_GATEWAY_HEALTH_URL` / `AMPREALIZE_GATEWAY_URL` (base for default `/health`).
+
+**Shell fallback** (no BreakerAmp):
+
+```bash
+until curl -sf -m 5 http://localhost:8080/health >/dev/null; do sleep 2; done
+echo "Gateway OK"
+```
+
+**Faster restarts — baked API image** (optional): build once so the container skips `pip install` on every start.
+
+```bash
+# From repository root (amprealize-enterprise)
+podman build -f deployment/Dockerfile.api-dev -t localhost/amprealize-api-dev:latest .
+
+export AMPREALIZE_API_IMAGE=localhost/amprealize-api-dev:latest
+export AMPREALIZE_API_SKIP_PIP=1
+# Recreate or re-apply the stack so amprealize-api picks up the image and env
+```
+
+Rebuild the image when `pyproject.toml` or dependency packages change. The dev stack still bind-mounts the repo at `/app`.
 
 ### 5.3 Database Access
 Direct PostgreSQL access for debugging and workarounds:
@@ -254,7 +295,8 @@ The default blueprint for development is `local-test-suite`, which includes thes
 | `breakeramp plan <env>` | Preview resource requirements before provisioning |
 | `breakeramp apply --plan-id <id>` | Provision the planned environment |
 | `breakeramp status [<run-id>]` | Check status and health of running environment |
-| `breakeramp restart [--all]` | Restart containers (unhealthy only, or all) |
+| `breakeramp restart [--all]` | Restart containers (unhealthy only, or all); add `--wait` to poll `/health` after |
+| `breakeramp wait-health` | Poll gateway until healthy (optional `--strict`, `--direct-api`) |
 | `breakeramp stop` | Stop containers without removing them |
 | `breakeramp destroy <run-id>` | Tear down a specific environment |
 | `breakeramp fresh` | Nuke everything + bring up clean environment |

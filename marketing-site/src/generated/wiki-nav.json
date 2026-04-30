@@ -247,6 +247,12 @@
               "title": "Context Composition in Amprealize",
               "pageType": "in-practice",
               "folder": "in-practice"
+            },
+            {
+              "path": "in-practice/llm-routing-in-amprealize.md",
+              "title": "LLM Routing in Amprealize",
+              "pageType": "in-practice",
+              "folder": "in-practice"
             }
           ]
         },

@@ -101,7 +101,7 @@
         "description": "Optional organization ID for multi-tenant context"
       }
     },
-    "required": ["item_type", "project_id", "title"]
+    "required": ["item_type", "title"]
   },
   "outputSchema": {
     "type": "object",

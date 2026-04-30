@@ -3,10 +3,6 @@ import wikiNav from '../generated/wiki-nav.json';
 import '../styles/console-shell.bundle.css';
 import { pickFirstPagePathForDomain, type MarketingWikiNav } from '../lib/marketingWiki';
 
-type WikiPage = { path: string; title: string };
-type WikiGroup = { folder: string; label: string; pages?: WikiPage[] };
-type WikiDomain = { id: string; label: string; groups: WikiGroup[] };
-
 interface Props {
   /** Slug like `infra/architecture/page.md` for sidebar active states */
   activeSlug?: string | null;
@@ -19,52 +15,34 @@ const dashboardActive = pathname === '/' || pathname === '';
 
 const nav = wikiNav as MarketingWikiNav;
 
-function firstPagePathInGroup(group: WikiGroup): string | null {
-  const pages = group.pages ?? [];
-  if (pages.length === 0) return null;
-  const sorted = [...pages].sort((a, b) => a.title.localeCompare(b.title));
-  return sorted[0]?.path ?? null;
-}
+const normalizedActive = activeSlug?.replace(/^\/+|\/+$/g, '') ?? '';
 
-function groupWikiHref(domainId: string, group: WikiGroup): string {
-  const fp = firstPagePathInGroup(group);
-  if (fp) return `/wiki/${domainId}/${fp}`;
+/** Sidebar order: Research → Infrastructure → AI Learning → Platform (domains present in build only). */
+const WIKI_SIDEBAR_ORDER: { id: string; label: string }[] = [
+  { id: 'research', label: 'Research' },
+  { id: 'infra', label: 'Infrastructure' },
+  { id: 'ai-learning', label: 'AI Learning' },
+  { id: 'platform', label: 'Platform' },
+];
+
+const wikiSidebarDomains = WIKI_SIDEBAR_ORDER.filter((entry) =>
+  nav.domains.some((d) => d.id === entry.id),
+).map((entry) => ({
+  id: entry.id,
+  label: nav.domains.find((d) => d.id === entry.id)?.label ?? entry.label,
+}));
+
+function domainWikiHref(domainId: string): string {
+  const first = pickFirstPagePathForDomain(nav, domainId);
+  if (first) return `/wiki/${domainId}/${first}`;
   return `/wiki/${domainId}`;
 }
 
-const normalizedActive = activeSlug?.replace(/^\/+|\/+$/g, '') ?? '';
-
-/** Folder key for the group whose first page is the domain default (same as pickFirstPagePathForDomain). */
-function overviewFolderForDomain(domain: WikiDomain): string | null {
-  const firstPath = pickFirstPagePathForDomain(nav, domain.id);
-  if (!firstPath) return null;
-  for (const g of domain.groups) {
-    if ((g.pages ?? []).some((p) => p.path === firstPath)) {
-      return g.folder ?? '';
-    }
-  }
-  return null;
-}
-
-function isGroupActive(
-  domainId: string,
-  folder: string,
-  allGroups: WikiGroup[],
-  domainOverviewFolder: string | null,
-) {
+function isWikiDomainActive(domainId: string): boolean {
   if (!normalizedActive) return false;
-  if (!normalizedActive.startsWith(`${domainId}/`) && normalizedActive !== domainId) return false;
-  if (normalizedActive === domainId) {
-    return domainOverviewFolder !== null && folder === domainOverviewFolder;
-  }
-  const rest = normalizedActive.slice(domainId.length + 1);
-  if (folder) {
-    return rest === folder || rest.startsWith(`${folder}/`);
-  }
-  const folderSegs = allGroups.map((g) => g.folder).filter(Boolean) as string[];
-  const firstSeg = rest.split('/')[0] ?? '';
-  if (!firstSeg) return true;
-  return !folderSegs.includes(firstSeg);
+  if (normalizedActive === domainId) return true;
+  if (normalizedActive.startsWith(`${domainId}/`)) return true;
+  return false;
 }
 ---
 
@@ -114,14 +92,12 @@ function isGroupActive(
             </span>
           </a>
           {
-            nav.domains.map((domain) => {
-              const overviewFolder = overviewFolderForDomain(domain);
-              return (
-              <details class="sidebar-section marketing-wiki-domain-block" open data-domain={domain.id}>
+            wikiSidebarDomains.length > 0 && (
+              <details class="sidebar-section marketing-wiki-domain-block" open data-wiki-root>
                 <summary class="sidebar-section-toggle marketing-wiki-domain-summary">
                   <span class="sidebar-section-title-group">
                     <span class="sidebar-section-dot" />
-                    <span>{domain.label}</span>
+                    <span>Wiki</span>
                   </span>
                   <svg class="sidebar-chevron marketing-wiki-domain-chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <path
@@ -134,10 +110,9 @@ function isGroupActive(
                 </summary>
                 <div class="sidebar-section-body">
                   <div class="sidebar-section-body-inner">
-                    {domain.groups.map((group) => {
-                      const folder = group.folder ?? '';
-                      const href = groupWikiHref(domain.id, group);
-                      const isActive = isGroupActive(domain.id, folder, domain.groups, overviewFolder);
+                    {wikiSidebarDomains.map((domain) => {
+                      const href = domainWikiHref(domain.id);
+                      const isActive = isWikiDomainActive(domain.id);
                       return (
                         <a class:list={['sidebar-nav-item', 'nested', { active: isActive }]} href={href}>
                           <span class="sidebar-nav-item-leading">
@@ -148,7 +123,7 @@ function isGroupActive(
                               </svg>
                             </span>
                             <span class="sidebar-nav-copy">
-                              <span class="sidebar-nav-label">{group.label}</span>
+                              <span class="sidebar-nav-label">{domain.label}</span>
                             </span>
                           </span>
                         </a>
@@ -157,8 +132,7 @@ function isGroupActive(
                   </div>
                 </div>
               </details>
-            );
-            })
+            )
           }
         </div>
       </nav>

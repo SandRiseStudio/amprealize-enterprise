@@ -73,6 +73,7 @@ interface SendMessageCommand {
   message_type?: MessageType | string;
   structured_payload?: Record<string, unknown> | null;
   parent_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 interface EditMessageCommand {
@@ -238,6 +239,7 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
     message_type?: MessageType | string;
     structured_payload?: Record<string, unknown> | null;
     parent_id?: string | null;
+    metadata?: Record<string, unknown>;
   }): void {
     this.send({
       type: 'message.send',
@@ -245,6 +247,7 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
       message_type: options.message_type,
       structured_payload: options.structured_payload,
       parent_id: options.parent_id,
+      metadata: options.metadata,
     });
   }
 

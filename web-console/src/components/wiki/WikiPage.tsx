@@ -4,13 +4,15 @@
 
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useWikiTree } from '../../api/wiki';
+import { useWikiTree, useWikiTreesForDomains } from '../../api/wiki';
+import { isPublicPreview } from '../../lib/publicPreview';
 import { WikiArticle } from './WikiArticle';
 import { WikiSearch } from './WikiSearch';
 import { WikiSidebar } from './WikiSidebar';
 import {
   folderLabel,
   getVisibleWikiDomains,
+  getVisibleWikiDomainsForPreviewSidebar,
   getWikiDomainConfig,
   groupWikiPages,
   saveRecentWikiPage,
@@ -78,6 +80,24 @@ export const WikiPage = memo(function WikiPage() {
   const { data: treeData, isLoading: treeLoading } = useWikiTree(domain);
 
   const pages = useMemo(() => treeData?.pages ?? [], [treeData?.pages]);
+
+  const publicPreview = isPublicPreview();
+  const previewSidebarDomains = useMemo(
+    () => (publicPreview ? getVisibleWikiDomainsForPreviewSidebar() : []),
+    [publicPreview],
+  );
+  const previewTreeDomainIds = useMemo(
+    () => previewSidebarDomains.map((d) => d.id),
+    [previewSidebarDomains],
+  );
+  const previewTreesQueries = useWikiTreesForDomains(
+    previewTreeDomainIds,
+    publicPreview && previewTreeDomainIds.length > 0,
+  );
+
+  const sidebarLoading = publicPreview
+    ? previewTreesQueries.some((q) => q.isLoading || q.isPending)
+    : treeLoading;
 
   const domainRootPath = useMemo(
     () => pickDomainRootPath(pages),
@@ -258,9 +278,11 @@ export const WikiPage = memo(function WikiPage() {
           <WikiSidebar
             pages={pages}
             activePath={activePath}
-            isLoading={treeLoading}
+            isLoading={sidebarLoading}
             domain={domain}
             onSelect={handlePageSelect}
+            previewDomains={publicPreview ? previewSidebarDomains : undefined}
+            onPreviewDomainNavigate={publicPreview ? handleDomainChange : undefined}
           />
         </nav>
 

@@ -71,6 +71,7 @@ breakeramp = ["py.typed", "blueprints/*.yaml", "blueprints/*.yml"]
 [tool.pytest.ini_options]
 minversion = "7.4"
 testpaths = ["tests"]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

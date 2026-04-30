@@ -52,6 +52,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AmprealizeChatPanel = void 0;
 const crypto = __importStar(require("crypto"));
 const vscode = __importStar(require("vscode"));
+const DEFAULT_CHAT_MODELS = [
+    {
+        label: 'DeepSeek V4 Flash (NVIDIA)',
+        llm_model_id: 'nvidia-deepseek-v4-flash',
+        llm_provider: 'nvidia',
+        credential_scope: 'platform'
+    },
+    {
+        label: 'MiniMax M2.7 (NVIDIA)',
+        llm_model_id: 'nvidia-minimax-m2-7',
+        llm_provider: 'nvidia',
+        credential_scope: 'platform'
+    }
+];
 // ============================================
 // Panel Implementation
 // ============================================
@@ -72,7 +86,7 @@ class AmprealizeChatPanel {
         this._panel.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
                 case 'sendMessage':
-                    await this._handleUserMessage(message.text);
+                    await this._handleUserMessage(message.text, message.metadata);
                     break;
                 case 'callTool':
                     await this._handleToolCall(message.toolName, message.args);
@@ -172,12 +186,13 @@ class AmprealizeChatPanel {
     // ============================================
     // Message Handling
     // ============================================
-    async _handleUserMessage(text) {
+    async _handleUserMessage(text, metadata) {
         const userMessage = {
             id: generateId(),
             role: 'user',
             content: text,
-            timestamp: new Date()
+            timestamp: new Date(),
+            metadata
         };
         this._messages.push(userMessage);
         this._postMessage({ type: 'message', message: userMessage });
@@ -195,7 +210,7 @@ class AmprealizeChatPanel {
             return;
         }
         // Default: Try to intelligently route the message
-        await this._handleNaturalLanguage(text);
+        await this._handleNaturalLanguage(text, metadata);
     }
     async _handleSlashCommand(text) {
         const [command, ...args] = text.slice(1).split(' ');
@@ -265,7 +280,7 @@ Tool invocation:
         }
         await this._handleToolCall(toolName, args);
     }
-    async _handleNaturalLanguage(text) {
+    async _handleNaturalLanguage(text, metadata) {
         // Inject BCI behaviors for the user's task
         try {
             this._addSystemMessage('Retrieving relevant behaviors...');
@@ -287,6 +302,9 @@ Tool invocation:
             }
             if (bciResult.token_estimate) {
                 response += `\n_Token estimate: ${bciResult.token_estimate}_\n`;
+            }
+            if (metadata) {
+                response += `\n_Selected model: ${metadata.llm_model_id} (${metadata.llm_provider}/${metadata.credential_scope})_\n`;
             }
             response += `\nYou can also:\n• Use @toolname {...args} to call a specific tool\n• Type /tools to see available tools`;
             this._addAssistantMessage(response);
@@ -441,6 +459,7 @@ Or type /tools to see available tools.`;
         const webview = this._panel.webview;
         const nonce = generateNonce();
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'styles', 'AmprealizeChatPanel.css'));
+        const modelOptions = DEFAULT_CHAT_MODELS.map((model) => (`<option value="${escapeHtmlAttr(model.llm_model_id)}" data-provider="${escapeHtmlAttr(model.llm_provider)}" data-scope="${escapeHtmlAttr(model.credential_scope)}">${escapeHtml(model.label)}</option>`)).join('');
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -598,6 +617,15 @@ Or type /tools to see available tools.`;
 		.input-area input:focus {
 			outline: 1px solid var(--vscode-focusBorder);
 		}
+		.model-select {
+			width: 210px;
+			padding: 8px 10px;
+			border: 1px solid var(--vscode-input-border);
+			background: var(--vscode-input-background);
+			color: var(--vscode-input-foreground);
+			border-radius: 4px;
+			font-size: 12px;
+		}
 		.input-area button {
 			padding: 8px 16px;
 			background: var(--vscode-button-background);
@@ -657,6 +685,9 @@ Or type /tools to see available tools.`;
 			</div>
 
 			<div class="input-area">
+				<select id="model-select" class="model-select" aria-label="Choose chat model">
+					${modelOptions}
+				</select>
 				<input type="text" id="input" placeholder="Type a message, /command, or @tool {...}" />
 				<button id="send">Send</button>
 			</div>
@@ -669,6 +700,7 @@ Or type /tools to see available tools.`;
 		// Elements
 		const messagesEl = document.getElementById('messages');
 		const inputEl = document.getElementById('input');
+		const modelSelectEl = document.getElementById('model-select');
 		const sendBtn = document.getElementById('send');
 		const statusEl = document.getElementById('connection-status');
 		const groupsListEl = document.getElementById('groups-list');
@@ -677,7 +709,16 @@ Or type /tools to see available tools.`;
 		function sendMessage() {
 			const text = inputEl.value.trim();
 			if (!text) return;
-			vscode.postMessage({ type: 'sendMessage', text });
+			const selectedOption = modelSelectEl.options[modelSelectEl.selectedIndex];
+			vscode.postMessage({
+				type: 'sendMessage',
+				text,
+				metadata: {
+					llm_model_id: modelSelectEl.value,
+					llm_provider: selectedOption.dataset.provider,
+					credential_scope: selectedOption.dataset.scope
+				}
+			});
 			inputEl.value = '';
 		}
 
@@ -827,5 +868,14 @@ function formatToolResult(result) {
     catch {
         return String(result);
     }
+}
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+function escapeHtmlAttr(text) {
+    return escapeHtml(text).replace(/"/g, '&quot;');
 }
 //# sourceMappingURL=AmprealizeChatPanel.js.map

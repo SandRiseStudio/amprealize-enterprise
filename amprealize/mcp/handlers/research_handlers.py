@@ -12,7 +12,47 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple
+
+
+class ResearchToolValidationError(ValueError):
+    """Raised when a research MCP tool has invalid runtime arguments."""
+
+
+def _require(params: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not params.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise ResearchToolValidationError(f"Missing required {label}: {', '.join(missing)}")
+
+
+def _parse_enum(enum_cls: type[Enum], value: Any, field_name: str) -> Optional[Enum]:
+    if value in (None, ""):
+        return None
+
+    raw = str(value)
+    candidates = (raw, raw.lower(), raw.upper())
+    for candidate in candidates:
+        try:
+            return enum_cls(candidate)
+        except ValueError:
+            continue
+
+    valid = ", ".join(str(item.value) for item in enum_cls)
+    raise ResearchToolValidationError(f"Invalid {field_name}: {raw}. Must be one of: {valid}")
+
+
+def _parse_int(params: Dict[str, Any], field_name: str, default: int, *, minimum: int) -> int:
+    value = params.get(field_name, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ResearchToolValidationError(f"Invalid {field_name}: must be an integer") from exc
+    if parsed < minimum:
+        raise ResearchToolValidationError(f"Invalid {field_name}: must be >= {minimum}")
+    return parsed
 
 
 def _extract_identity(params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -47,16 +87,9 @@ async def handle_evaluate(
     """
     from amprealize.research_contracts import EvaluatePaperRequest, SourceType
 
-    source = params.get("source")
-    if not source:
-        return {"success": False, "error": "Missing required parameter: source"}
-
-    source_type = None
-    if params.get("source_type"):
-        try:
-            source_type = SourceType(params["source_type"].upper())
-        except (ValueError, KeyError):
-            pass
+    _require(params, "source")
+    source = params["source"]
+    source_type = _parse_enum(SourceType, params.get("source_type"), "source_type")
 
     request = EvaluatePaperRequest(
         source=source,
@@ -105,9 +138,8 @@ async def handle_get(
     Required params:
         - paper_id: Unique identifier of the paper
     """
-    paper_id = params.get("paper_id")
-    if not paper_id:
-        return {"success": False, "error": "Missing required parameter: paper_id"}
+    _require(params, "paper_id")
+    paper_id = params["paper_id"]
 
     try:
         owner_id, org_id, _ = _extract_identity(params)
@@ -151,19 +183,10 @@ async def handle_search(
     """
     from amprealize.research_contracts import SearchPapersRequest, SourceType, Verdict
 
-    verdict = None
-    if params.get("verdict"):
-        try:
-            verdict = Verdict(params["verdict"].upper())
-        except (ValueError, KeyError):
-            pass
-
-    source_type = None
-    if params.get("source_type"):
-        try:
-            source_type = SourceType(params["source_type"].upper())
-        except (ValueError, KeyError):
-            pass
+    verdict = _parse_enum(Verdict, params.get("verdict"), "verdict")
+    source_type = _parse_enum(SourceType, params.get("source_type"), "source_type")
+    limit = _parse_int(params, "limit", 50, minimum=1)
+    offset = _parse_int(params, "offset", 0, minimum=0)
 
     request = SearchPapersRequest(
         query=params.get("query"),
@@ -171,8 +194,8 @@ async def handle_search(
         min_score=params.get("min_score"),
         max_score=params.get("max_score"),
         source_type=source_type,
-        limit=params.get("limit", 50),
-        offset=params.get("offset", 0),
+        limit=limit,
+        offset=offset,
     )
 
     try:
@@ -219,17 +242,14 @@ async def handle_list(
     """
     from amprealize.research_contracts import SearchPapersRequest, Verdict
 
-    verdict = None
-    if params.get("verdict"):
-        try:
-            verdict = Verdict(params["verdict"].upper())
-        except (ValueError, KeyError):
-            pass
+    verdict = _parse_enum(Verdict, params.get("verdict"), "verdict")
+    limit = _parse_int(params, "limit", 50, minimum=1)
+    offset = _parse_int(params, "offset", 0, minimum=0)
 
     request = SearchPapersRequest(
         verdict=verdict,
-        limit=params.get("limit", 50),
-        offset=params.get("offset", 0),
+        limit=limit,
+        offset=offset,
     )
 
     try:

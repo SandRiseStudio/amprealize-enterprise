@@ -951,6 +951,8 @@ class TestAPIModuleGating:
         enabled_routers = get_enabled_api_routers(goals_only)
         all_routers = get_all_module_api_routers()
         disabled = all_routers - enabled_routers
+        assert "conversations" in enabled_routers
+        assert "conversations" not in disabled
         assert len(disabled) > 0
 
 

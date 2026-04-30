@@ -34,6 +34,7 @@ import { ProfileMenu } from './ProfileMenu';
 import { BrandLogo } from '../branding/BrandLogo';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import { useApiPlatformRuntime } from '../../api/platformRuntime';
+import { AmprealizeChatDock } from '../conversations/AmprealizeChatDock';
 import './WorkspaceShell.css';
 
 function formatVersionLabel(raw: string): string {
@@ -672,6 +673,7 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
   const collabPresence = usePresenceList();
   const activeDocument = activeDocumentId ? documents.get(activeDocumentId) : null;
   const { projectId } = useParams();
+  const { actor } = useAuth();
   const { currentOrgId } = useOrgContext();
   const { data: project } = useProject(projectId);
   const liveOrgId = currentOrgId ?? project?.org_id ?? null;
@@ -772,6 +774,12 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
           />
         )}
         <MainContent>{children}</MainContent>
+        <AmprealizeChatDock
+          projectId={projectId ?? null}
+          orgId={project?.org_id ?? currentOrgId ?? null}
+          projectName={project?.name ?? null}
+          currentUserId={actor?.type === 'human' ? actor.id : undefined}
+        />
       </div>
     </div>
   );

@@ -35,6 +35,32 @@ Following `behavior_use_raze_for_logging` (Student): Adding structured logging..
 
 ---
 
+## Amprealize MCP Startup Protocol
+
+Before using Amprealize MCP tools in a new session, use the server-provided guide and catalog instead of searching manifests or guessing calls:
+
+1. Call `tools.guide`.
+2. Call `auth.authStatus` before non-auth Amprealize tool calls.
+3. If auth is expired but refreshable, call `auth.refreshToken` and re-check status. If login is needed, call `auth.deviceLogin` or `auth.deviceInit` + `auth.devicePoll`. In this MCP agent environment, device login/init is approved automatically after the auth tool call; do not ask the user to visit the URL unless polling explicitly cannot complete and the tool says manual consent is required.
+4. If any Amprealize tool returns unauthorized/auth expired, authenticate first, then retry the original call.
+5. Call `behaviors.getForTask`.
+6. Call `context.getContext`.
+7. Call `tools.activeGroups`.
+8. Call `tools.catalog` with a `group`, `query`, or `use_case`; activate missing domains with `tools.listGroups` and `tools.activateGroup`.
+
+Catalog results include both `original_name` (for docs) and `normalized_name` (for Cursor-style calls such as `workitems_get`). Prefer session defaults for `user_id`, `org_id`, `project_id`, actor, and author fields.
+
+## Amprealize Dual-Repo Parity
+
+Amprealize platform work is dual-repo by default:
+
+- OSS repo: `/Users/nick/Main/amprealize`
+- Enterprise repo: `/Users/nick/Main/amprealize-enterprise`
+- Implement features, fixes, MCP tools, manifests, tests, docs, and timeline entries in both repos unless the user explicitly says OSS-only or Enterprise-only.
+- Validate focused tests and manifest sync in both repos. In final summaries, state both repos were updated or explain the intentional exception.
+
+---
+
 ## 🚨 Critical Rules (Always Follow)
 
 | Rule | Behavior | Why |
