@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 # ---------------------------------------------------------------------------
 # Enterprise edition detection
 # ---------------------------------------------------------------------------
-# Enterprise fork: amprealize.enterprise is always available.
+# Enterprise fork: amprealize_enterprise is always available.
 HAS_ENTERPRISE = True
 
 # ---------------------------------------------------------------------------

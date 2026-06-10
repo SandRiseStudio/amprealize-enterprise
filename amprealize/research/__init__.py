@@ -13,7 +13,7 @@ _INSTALL_MSG = (
 )
 
 try:
-    from amprealize.enterprise.research.prompts import (
+    from amprealize_enterprise.research.prompts import (
         COMPREHENSION_SYSTEM_PROMPT,
         COMPREHENSION_USER_PROMPT,
         CONCLUSION_PROMPT,
@@ -33,7 +33,7 @@ try:
         format_section_prompt,
         format_synthesis_prompt,
     )
-    from amprealize.enterprise.research.codebase_analyzer import (
+    from amprealize_enterprise.research.codebase_analyzer import (
         CodebaseAnalyzer,
         CodebaseSnapshot,
         get_codebase_context,

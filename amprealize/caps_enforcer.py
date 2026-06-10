@@ -165,7 +165,7 @@ def get_caps_enforcer() -> CapsEnforcer:
     if detected == _ed.Edition.ENTERPRISE_STARTER:
         if _ed.HAS_ENTERPRISE:
             try:
-                from amprealize.enterprise.caps_enforcer import (
+                from amprealize_enterprise.caps_enforcer import (
                     CapsEnforcer as EnterpriseCapsEnforcer,
                 )
 

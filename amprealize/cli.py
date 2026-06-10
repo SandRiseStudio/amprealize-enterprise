@@ -10265,7 +10265,7 @@ def _command_billing_usage(args: argparse.Namespace) -> int:
 def _command_billing_upgrade(args: argparse.Namespace) -> int:
     """Upgrade to a higher tier via TierTransitionService."""
     from amprealize.edition import detect_edition
-    from amprealize.enterprise.billing.tier_transitions import TierTransitionService
+    from amprealize_enterprise.billing.tier_transitions import TierTransitionService
 
     output_json = getattr(args, "format", "table") == "json"
     dry_run = getattr(args, "dry_run", False)
@@ -10307,7 +10307,7 @@ def _command_billing_upgrade(args: argparse.Namespace) -> int:
 def _command_billing_downgrade(args: argparse.Namespace) -> int:
     """Downgrade to a lower tier via TierTransitionService."""
     from amprealize.edition import detect_edition
-    from amprealize.enterprise.billing.tier_transitions import TierTransitionService
+    from amprealize_enterprise.billing.tier_transitions import TierTransitionService
 
     output_json = getattr(args, "format", "table") == "json"
     dry_run = getattr(args, "dry_run", False)

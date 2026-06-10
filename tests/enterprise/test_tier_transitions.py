@@ -6,7 +6,7 @@ import os
 from unittest.mock import MagicMock
 
 
-from amprealize.enterprise.billing.tier_transitions import (
+from amprealize_enterprise.billing.tier_transitions import (
     TierTransitionService,
     TransitionPreview,
     TransitionStatus,

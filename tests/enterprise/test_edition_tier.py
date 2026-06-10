@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from amprealize.enterprise.edition_tier import (
+from amprealize_enterprise.edition_tier import (
     _VALID_TIERS,
     _decode_license_tier,
     resolve_tier,

@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 # TelemetryProjection — prefer enterprise dataclass (superset of OSS fields)
 # ---------------------------------------------------------------------------
 try:
-    from amprealize.enterprise.analytics.telemetry_kpi_projector import (
+    from amprealize_enterprise.analytics.telemetry_kpi_projector import (
         TelemetryProjection,
     )
 except ImportError:
