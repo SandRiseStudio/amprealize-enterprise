@@ -243,6 +243,8 @@ const Header = memo(function Header({
     if (location.pathname.startsWith('/agents')) return 'Agents';
     if (location.pathname.startsWith('/orgs')) return 'Organizations';
     if (location.pathname.startsWith('/bci')) return 'Tools';
+    if (location.pathname.startsWith('/settings/profile')) return 'Profile';
+    if (location.pathname.startsWith('/settings/security')) return 'Security';
     if (location.pathname.startsWith('/settings')) return 'Settings';
     return PRODUCT_DISPLAY_NAME;
   }, [location.pathname]);
@@ -610,7 +612,7 @@ const Header = memo(function Header({
                   role="menuitem"
                   onClick={() => {
                     closeProfileMenu();
-                    navigate('/settings');
+                    navigate('/settings/profile');
                   }}
                 >
                   Profile

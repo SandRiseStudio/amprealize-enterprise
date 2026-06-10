@@ -49,13 +49,33 @@ interface ExecutionStatusResponse {
   has_execution: boolean;
   run_id?: string | null;
   task_cycle_id?: string | null;
+  work_item_id?: string | null;
+  agent_id?: string | null;
+  project_id?: string | null;
+  org_id?: string | null;
   state?: string | null;
   phase?: string | null;
   started_at?: string | null;
+  completed_at?: string | null;
   progress_pct?: number | null;
   current_step?: string | null;
   total_tokens?: number | null;
   total_cost_usd?: number | null;
+  tool_count?: number | null;
+  step_count?: number | null;
+  error?: string | null;
+  last_error?: string | null;
+  model_id?: string | null;
+  surface?: string | null;
+  source_type?: string | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
+  request_id?: string | null;
+  execution_mode?: string | null;
+  queue_job_id?: string | null;
+  queue_metadata?: Record<string, unknown> | null;
+  phase_timings?: Record<string, unknown> | null;
+  trace_summary?: Record<string, unknown> | null;
   pending_clarifications?: Array<Record<string, unknown>> | null;
 }
 
@@ -105,7 +125,7 @@ export const executionKeys = {
 
 function mapExecutionStatus(response: ExecutionStatusResponse): ExecutionStatus {
   // Validate state is a valid ExecutionState
-  const validStates = ['pending', 'running', 'completed', 'failed', 'cancelled'];
+  const validStates = ['pending', 'running', 'paused', 'completed', 'failed', 'cancelled'];
   const state = response.state && validStates.includes(response.state) ? response.state as ExecutionState : null;
 
   return {
@@ -120,6 +140,7 @@ function mapExecutionStatus(response: ExecutionStatusResponse): ExecutionStatus 
     totalTokens: response.total_tokens ?? null,
     totalCostUsd: response.total_cost_usd ?? null,
     pendingClarifications: response.pending_clarifications ?? null,
+    traceSummary: response.trace_summary ?? null,
   };
 }
 
@@ -178,6 +199,11 @@ function mergeExecutionStatus(
     ?? previous?.taskCycleId
     ?? null;
 
+  const traceSummary =
+    'trace_summary' in payload && payload.trace_summary != null
+      ? (payload.trace_summary as Record<string, unknown>)
+      : previous?.traceSummary ?? null;
+
   return {
     hasExecution: previous?.hasExecution ?? Boolean(payload.run_id),
     runId: payload.run_id ?? previous?.runId ?? null,
@@ -190,6 +216,7 @@ function mergeExecutionStatus(
     totalTokens: previous?.totalTokens ?? null,
     totalCostUsd: previous?.totalCostUsd ?? null,
     pendingClarifications: previous?.pendingClarifications ?? null,
+    traceSummary,
   };
 }
 

@@ -7,7 +7,7 @@
  * - Accessible keyboard interactions (Escape to close, focus-visible)
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ClarificationPanel,
   ExecutionStatusCard,
@@ -15,7 +15,6 @@ import {
 } from '../../lib/collab-client';
 import {
   type BoardColumn,
-  type WorkItemProgressRollup,
   type UpdateWorkItemRequest,
   type WorkItem,
   type WorkItemComment,
@@ -46,6 +45,10 @@ import { buildExecutionControlModel } from '../../lib/executionControls';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import type { PresenceState } from '../../hooks/useAgentPresence';
+import { InlineAssigneePopover } from './InlineAssigneePopover';
+import { RollupProgressInline } from './RollupProgressInline';
+import { formatRemainingSummary } from './rollupProgressDisplay';
+import { CompactLoadingShimmer, WorkItemDrawerBodySkeleton } from '../loading';
 import './WorkItemDrawer.css';
 
 type DrawerPhase = 'entering' | 'open' | 'closing';
@@ -133,17 +136,6 @@ function toTitleCase(input: string): string {
   return input.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatRollupRemaining(rollup: WorkItemProgressRollup): string {
-  const chunks: string[] = [`${rollup.remaining.items_remaining} items left`];
-  if (rollup.remaining.estimated_hours_remaining != null) {
-    chunks.push(`${rollup.remaining.estimated_hours_remaining.toFixed(1)}h`);
-  }
-  if (rollup.remaining.points_remaining != null) {
-    chunks.push(`${rollup.remaining.points_remaining} pts`);
-  }
-  return chunks.join(' • ');
-}
-
 function toDateInputValue(value?: string | null): string {
   if (!value) return '';
   const date = new Date(value);
@@ -183,26 +175,86 @@ function parseNumberDraft(value: string, kind: NumberField): number | null {
   return parsed;
 }
 
-function shouldHighlightPriority(priority?: WorkItemPriority | null): boolean {
-  return priority === 'critical' || priority === 'high';
+/** Maps a child work item to a coarse progress bucket for drawer UI. */
+export type ChildProgressBucket = 'not_started' | 'in_progress' | 'done';
+
+export function bucketForChild(child: WorkItem, boardColumns: BoardColumn[]): ChildProgressBucket {
+  const column = boardColumns.find((c) => c.column_id === child.column_id);
+  const mapping = column?.status_mapping;
+  if (mapping === 'in_progress' || mapping === 'in_review') return 'in_progress';
+  if (mapping === 'done') return 'done';
+  if (mapping === 'backlog') return 'not_started';
+  if (child.status === 'done') return 'done';
+  if (child.status === 'in_progress' || child.status === 'in_review') return 'in_progress';
+  return 'not_started';
 }
 
-function summarizeStructure(
-  parentItem: WorkItem | null,
-  childItems: WorkItem[],
-  progressRollup: WorkItemProgressRollup | null | undefined
-): string {
-  const parts: string[] = [];
-  if (parentItem) {
-    parts.push(`Linked to ${labelForType(parentItem.item_type).toLowerCase()} ${shortId(parentItem)}`);
+const CHILD_BUCKET_ORDER: Record<ChildProgressBucket, number> = {
+  in_progress: 0,
+  not_started: 1,
+  done: 2,
+};
+
+export function compareChildrenByStatus(a: WorkItem, b: WorkItem, boardColumns: BoardColumn[]): number {
+  const bucketA = bucketForChild(a, boardColumns);
+  const bucketB = bucketForChild(b, boardColumns);
+  const diff = CHILD_BUCKET_ORDER[bucketA] - CHILD_BUCKET_ORDER[bucketB];
+  if (diff !== 0) return diff;
+  return (a.position ?? 0) - (b.position ?? 0);
+}
+
+const HERO_DESCRIPTION_COLLAPSE_MAX = 2000;
+
+function heroDescriptionCollapsePreview(text: string): string {
+  const t = text.trim();
+  if (t.length <= HERO_DESCRIPTION_COLLAPSE_MAX) return t;
+  return `${t.slice(0, HERO_DESCRIPTION_COLLAPSE_MAX - 1)}…`;
+}
+
+function priorityHeroChipClass(priority: WorkItemPriority): string {
+  switch (priority) {
+    case 'critical':
+      return 'hero-chip-priority--critical';
+    case 'high':
+      return 'hero-chip-priority--high';
+    case 'low':
+      return 'hero-chip-priority--low';
+    case 'medium':
+    default:
+      return 'hero-chip-priority--medium';
   }
-  if (childItems.length > 0) {
-    parts.push(`${childItems.length} linked ${childItems.length === 1 ? 'item' : 'items'}`);
-  }
-  if (progressRollup) {
-    parts.push(`${Math.round(progressRollup.completion_percent)}% complete`);
-  }
-  return parts.length > 0 ? parts.join(' • ') : 'No rollup or linked work yet.';
+}
+
+/** Visual urgency for the due-date chip from YYYY-MM-DD (local calendar days). */
+function dueDateHeroChipClass(ymd: string): string {
+  const raw = ymd?.trim();
+  if (!raw) return 'hero-chip-due--empty';
+  const parts = raw.split('-');
+  if (parts.length !== 3) return 'hero-chip-due--empty';
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return 'hero-chip-due--empty';
+  const due = new Date(y, m - 1, d);
+  const today = new Date();
+  const startOfDue = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const diffDays = Math.round((startOfDue - startOfToday) / 86400000);
+  if (diffDays < 0) return 'hero-chip-due--overdue';
+  if (diffDays === 0) return 'hero-chip-due--today';
+  if (diffDays <= 7) return 'hero-chip-due--soon';
+  return 'hero-chip-due--later';
+}
+
+function bucketCssClass(bucket: ChildProgressBucket): string {
+  return bucket.replace(/_/g, '-');
+}
+
+/** Short progress label for child rows (from bucket, not raw work item status strings). */
+export function labelForChildBucket(bucket: ChildProgressBucket): string {
+  if (bucket === 'in_progress') return 'In progress';
+  if (bucket === 'done') return 'Done';
+  return 'Backlog';
 }
 
 function summarizeExecution(status: ExecutionStatus | null, hasAgentAssignment: boolean): string {
@@ -266,6 +318,7 @@ export interface WorkItemDrawerProps {
   onCopyWorkItemId: (itemId: string, displayId?: string) => void;
   onNotify: (message: string, variant?: 'success' | 'error') => void;
   onRequestClose: () => void;
+  onOpenItem?: (itemId: string) => void;
 }
 
 export function WorkItemDrawer({
@@ -285,9 +338,11 @@ export function WorkItemDrawer({
   onCopyWorkItemId,
   onNotify,
   onRequestClose,
+  onOpenItem,
 }: WorkItemDrawerProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const heroDescriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const commentEndRef = useRef<HTMLDivElement | null>(null);
   const lastHydratedItemIdRef = useRef<string | null>(null);
@@ -301,12 +356,12 @@ export function WorkItemDrawer({
   const [priorityDraft, setPriorityDraft] = useState<WorkItemPriority>(initialItem?.priority ?? 'medium');
   const [labels, setLabels] = useState<string[]>(initialItem?.labels ?? []);
   const [newLabelDraft, setNewLabelDraft] = useState('');
-  const [assigneeSearch, setAssigneeSearch] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
   const [activityFilter, setActivityFilter] = useState<WorkItemActivityFilter>('all');
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
   const [showAdvancedDetails, setShowAdvancedDetails] = useState(false);
   const [showCascadeModal, setShowCascadeModal] = useState(false);
+  const [heroDescriptionInlineOpen, setHeroDescriptionInlineOpen] = useState(false);
   const [pendingColumnChange, setPendingColumnChange] = useState<{ toColumnId: string | null; position: number } | null>(null);
   const [dueDateDraft, setDueDateDraft] = useState(toDateInputValue(initialItem?.due_date));
   const [startDateDraft, setStartDateDraft] = useState(toDateInputValue(initialItem?.start_date));
@@ -386,6 +441,13 @@ export function WorkItemDrawer({
     return [];
   }, [boardItems, item]);
 
+  const columnNameById = useMemo(() => new Map(columns.map((c) => [c.column_id, c.name])), [columns]);
+
+  const sortedStudioChildren = useMemo(
+    () => [...childItems].sort((a, b) => compareChildrenByStatus(a, b, columns)),
+    [childItems, columns],
+  );
+
   useEffect(() => {
     lastHydratedItemIdRef.current = null;
     prevFocusRef.current = document.activeElement as HTMLElement | null;
@@ -426,14 +488,20 @@ export function WorkItemDrawer({
       setShowAssigneePicker(false);
       setShowAdvancedDetails(false);
       setSaveState('idle');
+      setHeroDescriptionInlineOpen(false);
     });
   }, [item]);
 
+  useLayoutEffect(() => {
+    if (!heroDescriptionInlineOpen) return;
+    heroDescriptionTextareaRef.current?.focus({ preventScroll: true });
+  }, [heroDescriptionInlineOpen]);
+
   useEffect(() => {
     queueMicrotask(() => {
-      setAssigneeSearch('');
       setCommentDraft('');
       setActivityFilter('all');
+      setHeroDescriptionInlineOpen(false);
     });
   }, [itemId]);
 
@@ -702,62 +770,6 @@ export function WorkItemDrawer({
   }, [currentAssignee, item]);
 
   const assignmentProfile = currentAssignee ?? fallbackAssignee;
-  const assigneeSearchValue = assigneeSearch.trim().toLowerCase();
-  const filteredHumans = useMemo(() => {
-    if (!assigneeSearchValue) return assignableHumans;
-    return assignableHumans.filter((profile) => {
-      const haystack = `${profile.label} ${profile.subtitle ?? ''} ${profile.id}`.toLowerCase();
-      return haystack.includes(assigneeSearchValue);
-    });
-  }, [assignableHumans, assigneeSearchValue]);
-
-  const presencePriority = (presence: PresenceState | undefined): number => {
-    switch (presence) {
-      case 'available':
-        return 1;
-      case 'finished_recently':
-        return 2;
-      case 'working':
-        return 3;
-      case 'at_capacity':
-        return 4;
-      case 'paused':
-        return 5;
-      case 'offline':
-        return 6;
-      default:
-        return 7;
-    }
-  };
-
-  const filteredAgents = useMemo(() => {
-    let agents = assignableAgents;
-    if (assigneeSearchValue) {
-      agents = agents.filter((profile) => {
-        const haystack = `${profile.label} ${profile.subtitle ?? ''} ${profile.id}`.toLowerCase();
-        return haystack.includes(assigneeSearchValue);
-      });
-    }
-    return [...agents].sort((left, right) => presencePriority(left.presence) - presencePriority(right.presence));
-  }, [assignableAgents, assigneeSearchValue]);
-
-  const groupedAgents = useMemo(() => {
-    const available: AssigneeProfile[] = [];
-    const working: AssigneeProfile[] = [];
-    const pausedOffline: AssigneeProfile[] = [];
-
-    for (const agent of filteredAgents) {
-      if (agent.presence === 'available' || agent.presence === 'finished_recently') {
-        available.push(agent);
-      } else if (agent.presence === 'working' || agent.presence === 'at_capacity') {
-        working.push(agent);
-      } else {
-        pausedOffline.push(agent);
-      }
-    }
-
-    return { available, working, pausedOffline };
-  }, [filteredAgents]);
 
   const handleCopyLink = useCallback(async () => {
     const copied = await copyTextToClipboard(itemUrl);
@@ -1022,7 +1034,7 @@ export function WorkItemDrawer({
         {
           onSuccess: () => {
             setSaveState('saved');
-            setAssigneeSearch('');
+            setShowAssigneePicker(false);
             window.setTimeout(() => setSaveState('idle'), 1100);
           },
           onError: () => setSaveState('error'),
@@ -1040,6 +1052,7 @@ export function WorkItemDrawer({
       {
         onSuccess: () => {
           setSaveState('saved');
+          setShowAssigneePicker(false);
           window.setTimeout(() => setSaveState('idle'), 1100);
         },
         onError: () => setSaveState('error'),
@@ -1056,43 +1069,99 @@ export function WorkItemDrawer({
       progressRollup &&
       (completionPercent > 0 || progressRollup.incomplete_items.length > 0 || childItems.length > 0)
   );
-  const structureSummary = item
-    ? summarizeStructure(parentItem, childItems, progressRollup)
-    : 'No rollup or linked work yet.';
   const executionSummary = summarizeExecution(executionStatus, hasAgentAssignment);
   const commentHint = actor?.id ? 'Cmd+Enter to send' : 'Sign in to comment.';
   const commentPlaceholder = actor?.id
     ? 'Share context for humans and agents...'
     : 'Sign in to leave a comment.';
 
-  const renderAssigneeIdentity = useCallback(() => {
-    return (
-      <div
-        className={`assignee-chip ${
-          assignmentProfile ? `assignee-${assignmentProfile.type}` : 'assignee-unassigned'
-        }${isOrphanedAssignment ? ' assignee-orphaned' : ''}`}
-        aria-label={assignmentProfile ? `Assigned to ${assignmentProfile.label}` : 'Unassigned'}
-      >
-        <span className="assignee-avatar">
-          {assignmentProfile?.actor ? (
-            <ActorAvatar actor={assignmentProfile.actor} size="sm" surfaceType="chip" decorative />
-          ) : (
-            assignmentProfile?.avatar ?? (assignmentProfile ? getInitials(assignmentProfile.label) : '+')
-          )}
-        </span>
-        <span className="assignee-name">
-          {assignmentProfile?.label ?? 'Unassigned'}
-        </span>
-        <span className="assignee-type-label">
-          {isOrphanedAssignment ? 'Missing' : assignmentProfile?.type === 'agent' ? 'Agent' : assignmentProfile?.type === 'user' ? 'Human' : 'Unassigned'}
-        </span>
-      </div>
-    );
-  }, [assignmentProfile, isOrphanedAssignment]);
+  const renderAssigneeIdentity = useCallback(
+    (opts?: { embedInHero?: boolean }) => {
+      const embedInHero = opts?.embedInHero ?? false;
+      const chipClass = `assignee-chip ${
+        assignmentProfile ? `assignee-${assignmentProfile.type}` : 'assignee-unassigned'
+      }${isOrphanedAssignment ? ' assignee-orphaned' : ''}${showAssigneePicker ? ' assignee-chip-open' : ''}`;
+      const label = assignmentProfile ? `Assigned to ${assignmentProfile.label}` : 'Unassigned — choose assignee';
+      const inner = (
+        <>
+          <span className="assignee-avatar">
+            {assignmentProfile?.actor ? (
+              <ActorAvatar actor={assignmentProfile.actor} size="sm" surfaceType="chip" decorative />
+            ) : (
+              assignmentProfile?.avatar ?? (assignmentProfile ? getInitials(assignmentProfile.label) : '+')
+            )}
+          </span>
+          <span className="assignee-name">{assignmentProfile?.label ?? 'Unassigned'}</span>
+          <span className="assignee-type-label">
+            {isOrphanedAssignment ? 'Missing' : assignmentProfile?.type === 'agent' ? 'Agent' : assignmentProfile?.type === 'user' ? 'Human' : 'Unassigned'}
+          </span>
+        </>
+      );
+      if (embedInHero) {
+        return (
+          <button
+            type="button"
+            className={chipClass}
+            aria-label={label}
+            aria-haspopup="dialog"
+            aria-expanded={showAssigneePicker}
+            data-inline-assignee-control
+            onClick={() => setShowAssigneePicker((current) => !current)}
+            data-haptic="light"
+          >
+            {inner}
+            <span className="assignee-chip-chevron" aria-hidden="true" />
+          </button>
+        );
+      }
+      return (
+        <div className={chipClass} aria-label={label}>
+          {inner}
+        </div>
+      );
+    },
+    [assignmentProfile, isOrphanedAssignment, showAssigneePicker]
+  );
 
   const renderAssigneePicker = useCallback(
-    (compact = false) => (
-      <div className={`work-item-card-surface${compact ? ' work-item-card-surface-compact' : ''}`}>
+    (opts?: { compact?: boolean; embedInHero?: boolean }) => {
+      const compact = opts?.compact ?? false;
+      const embedInHero = opts?.embedInHero ?? false;
+
+      const expandedPicker = showAssigneePicker ? (
+        <div
+          className={
+            embedInHero
+              ? 'assignee-picker-dropdown work-item-drawer-assignee-iap'
+              : 'work-item-stack work-item-drawer-assignee-iap'
+          }
+        >
+          <InlineAssigneePopover
+            assignableHumans={assignableHumans}
+            assignableAgents={assignableAgents}
+            currentAssignee={assignmentProfile}
+            onAssign={handleAssign}
+            onUnassign={handleUnassign}
+            onClose={() => setShowAssigneePicker(false)}
+            isPending={assignmentBusy}
+            showOptionSubtitle={false}
+          />
+        </div>
+      ) : null;
+
+      if (embedInHero) {
+        return (
+          <div className="work-item-hero-assignee">
+            <div className="work-item-hero-assignee-toolbar">
+              <div className="work-item-hero-assignee-identity">{renderAssigneeIdentity({ embedInHero: true })}</div>
+            </div>
+            {expandedPicker}
+          </div>
+        );
+      }
+
+      return (
+        <div className={`work-item-card-surface${compact ? ' work-item-card-surface-compact' : ''}`}>
         <div className="work-item-card-header">
           <div>
             <div className="work-item-card-eyebrow">Assignee</div>
@@ -1124,286 +1193,120 @@ export function WorkItemDrawer({
           </div>
         </div>
         <div className="assignee-current">
-          {renderAssigneeIdentity()}
+          {renderAssigneeIdentity({ embedInHero: false })}
           <span className="field-support-text">{assignmentHint ?? 'Project collaborators'}</span>
         </div>
-        {showAssigneePicker && (
-          <div className="work-item-stack">
-            <input
-              className="drawer-input assignee-search-input"
-              value={assigneeSearch}
-              onChange={(event) => setAssigneeSearch(event.target.value)}
-              placeholder="Search people or agents"
-              aria-label="Search assignees"
-              autoComplete="off"
-            />
-            <div className="assignee-grid">
-              <div className="assignee-group">
-                <div className="assignee-group-title">People</div>
-                <div className="assignee-options">
-                  {filteredHumans.map((profile) => {
-                    const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                    return (
-                      <button
-                        key={`user-${profile.id}`}
-                        type="button"
-                        className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                        onClick={() => handleAssign(profile)}
-                        disabled={assignmentBusy}
-                        aria-pressed={isSelected}
-                        aria-label={`Assign to ${profile.label}`}
-                        data-haptic="light"
-                      >
-                        <span className="assignee-option-meta">
-                          <span className="assignee-avatar">
-                            {profile.actor ? (
-                              <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                            ) : (
-                              profile.avatar ?? getInitials(profile.label)
-                            )}
-                          </span>
-                          <span className="assignee-text">
-                            <span className="assignee-name">{profile.label}</span>
-                            <span className="assignee-subtitle">{profile.subtitle ?? 'Human'}</span>
-                          </span>
-                        </span>
-                        <span className="assignee-status">Human</span>
-                      </button>
-                    );
-                  })}
-                  {!filteredHumans.length && (
-                    <div className="assignee-empty">
-                      {assigneeSearchValue ? 'No people match this search.' : 'No people available yet.'}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {groupedAgents.available.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Available now</div>
-                  <div className="assignee-options">
-                    {groupedAgents.available.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-available">
-                            {profile.presenceLabel ?? 'Available'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {groupedAgents.working.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Working</div>
-                  <div className="assignee-options">
-                    {groupedAgents.working.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      const contextLabel = profile.activeItemCount
-                        ? `${profile.presenceLabel ?? 'Working'} • ${profile.activeItemCount} item${profile.activeItemCount > 1 ? 's' : ''}`
-                        : profile.presenceLabel ?? toStatusLabel(profile.status);
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-working">{contextLabel ?? 'Working'}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {groupedAgents.pausedOffline.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Paused / Offline</div>
-                  <div className="assignee-options">
-                    {groupedAgents.pausedOffline.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-offline">
-                            {profile.presenceLabel ?? 'Offline'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {!filteredAgents.length && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Agents</div>
-                  <div className="assignee-options">
-                    <div className="assignee-empty">
-                      {assigneeSearchValue ? 'No agents match this search.' : 'No agents available yet.'}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {expandedPicker}
       </div>
-    ),
+      );
+    },
     [
-      assigneeSearch,
-      assigneeSearchValue,
+      assignableAgents,
+      assignableHumans,
       assignmentBusy,
       assignmentHint,
       assignmentProfile,
-      filteredHumans,
-      groupedAgents.available,
-      groupedAgents.pausedOffline,
-      groupedAgents.working,
       handleAssign,
       handleUnassign,
       item?.assignee_id,
-      item?.assignee_type,
       renderAssigneeIdentity,
       showAssigneePicker,
-      filteredAgents.length,
     ]
   );
 
   const renderExecutionCard = useCallback(
-    (compact = false) => (
-      <div className={`work-item-card-surface${compact ? ' work-item-card-surface-compact' : ''}`}>
-        <div className="work-item-card-header">
-          <div>
-            <div className="work-item-card-eyebrow">Execution</div>
-            <div className="work-item-card-title-small">{executionSummary}</div>
-          </div>
-          <div className="work-item-inline-badges">
-            {executionStatus?.state && (
-              <span className={`activity-badge activity-badge-system activity-badge-state-${executionStatus.state}`}>
-                {toTitleCase(toStatusLabel(executionStatus.state))}
-              </span>
-            )}
-            {clarificationRequests.length > 0 && (
-              <span className="activity-badge activity-badge-warning">{clarificationRequests.length} needs input</span>
-            )}
-          </div>
-        </div>
-        <div className="work-item-stack">
-          <ExecutionStatusCard
-            title={executionStatus?.hasExecution ? 'Execution' : hasAgentAssignment ? 'Ready to run' : 'Execution'}
-            status={executionStatus}
-            isLoading={executionStatusQuery.isLoading}
-            subtitle={executionHint}
-            actions={
-              <>
-                <button
-                  type="button"
-                  className="execution-action-button pressable"
-                  onClick={handleStartExecution}
-                  disabled={!canStartExecution || executeWorkItem.isPending}
-                  title={executionControls.startTitle}
-                  data-haptic="light"
-                >
-                  {executeWorkItem.isPending ? 'Starting...' : startLabel}
-                </button>
-                <button
-                  type="button"
-                  className="execution-action-button execution-action-secondary pressable"
-                  onClick={handleCancelExecution}
-                  disabled={!canCancelExecution || cancelExecution.isPending}
-                  data-haptic="light"
-                >
-                  {cancelExecution.isPending ? 'Cancelling...' : executionControls.cancelLabel}
-                </button>
-                <button
-                  type="button"
-                  className="execution-action-button execution-action-ghost pressable"
-                  onClick={handleRefreshExecution}
-                  disabled={executionStatusQuery.isFetching}
-                >
-                  {executionStatusQuery.isFetching ? 'Refreshing...' : executionControls.refreshLabel}
-                </button>
-              </>
-            }
-          />
+    (opts?: { compact?: boolean; embedInHero?: boolean }) => {
+      const compact = opts?.compact ?? false;
+      const embedInHero = opts?.embedInHero ?? false;
+      const stateAttr = executionStatus?.state ? String(executionStatus.state).toLowerCase() : 'none';
 
-          {clarificationRequests.length > 0 && (
-            <ClarificationPanel
-              questions={clarificationRequests}
-              onSubmit={handleClarificationSubmit}
-              isSubmitting={provideClarification.isPending}
-              title="Agent needs your input"
-            />
+      return (
+        <div
+          className={
+            embedInHero
+              ? 'work-item-hero-execution'
+              : `work-item-card-surface work-item-card-execution${compact ? ' work-item-card-surface-compact' : ''}`
+          }
+          data-execution-state={stateAttr}
+        >
+          {!embedInHero && (
+            <div className="work-item-card-header work-item-card-execution-header">
+              <div>
+                <div className="work-item-card-eyebrow">Execution</div>
+                <div className="work-item-card-title-small">{executionSummary}</div>
+              </div>
+              <div className="work-item-inline-badges">
+                {executionStatus?.state && (
+                  <span className={`activity-badge activity-badge-system activity-badge-state-${executionStatus.state}`}>
+                    {toTitleCase(toStatusLabel(executionStatus.state))}
+                  </span>
+                )}
+                {clarificationRequests.length > 0 && (
+                  <span className="activity-badge activity-badge-warning">{clarificationRequests.length} needs input</span>
+                )}
+              </div>
+            </div>
           )}
+          {embedInHero && clarificationRequests.length > 0 && (
+            <div className="work-item-hero-exec-badges" role="status">
+              <span className="activity-badge activity-badge-warning">{clarificationRequests.length} needs input</span>
+            </div>
+          )}
+          <div className={embedInHero ? 'work-item-stack work-item-hero-exec-inner' : 'work-item-stack'}>
+            <ExecutionStatusCard
+              variant={embedInHero ? 'embedded' : 'default'}
+              className="execution-status-card work-item-execution-status"
+              title={executionStatus?.hasExecution ? 'Execution' : hasAgentAssignment ? 'Ready to run' : 'Execution'}
+              status={executionStatus}
+              isLoading={executionStatusQuery.isLoading}
+              subtitle={embedInHero ? executionHint ?? executionSummary : executionHint}
+              actions={
+                <>
+                  {!embedInHero ? (
+                    <button
+                      type="button"
+                      className="execution-action-button pressable"
+                      onClick={handleStartExecution}
+                      disabled={!canStartExecution || executeWorkItem.isPending}
+                      title={executionControls.startTitle}
+                      data-haptic="light"
+                    >
+                      {executeWorkItem.isPending ? 'Starting...' : startLabel}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="execution-action-button execution-action-secondary pressable"
+                    onClick={handleCancelExecution}
+                    disabled={!canCancelExecution || cancelExecution.isPending}
+                    data-haptic="light"
+                  >
+                    {cancelExecution.isPending ? 'Cancelling...' : executionControls.cancelLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="execution-action-button execution-action-ghost pressable"
+                    onClick={handleRefreshExecution}
+                    disabled={executionStatusQuery.isFetching}
+                  >
+                    {executionStatusQuery.isFetching ? 'Refreshing...' : executionControls.refreshLabel}
+                  </button>
+                </>
+              }
+            />
+
+            {clarificationRequests.length > 0 && (
+              <ClarificationPanel
+                questions={clarificationRequests}
+                onSubmit={handleClarificationSubmit}
+                isSubmitting={provideClarification.isPending}
+                title="Agent needs your input"
+              />
+            )}
+          </div>
         </div>
-      </div>
-    ),
+      );
+    },
     [
       canCancelExecution,
       canStartExecution,
@@ -1428,22 +1331,107 @@ export function WorkItemDrawer({
     ]
   );
 
-  const renderStructureCard = useCallback(
-    (compact = false) => (
-      <div className={`work-item-card-surface${compact ? ' work-item-card-surface-compact' : ''}`}>
-        <div className="work-item-card-header">
-          <div>
-            <div className="work-item-card-eyebrow">Structure</div>
-            <div className="work-item-card-title-small">{structureSummary}</div>
+  const renderChildrenCard = useCallback(() => {
+    if (!showChildrenSection || !item) return null;
+    const childrenLabel = item.item_type === 'feature' ? 'Tasks' : 'Features';
+    const linkedCountLabel = `${sortedStudioChildren.length} linked`;
+    const hasRolledUpChildren = Boolean(progressRollup && progressRollup.buckets.total > 0);
+    const showProgressOnChip = Boolean(
+      hasRolledUpChildren && (item.item_type === 'goal' || item.item_type === 'feature'),
+    );
+    return (
+      <section
+        className="work-item-card-surface work-item-card-surface-main work-item-card-children"
+        aria-label={`${childrenLabel} under this work item`}
+      >
+        <div className="work-item-card-header work-item-card-header-tight work-item-card-header-children">
+          <div className="work-item-card-eyebrow">{childrenLabel}</div>
+          <div className="children-card-rollup-slot">
+            {progressRollup ? (
+              <RollupProgressInline
+                progressRollup={progressRollup}
+                countLabel={linkedCountLabel}
+                showProgress={showProgressOnChip}
+                rollupContextNoun={item.item_type === 'goal' ? 'goal' : 'feature'}
+              />
+            ) : (
+              <span className="activity-badge activity-badge-system">{linkedCountLabel}</span>
+            )}
           </div>
-          {(showProgressSection || showChildrenSection || showParentSection) && (
-            <div className="work-item-inline-badges">
-              {showChildrenSection && <span className="activity-badge activity-badge-system">{childItems.length} linked</span>}
-              {showProgressSection && progressRollup && (
-                <span className="activity-badge activity-badge-system">{Math.round(progressRollup.completion_percent)}% complete</span>
-              )}
-            </div>
-          )}
+        </div>
+        {progressRollup ? (
+          <div className="drawer-progress-remaining children-rollup-remaining">{formatRemainingSummary(progressRollup)}</div>
+        ) : null}
+        <div className="children-rows">
+          {sortedStudioChildren.map((child) => {
+            const bucket = bucketForChild(child, columns);
+            const css = bucketCssClass(bucket);
+            const colName = columnNameById.get(child.column_id ?? '') ?? '—';
+            const statusLabel = labelForChildBucket(bucket);
+            const showColumn =
+              colName !== '—' && colName.toLowerCase() !== statusLabel.toLowerCase();
+            const childDisplayId = shortId(child, projectSlug);
+            return (
+              <div key={child.item_id} className={`children-row children-row-${css}`}>
+                <button
+                  type="button"
+                  className="children-row-id-chip pressable"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCopyWorkItemId(child.item_id, childDisplayId);
+                  }}
+                  aria-label={`Copy display ID ${childDisplayId}`}
+                  title={`Click to copy ${childDisplayId}`}
+                >
+                  {childDisplayId}
+                </button>
+                <button
+                  type="button"
+                  className="children-row-title children-row-title-button pressable"
+                  onClick={() => onOpenItem?.(child.item_id)}
+                  disabled={!onOpenItem}
+                  aria-label={
+                    onOpenItem ? `Open linked item ${childDisplayId}: ${child.title}` : undefined
+                  }
+                  title={onOpenItem ? `Open "${child.title}" (${childDisplayId})` : undefined}
+                >
+                  <span className="children-row-title-text">{child.title}</span>
+                </button>
+                <span className={`children-status-pill children-status-${css}`}>{statusLabel}</span>
+                {showColumn ? (
+                  <span className="children-row-column" title="Board column">
+                    {colName}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }, [
+    columnNameById,
+    item,
+    onCopyWorkItemId,
+    onOpenItem,
+    progressRollup,
+    projectSlug,
+    showChildrenSection,
+    sortedStudioChildren,
+  ]);
+
+  const renderDetailsCard = useCallback(
+    () => (
+      <div className="work-item-card-surface">
+        <div className="work-item-card-header work-item-card-header-tight">
+          <div className="work-item-card-eyebrow">Details</div>
+          <button
+            type="button"
+            className="drawer-inline-button pressable"
+            onClick={() => setShowAdvancedDetails((current) => !current)}
+          >
+            {showAdvancedDetails ? 'Hide system' : 'Show system'}
+          </button>
         </div>
 
         <div className="work-item-stack">
@@ -1472,85 +1460,18 @@ export function WorkItemDrawer({
             </div>
           )}
 
-          {showChildrenSection && (
-            <div className="work-item-stack">
-              <div className="drawer-label-row">
-                <label className="drawer-label">{item?.item_type === 'feature' ? 'Tasks' : 'Features'}</label>
-                <span className="drawer-assignee-hint">{childItems.length} linked</span>
-              </div>
-              <div className="hierarchy-children work-item-card-soft">
-                {childItems.map((child) => (
-                  <div key={child.item_id} className="hierarchy-child">
-                    <span className={`hierarchy-chip hierarchy-chip-${child.item_type}`}>
-                      {shortId(child, projectSlug)} • {child.title}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {showProgressSection && progressRollup && (
+          {showProgressSection && progressRollup && !showChildrenSection && (
             <div className="drawer-progress-panel work-item-card-soft">
-              <div className="drawer-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completionPercent}>
-                <div
-                  className="drawer-progress-fill"
-                  style={{ width: `${Math.min(100, Math.max(0, completionPercent))}%` }}
-                />
-              </div>
-              <div className="drawer-progress-buckets">
-                <span className="drawer-progress-chip drawer-progress-chip-not-started">
-                  {progressRollup.buckets.not_started} not started
-                </span>
-                <span className="drawer-progress-chip drawer-progress-chip-in-progress">
-                  {progressRollup.buckets.in_progress} in progress
-                </span>
-                <span className="drawer-progress-chip drawer-progress-chip-completed">
-                  {progressRollup.buckets.completed} completed
-                </span>
-              </div>
-              <div className="drawer-progress-remaining">{formatRollupRemaining(progressRollup)}</div>
+              <RollupProgressInline
+                progressRollup={progressRollup}
+                showProgress={Boolean(progressRollup.buckets.total > 0)}
+                rollupContextNoun={item?.item_type === 'goal' ? 'goal' : 'feature'}
+                className="work-item-rollup-chip-inline--drawer"
+              />
+              <div className="drawer-progress-remaining">{formatRemainingSummary(progressRollup)}</div>
             </div>
           )}
-        </div>
-      </div>
-    ),
-    [
-      childItems,
-      completionPercent,
-      handleParentChange,
-      item?.item_type,
-      item?.parent_id,
-      parentCandidates,
-      parentItem,
-      parentLabel,
-      progressRollup,
-      projectSlug,
-      showChildrenSection,
-      showParentSection,
-      showProgressSection,
-      structureSummary,
-    ]
-  );
 
-  const renderDetailsCard = useCallback(
-    () => (
-      <div className="work-item-card-surface">
-        <div className="work-item-card-header">
-          <div>
-            <div className="work-item-card-eyebrow">Details</div>
-            <div className="work-item-card-title-small">Dates, estimates, labels, and system metadata</div>
-          </div>
-          <button
-            type="button"
-            className="drawer-inline-button pressable"
-            onClick={() => setShowAdvancedDetails((current) => !current)}
-          >
-            {showAdvancedDetails ? 'Hide system' : 'Show system'}
-          </button>
-        </div>
-
-        <div className="work-item-stack">
           <div className="work-item-field-grid">
             <div className="work-item-field">
               <label className="drawer-label" htmlFor="work-item-start-date">Start date</label>
@@ -1686,16 +1607,26 @@ export function WorkItemDrawer({
     ),
     [
       actualHoursDraft,
+      completionPercent,
       estimatedHoursDraft,
       handleDateChange,
       handleLabelsRemove,
       handleNewLabelKeyDown,
       handleNumberBlur,
+      handleParentChange,
       item,
       labels,
       newLabelDraft,
+      parentCandidates,
+      parentItem,
+      parentLabel,
       pointsDraft,
+      progressRollup,
+      projectSlug,
       showAdvancedDetails,
+      showChildrenSection,
+      showParentSection,
+      showProgressSection,
       startDateDraft,
       targetDateDraft,
     ]
@@ -1704,11 +1635,8 @@ export function WorkItemDrawer({
   const renderStudioActivity = useCallback(
     () => (
       <section className="work-item-card-surface work-item-card-surface-main">
-        <div className="work-item-card-header">
-          <div>
-            <div className="work-item-card-eyebrow">Activity</div>
-            <div className="work-item-card-title-small">Comments, execution steps, and system updates in one feed</div>
-          </div>
+        <div className="work-item-card-header work-item-card-header-tight">
+          <div className="work-item-card-eyebrow">Activity</div>
           <button
             type="button"
             className="drawer-inline-button pressable"
@@ -1766,8 +1694,8 @@ export function WorkItemDrawer({
 
           <div className="activity-feed">
             {commentsQuery.isLoading && activityEntries.length === 0 && (
-              <div className="activity-empty" role="status">
-                Loading activity...
+              <div className="activity-empty">
+                <CompactLoadingShimmer label="Loading activity" />
               </div>
             )}
             {!commentsQuery.isLoading && filteredActivityEntries.length === 0 && (
@@ -1813,146 +1741,157 @@ export function WorkItemDrawer({
     ]
   );
 
-  const renderStudio = useCallback(() => (
+  const renderStudio = useCallback(() => {
+    const trimmedDescription = descriptionDraft.trim();
+    const hasDescription = trimmedDescription.length > 0;
+    const descriptionPreviewCollapsed = heroDescriptionCollapsePreview(descriptionDraft);
+    const childrenBlock = showChildrenSection ? renderChildrenCard() : null;
+
+    return (
     <div className="work-item-studio-layout">
       <div className="work-item-studio-main">
-        <section className="work-item-card-surface work-item-card-surface-main">
+        <section className="work-item-card-surface work-item-card-surface-main work-item-hero-surface" aria-label="Work item header">
           <div className="work-item-hero work-item-hero-studio">
-            <div className="work-item-hero-topline">
-              <span className={`work-item-type-pill work-item-type-pill-${item?.item_type ?? 'goal'}`}>{typeLabel}</span>
-              <span className="work-item-hero-id">{item ? shortId(item, projectSlug) : shortId(itemId, projectSlug)}</span>
-              <span className="summary-chip">{toTitleCase(toStatusLabel(item?.status ?? 'backlog'))}</span>
-              <span className="summary-chip">Updated {formatRelativeTime(item?.updated_at)}</span>
+            <div className="work-item-hero-title-slot">
+              <span className="work-item-hero-description-kicker">Title</span>
+              <input
+                id="work-item-title"
+                ref={titleRef}
+                className="drawer-input work-item-title-input work-item-title-input-studio"
+                value={titleDraft}
+                onChange={handleTitleChange}
+                onBlur={() => debouncedSave.schedule()}
+                placeholder="What needs to happen?"
+                autoComplete="off"
+                aria-label="Title"
+              />
             </div>
-            <label className="drawer-label" htmlFor="work-item-title">Title</label>
-            <input
-              id="work-item-title"
-              ref={titleRef}
-              className="drawer-input work-item-title-input work-item-title-input-studio"
-              value={titleDraft}
-              onChange={handleTitleChange}
-              onBlur={() => debouncedSave.schedule()}
-              placeholder="What needs to happen?"
-              autoComplete="off"
-            />
-            <div className="studio-subtitle-row">
-              <div className="studio-subtitle-copy">
-                {assignmentProfile ? `${assignmentProfile.label} owns this ${typeLabel.toLowerCase()}.` : `Assign an owner to move this ${typeLabel.toLowerCase()} forward.`}
+            <div className="work-item-hero-description-slot">
+              {heroDescriptionInlineOpen ? (
+                <div className="work-item-hero-description-inline" aria-label="Description editor">
+                  <div className="work-item-hero-description-inline-header">
+                    <span className="work-item-hero-description-kicker">Description</span>
+                    <button
+                      type="button"
+                      className="drawer-inline-button pressable"
+                      onClick={() => setHeroDescriptionInlineOpen(false)}
+                    >
+                      Done
+                    </button>
+                  </div>
+                  <textarea
+                    id="work-item-description"
+                    ref={heroDescriptionTextareaRef}
+                    className="drawer-textarea work-item-description-input work-item-hero-description-textarea"
+                    value={descriptionDraft}
+                    onChange={handleDescriptionChange}
+                    onBlur={() => debouncedSave.schedule()}
+                    placeholder="Add context, links, acceptance criteria, risks, or blockers..."
+                    rows={8}
+                    aria-label="Description"
+                  />
+                </div>
+              ) : hasDescription ? (
+                <button
+                  type="button"
+                  className="work-item-hero-description-strip pressable"
+                  onClick={() => setHeroDescriptionInlineOpen(true)}
+                  aria-expanded={false}
+                  aria-controls="work-item-description"
+                  title="Edit description"
+                >
+                  <span className="work-item-hero-description-kicker">Description</span>
+                  <span className="work-item-hero-description-line">{descriptionPreviewCollapsed}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="work-item-hero-description-add pressable"
+                  onClick={() => setHeroDescriptionInlineOpen(true)}
+                >
+                  Add description…
+                </button>
+              )}
+            </div>
+            <div className="work-item-hero-controls work-item-hero-controls--chips" role="group" aria-label="Priority and due date">
+              <div className={`hero-chip-field ${priorityHeroChipClass(priorityDraft)}`}>
+                <span className="hero-chip-kicker" id="work-item-priority-hero-k">Priority</span>
+                <select
+                  id="work-item-priority-hero"
+                  className="hero-chip-select"
+                  aria-labelledby="work-item-priority-hero-k"
+                  value={priorityDraft}
+                  onChange={handlePriorityChange}
+                >
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
               </div>
-              {item?.due_date && <span className="summary-chip">Due {formatAbsoluteDate(item.due_date)}</span>}
-              {shouldHighlightPriority(priorityDraft) && <span className={`activity-badge activity-badge-priority-${priorityDraft}`}>{toTitleCase(priorityDraft)}</span>}
+              <div className={`hero-chip-field hero-chip-field-date ${dueDateHeroChipClass(dueDateDraft)}`}>
+                <span className="hero-chip-kicker" id="work-item-due-date-hero-k">Due</span>
+                <input
+                  id="work-item-due-date-hero"
+                  type="date"
+                  className="hero-chip-date"
+                  aria-labelledby="work-item-due-date-hero-k"
+                  value={dueDateDraft}
+                  onChange={(event) => handleDateChange('due_date', event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="work-item-hero-work">
+              <div className="work-item-hero-assignee-start-row">
+                {renderAssigneePicker({ embedInHero: true })}
+                <button
+                  type="button"
+                  className="execution-action-button work-item-hero-start-chip pressable"
+                  onClick={handleStartExecution}
+                  disabled={!canStartExecution || executeWorkItem.isPending}
+                  title={executionControls.startTitle}
+                  data-haptic="light"
+                >
+                  {executeWorkItem.isPending ? 'Starting...' : startLabel}
+                </button>
+              </div>
+              {renderExecutionCard({ embedInHero: true })}
             </div>
           </div>
         </section>
 
-        <section className="work-item-card-surface work-item-card-surface-main">
-          <div className="work-item-card-header">
-            <div>
-              <div className="work-item-card-eyebrow">Description</div>
-              <div className="work-item-card-title-small">Long-form context, acceptance criteria, and links</div>
-            </div>
-            <span className="field-support-text">Autosaves after you pause typing</span>
-          </div>
-          <textarea
-            id="work-item-description"
-            className="drawer-textarea work-item-description-input"
-            value={descriptionDraft}
-            onChange={handleDescriptionChange}
-            onBlur={() => debouncedSave.schedule()}
-            placeholder="Add context, links, acceptance criteria, risks, or blockers..."
-            rows={10}
-          />
-        </section>
+        {childrenBlock}
 
         {renderStudioActivity()}
       </div>
 
       <aside className="work-item-studio-rail">
-        <section className="work-item-card-surface">
-          <div className="work-item-card-header">
-            <div>
-              <div className="work-item-card-eyebrow">Overview</div>
-              <div className="work-item-card-title-small">Primary controls for this work item</div>
-            </div>
-          </div>
-
-          <div className="work-item-stack">
-            <div className="work-item-field">
-              <label className="drawer-label" htmlFor="work-item-column-studio">Status / Column</label>
-              <select
-                id="work-item-column-studio"
-                className="drawer-select"
-                value={item?.column_id ?? '__none__'}
-                onChange={handleColumnChange}
-              >
-                <option value="__none__">Unsorted</option>
-                {columns.map((column) => (
-                  <option key={column.column_id} value={column.column_id}>
-                    {column.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="work-item-field">
-              <label className="drawer-label" htmlFor="work-item-priority-studio">Priority</label>
-              <select
-                id="work-item-priority-studio"
-                className="drawer-select"
-                value={priorityDraft}
-                onChange={handlePriorityChange}
-              >
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <div className="work-item-field">
-              <label className="drawer-label" htmlFor="work-item-due-date-studio">Due date</label>
-              <input
-                id="work-item-due-date-studio"
-                type="date"
-                className="drawer-input"
-                value={dueDateDraft}
-                onChange={(event) => handleDateChange('due_date', event.target.value)}
-              />
-            </div>
-          </div>
-        </section>
-
-        {renderAssigneePicker(false)}
-        {(showParentSection || showChildrenSection || showProgressSection) && renderStructureCard(false)}
-        {renderExecutionCard(false)}
         {renderDetailsCard()}
       </aside>
     </div>
-  ), [
-    assignmentProfile,
-    columns,
+    );
+  }, [
+    canStartExecution,
     debouncedSave,
     descriptionDraft,
     dueDateDraft,
-    handleColumnChange,
+    executeWorkItem.isPending,
+    executionControls.startTitle,
     handleDateChange,
     handleDescriptionChange,
     handlePriorityChange,
+    handleStartExecution,
     handleTitleChange,
-    item,
-    itemId,
+    heroDescriptionInlineOpen,
     priorityDraft,
     renderAssigneePicker,
+    renderChildrenCard,
     renderDetailsCard,
     renderExecutionCard,
-    renderStructureCard,
     renderStudioActivity,
     showChildrenSection,
-    showParentSection,
-    showProgressSection,
+    startLabel,
     titleDraft,
-    typeLabel,
-    projectSlug,
   ]);
 
   return (
@@ -1971,23 +1910,48 @@ export function WorkItemDrawer({
         <header className="work-item-drawer-header">
           <div className="work-item-drawer-header-left">
             <div className="work-item-drawer-meta">
-              <div className="work-item-drawer-type">{typeLabel}</div>
-              {item?.item_id && (
-                <div className="work-item-drawer-id-group">
-                  <div className="work-item-drawer-id" title={item.item_id}>{shortId(item, projectSlug)}</div>
+              {saveLabel ? <div className="work-item-drawer-save">{saveLabel}</div> : null}
+            </div>
+            {item ? (
+              <div className="work-item-drawer-header-chips" aria-label="Work item summary">
+                <span className={`work-item-type-pill work-item-type-pill-${item.item_type ?? 'goal'}`}>{typeLabel}</span>
+                <span className="work-item-hero-id-cluster">
+                  <span className="work-item-hero-id" title={item.item_id}>
+                    {shortId(item, projectSlug)}
+                  </span>
                   <button
                     type="button"
-                    className="work-item-inline-copy pressable"
+                    className="work-item-inline-copy work-item-hero-id-copy pressable"
                     onClick={handleCopyCurrentItemId}
                     aria-label={`Copy work item ID ${item.item_id}`}
                     title="Copy work item ID"
                   >
                     Copy ID
                   </button>
+                </span>
+                <span className="summary-chip">{toTitleCase(toStatusLabel(item.status ?? 'backlog'))}</span>
+                <div className="hero-chip-field hero-chip-field--header">
+                  <span className="hero-chip-kicker" id="work-item-column-header-k">
+                    Column
+                  </span>
+                  <select
+                    id="work-item-column-header"
+                    className="hero-chip-select"
+                    aria-labelledby="work-item-column-header-k"
+                    value={item.column_id ?? '__none__'}
+                    onChange={handleColumnChange}
+                  >
+                    <option value="__none__">Unsorted</option>
+                    {columns.map((column) => (
+                      <option key={column.column_id} value={column.column_id}>
+                        {column.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              )}
-              {saveLabel && <div className="work-item-drawer-save">{saveLabel}</div>}
-            </div>
+                <span className="summary-chip">Updated {formatRelativeTime(item.updated_at)}</span>
+              </div>
+            ) : null}
           </div>
           <div className="work-item-drawer-header-right">
             <button
@@ -2012,13 +1976,7 @@ export function WorkItemDrawer({
         </header>
 
         <div className="work-item-drawer-body">
-          {isLoading && (
-            <div className="work-item-drawer-skeleton" aria-label="Loading work item">
-              <div className="skeleton-line animate-shimmer" />
-              <div className="skeleton-line animate-shimmer" />
-              <div className="skeleton-block animate-shimmer" />
-            </div>
-          )}
+          {isLoading && <WorkItemDrawerBodySkeleton />}
 
           {isError && (
             <div className="work-item-drawer-error animate-fade-in-up" role="status">

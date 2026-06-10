@@ -23,6 +23,7 @@ import {
   type WorkItem,
   type WorkItemPriority,
   type WorkItemType,
+  MAX_ITEMS_PAGE_SIZE,
   useAssignWorkItem,
   useUnassignWorkItem,
   useBoard,
@@ -35,6 +36,8 @@ import {
   useUpdateWorkItem,
   useWorkItems,
 } from '../../api/boards';
+import { ApiError } from '../../api/client';
+import { RollupProgressInline } from './RollupProgressInline';
 import {
   useCancelWorkItemExecution,
   useExecuteWorkItem,
@@ -133,6 +136,98 @@ function sortByPosition<T extends { position?: number; updated_at?: string }>(it
   });
 }
 
+type FlattenedHierarchyRow = {
+  item: WorkItem;
+  depth: 0 | 1 | 2;
+  hint?: string;
+  options?: {
+    isExpandable?: boolean;
+    isCollapsed?: boolean;
+    hierarchyCountLabel?: string;
+    summarized?: boolean;
+  };
+};
+
+function buildPositionOrderedRows(
+  orderedItems: WorkItem[],
+  collapsed: Set<string>,
+  counts?: {
+    featureCountByGoal?: Map<string, number>;
+    taskCountByGoal?: Map<string, number>;
+    childTaskCountByParent?: Map<string, number>;
+  },
+): FlattenedHierarchyRow[] {
+  const itemById = new Map(orderedItems.map((item) => [item.item_id, item]));
+  const childrenByParent = new Map<string, WorkItem[]>();
+
+  for (const item of orderedItems) {
+    if (!item.parent_id || !itemById.has(item.parent_id)) continue;
+    const bucket = childrenByParent.get(item.parent_id) ?? [];
+    bucket.push(item);
+    childrenByParent.set(item.parent_id, bucket);
+  }
+
+  const isHiddenByCollapsedAncestor = (item: WorkItem): boolean => {
+    let parentId = item.parent_id;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      if (collapsed.has(parentId)) return true;
+      parentId = itemById.get(parentId)?.parent_id;
+    }
+    return false;
+  };
+
+  return orderedItems
+    .filter((item) => !isHiddenByCollapsedAncestor(item))
+    .map((item): FlattenedHierarchyRow => {
+      const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
+      const childCount = childrenByParent.get(item.item_id)?.length ?? 0;
+      const isExpandable = childCount > 0;
+      const options: FlattenedHierarchyRow["options"] = isExpandable
+        ? { isExpandable: true, isCollapsed: collapsed.has(item.item_id) }
+        : undefined;
+
+      if (item.item_type === 'goal') {
+        const globalFeatureCount = counts?.featureCountByGoal?.get(item.item_id) ?? 0;
+        const globalTaskCount =
+          (counts?.taskCountByGoal?.get(item.item_id) ?? 0) +
+          (counts?.childTaskCountByParent?.get(item.item_id) ?? 0);
+        const goalCountParts: string[] = [];
+        if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
+        if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
+        return {
+          item,
+          depth: 0,
+          options: {
+            ...options,
+            hierarchyCountLabel: goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined,
+            summarized: true,
+          },
+        };
+      }
+
+      if (item.item_type === 'feature') {
+        const globalTaskCount = counts?.childTaskCountByParent?.get(item.item_id) ?? 0;
+        return {
+          item,
+          depth: parent?.item_type === 'goal' ? 1 : 0,
+          hint: parent?.item_type === 'goal' ? `Rolls up to goal: ${parent.title}` : item.parent_id ? 'Parent goal is in another column' : undefined,
+          options: {
+            ...options,
+            hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
+          },
+        };
+      }
+
+      return {
+        item,
+        depth: parent?.item_type === 'feature' ? 2 : 0,
+        hint: parent?.item_type === 'feature' ? `Rolls up to feature: ${parent.title}` : item.parent_id ? 'Parent feature is in another column' : undefined,
+      };
+    });
+}
+
 type DragPayload = { itemId: string };
 
 function parseDragPayload(event: React.DragEvent): DragPayload | null {
@@ -152,27 +247,6 @@ function typeIcon(itemType: WorkItemType): string {
   if (itemType === 'feature') return '◇';
   if (itemType === 'bug') return '🐛';
   return '•';
-}
-
-function formatProgressPercent(value: number): string {
-  if (!Number.isFinite(value)) return '0%';
-  return `${Math.round(value)}%`;
-}
-
-function getRollupProgressFillWidth(progressPercentValue: number): string {
-  // Keep a visible seed fill for empty rollups without implying meaningful progress.
-  return progressPercentValue <= 0 ? '4px' : `${progressPercentValue}%`;
-}
-
-function formatRemainingSummary(rollup: WorkItemProgressRollup): string {
-  const parts: string[] = [`${rollup.remaining.items_remaining} left`];
-  if (rollup.remaining.estimated_hours_remaining != null) {
-    parts.push(`${rollup.remaining.estimated_hours_remaining.toFixed(1)}h`);
-  }
-  if (rollup.remaining.points_remaining != null) {
-    parts.push(`${rollup.remaining.points_remaining} pts`);
-  }
-  return parts.join(' • ');
 }
 
 function isAvatarImage(value?: string | null): boolean {
@@ -556,17 +630,10 @@ const WorkItemCard = memo(function WorkItemCard({
   const showChildCount = item.item_type === 'feature' && childTaskCount > 0;
   const childCountLabel = `${childTaskCount} task${childTaskCount === 1 ? '' : 's'}`;
   const countLabel = hierarchyCountLabel ?? (showChildCount ? childCountLabel : undefined);
-  const countSegments = useMemo(() => (countLabel ? countLabel.split(' · ').filter(Boolean) : []), [countLabel]);
   const hasRolledUpChildren = Boolean(progressRollup && progressRollup.buckets.total > 0);
   const hasProgressRollup =
     Boolean(progressRollup && hasRolledUpChildren && (item.item_type === 'goal' || item.item_type === 'feature'));
   const showRollupChip = Boolean(countLabel || hasProgressRollup);
-  const progressPercentValue = hasProgressRollup && progressRollup
-    ? Math.min(100, Math.max(0, progressRollup.completion_percent))
-    : 0;
-  const progressFillWidth = hasProgressRollup
-    ? getRollupProgressFillWidth(progressPercentValue)
-    : undefined;
   const displayItemId = useMemo(() => formatWorkItemDisplayId(item, projectSlug), [item, projectSlug]);
 
   const handleOpen = useCallback(() => {
@@ -699,46 +766,12 @@ const WorkItemCard = memo(function WorkItemCard({
             {label}
           </span>
           {showRollupChip && (
-            <span
-              className={`work-item-rollup-chip-inline${hasProgressRollup ? ' work-item-rollup-chip-inline-progress' : ''}`}
-              style={
-                hasProgressRollup && progressRollup
-                  ? ({
-                    ['--rollup-progress' as string]: `${progressPercentValue}%`,
-                    ['--rollup-progress-visual' as string]: progressFillWidth,
-                  } as React.CSSProperties)
-                  : undefined
-              }
-              aria-label={
-                hasProgressRollup && progressRollup
-                  ? `${countLabel ? `${countLabel}. ` : ''}${formatProgressPercent(progressRollup.completion_percent)} complete. ${formatRemainingSummary(progressRollup)}`
-                  : countLabel
-                    ? `${countLabel} roll up under this ${label.toLowerCase()}`
-                    : undefined
-              }
-            >
-              {countSegments.length > 0 && (
-                <span className="work-item-rollup-chip-inline-count">
-                  {countSegments.map((segment) => (
-                    <span
-                      key={segment}
-                      className={`work-item-rollup-chip-inline-segment ${
-                        segment.includes('feature')
-                          ? 'work-item-rollup-chip-inline-segment-feature'
-                          : segment.includes('task')
-                            ? 'work-item-rollup-chip-inline-segment-task'
-                            : ''
-                      }`}
-                    >
-                      {segment}
-                    </span>
-                  ))}
-                </span>
-              )}
-              {hasProgressRollup && progressRollup && (
-                <span className="work-item-rollup-chip-inline-percent">{formatProgressPercent(progressRollup.completion_percent)}</span>
-              )}
-            </span>
+            <RollupProgressInline
+              progressRollup={progressRollup ?? null}
+              countLabel={countLabel}
+              showProgress={hasProgressRollup}
+              rollupContextNoun={label.toLowerCase()}
+            />
           )}
         </div>
         {isExpandable && (
@@ -943,7 +976,7 @@ interface ColumnLaneHeaderProps {
     columnId: string,
     title: string,
     itemType: WorkItemType,
-    options?: { priority?: WorkItemPriority },
+    options?: { priority?: WorkItemPriority; researchUrl?: string },
     onCreated?: (itemId: string) => void,
   ) => void;
   hasExpandableItems: boolean;
@@ -971,6 +1004,9 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
   const [draft, setDraft] = useState('');
   const [itemType, setItemType] = useState<WorkItemType>('task');
   const [priorityDraft, setPriorityDraft] = useState<WorkItemPriority>('medium');
+  const [researchUrlDraft, setResearchUrlDraft] = useState('');
+  const [researchUrlError, setResearchUrlError] = useState<string | null>(null);
+  const researchUrlInputRef = useRef<HTMLInputElement>(null);
   const [composing, setComposing] = useState(false);
   const [autoOpenAfterCreate, setAutoOpenAfterCreate] = useState(false);
   const [pendingDueDate, setPendingDueDate] = useState<QuickDueDateOption | null>(null);
@@ -1008,11 +1044,30 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
   const handleSubmit = useCallback(() => {
     const title = draft.trim();
     if (!title) return;
+    const researchUrl = researchUrlDraft.trim();
+    if (itemType === 'research') {
+      if (!researchUrl) {
+        setResearchUrlError('Enter a research URL (paper, article, or documentation link).');
+        queueMicrotask(() => researchUrlInputRef.current?.focus());
+        return;
+      }
+      setResearchUrlError(null);
+    } else {
+      setResearchUrlError(null);
+    }
     dismissQuickActions();
     const preAssignment = pendingAssignment;
     const preDueDate = pendingDueDate;
     const shouldAutoOpen = autoOpenAfterCreate;
-    onCreate(column.column_id, title, itemType, { priority: priorityDraft }, (createdId) => {
+    onCreate(
+      column.column_id,
+      title,
+      itemType,
+      {
+        priority: priorityDraft,
+        researchUrl: itemType === 'research' ? researchUrl : undefined,
+      },
+      (createdId) => {
       // Auto-assign if user pre-selected an assignee
       if (preAssignment) {
         assignItem.mutate({
@@ -1042,6 +1097,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
       }, 12_000);
     });
     setDraft('');
+    setResearchUrlDraft('');
     setPriorityDraft('medium');
     setPendingDueDate(null);
     setAutoOpenAfterCreate(false);
@@ -1057,6 +1113,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
     pendingAssignment,
     pendingDueDate,
     priorityDraft,
+    researchUrlDraft,
     updateItem,
   ]);
 
@@ -1134,6 +1191,8 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
       if (!next) {
         dismissQuickActions();
         setDraft('');
+        setResearchUrlDraft('');
+        setResearchUrlError(null);
         setPendingAssignment(null);
         setPendingDueDate(null);
         setPriorityDraft('medium');
@@ -1174,6 +1233,8 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
         } else {
           setComposing(false);
           setDraft('');
+          setResearchUrlDraft('');
+          setResearchUrlError(null);
           setPendingAssignment(null);
           setPendingDueDate(null);
           setPriorityDraft('medium');
@@ -1247,6 +1308,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
         <span className="hierarchy-legend-chip hierarchy-legend-goal">◆ Goal</span>
         <span className="hierarchy-legend-chip hierarchy-legend-feature">◇ Feature</span>
         <span className="hierarchy-legend-chip hierarchy-legend-task">• Task</span>
+        <span className="hierarchy-legend-chip hierarchy-legend-research">R Research</span>
       </div>
       {composing && (
       <div className={`board-column-compose board-column-compose-${itemType}`} onKeyDown={onKeyDown}>
@@ -1256,13 +1318,17 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
           <select
             className="board-compose-type"
             value={itemType}
-            onChange={(e) => setItemType(e.target.value as WorkItemType)}
+            onChange={(e) => {
+              setItemType(e.target.value as WorkItemType);
+              setResearchUrlError(null);
+            }}
             aria-label="Work item type"
           >
             <option value="task">Task</option>
             <option value="feature">Feature</option>
             <option value="goal">Goal</option>
             <option value="bug">Bug</option>
+            <option value="research">Research</option>
           </select>
           <input
             ref={composeInputRef}
@@ -1274,6 +1340,31 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
             autoComplete="off"
           />
         </div>
+        {itemType === 'research' && (
+          <>
+            <input
+              ref={researchUrlInputRef}
+              id="board-compose-research-url"
+              className={`board-compose-input${researchUrlError ? ' board-compose-input-invalid' : ''}`}
+              type="url"
+              value={researchUrlDraft}
+              onChange={(e) => {
+                setResearchUrlDraft(e.target.value);
+                setResearchUrlError(null);
+              }}
+              placeholder="Research URL (required)"
+              aria-label="Research URL"
+              aria-invalid={researchUrlError ? true : undefined}
+              aria-describedby={researchUrlError ? 'board-compose-research-url-error' : undefined}
+              autoComplete="url"
+            />
+            {researchUrlError && (
+              <div id="board-compose-research-url-error" className="board-compose-field-error" role="alert">
+                {researchUrlError}
+              </div>
+            )}
+          </>
+        )}
         <div className="board-compose-hint">⌘/Ctrl + Enter to launch · Esc to close</div>
 
         {/* Quick-action strip — always visible when composing */}
@@ -1536,7 +1627,7 @@ interface ColumnLaneProps {
     columnId: string,
     title: string,
     itemType: WorkItemType,
-    options?: { priority?: WorkItemPriority },
+    options?: { priority?: WorkItemPriority; researchUrl?: string },
     onCreated?: (itemId: string) => void,
   ) => void;
   onOpen: (itemId: string) => void;
@@ -2132,163 +2223,12 @@ const ColumnLane = memo(function ColumnLane({
     [clearShiftedCards, column.column_id, items, onDropToColumn, onMoveToPosition, onReorderColumn]
   );
 
-  const hierarchyView = useMemo(() => {
-    const goalRoots: WorkItem[] = [];
-    const rootFeatures: WorkItem[] = [];
-    const rootTasks: WorkItem[] = [];
-    const featuresByGoal = new Map<string, WorkItem[]>();
-    const tasksByFeature = new Map<string, WorkItem[]>();
-    const itemById = new Map(renderItems.map((item) => [item.item_id, item]));
-
-    for (const item of renderItems) {
-      if (item.parent_id && !itemById.has(item.parent_id)) {
-        continue;
-      }
-
-      if (item.item_type === 'goal') {
-        goalRoots.push(item);
-        continue;
-      }
-
-      if (item.item_type === 'feature') {
-        const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-        if (parent?.item_type === 'goal') {
-          const bucket = featuresByGoal.get(parent.item_id) ?? [];
-          bucket.push(item);
-          featuresByGoal.set(parent.item_id, bucket);
-          continue;
-        }
-        rootFeatures.push(item);
-        continue;
-      }
-
-      const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-      if (parent?.item_type === 'feature') {
-        const bucket = tasksByFeature.get(parent.item_id) ?? [];
-        bucket.push(item);
-        tasksByFeature.set(parent.item_id, bucket);
-        continue;
-      }
-      rootTasks.push(item);
-    }
-
-    const sortBucketMap = (source: Map<string, WorkItem[]>) => {
-      const sorted = new Map<string, WorkItem[]>();
-      source.forEach((bucket, key) => {
-        sorted.set(key, sortByPosition(bucket));
-      });
-      return sorted;
-    };
-
-    return {
-      goalRoots: sortByPosition(goalRoots),
-      rootFeatures: sortByPosition(rootFeatures),
-      rootTasks: sortByPosition(rootTasks),
-      featuresByGoal: sortBucketMap(featuresByGoal),
-      tasksByFeature: sortBucketMap(tasksByFeature),
-    };
-  }, [renderItems]);
-
-  type FlattenedHierarchyRow = {
-    item: WorkItem;
-    depth: 0 | 1 | 2;
-    hint?: string;
-    options?: {
-      isExpandable?: boolean;
-      isCollapsed?: boolean;
-      hierarchyCountLabel?: string;
-      summarized?: boolean;
-    };
-  };
-
   const visibleRows = useMemo<FlattenedHierarchyRow[]>(() => {
-    const rows: FlattenedHierarchyRow[] = [];
-
-    for (const goal of hierarchyView.goalRoots) {
-      const features = hierarchyView.featuresByGoal.get(goal.item_id) ?? [];
-      const goalCollapsed = collapsed.has(goal.item_id);
-      const globalFeatureCount = featureCountByGoal.get(goal.item_id) ?? 0;
-      const globalTaskCount = (taskCountByGoal.get(goal.item_id) ?? 0) + (childTaskCountByParent.get(goal.item_id) ?? 0);
-      const goalCountParts: string[] = [];
-      if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
-      if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
-
-      rows.push({
-        item: goal,
-        depth: 0,
-        options: {
-          isExpandable: features.length > 0,
-          isCollapsed: goalCollapsed,
-          hierarchyCountLabel: goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined,
-          summarized: true,
-        },
-      });
-
-      if (goalCollapsed) continue;
-
-      for (const feature of features) {
-        const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-        const featureCollapsed = collapsed.has(feature.item_id);
-        const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-
-        rows.push({
-          item: feature,
-          depth: 1,
-          hint: `Rolls up to goal: ${goal.title}`,
-          options: {
-            isExpandable: tasks.length > 0,
-            isCollapsed: featureCollapsed,
-            hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
-          },
-        });
-
-        if (featureCollapsed) continue;
-
-        for (const task of tasks) {
-          rows.push({
-            item: task,
-            depth: 2,
-            hint: `Rolls up to feature: ${feature.title}`,
-          });
-        }
-      }
-    }
-
-    for (const feature of hierarchyView.rootFeatures) {
-      const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-      const featureCollapsed = collapsed.has(feature.item_id);
-      const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-
-      rows.push({
-        item: feature,
-        depth: 0,
-        hint: feature.parent_id ? 'Parent goal is in another column' : undefined,
-        options: {
-          isExpandable: tasks.length > 0,
-          isCollapsed: featureCollapsed,
-          hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
-        },
-      });
-
-      if (featureCollapsed) continue;
-
-      for (const task of tasks) {
-        rows.push({
-          item: task,
-          depth: 1,
-          hint: `Rolls up to feature: ${feature.title}`,
-        });
-      }
-    }
-
-    for (const task of hierarchyView.rootTasks) {
-      rows.push({
-        item: task,
-        depth: 0,
-        hint: task.parent_id ? 'Parent feature is in another column' : undefined,
-      });
-    }
-
+    const rows = buildPositionOrderedRows(sortByPosition(renderItems), collapsed, {
+      featureCountByGoal,
+      taskCountByGoal,
+      childTaskCountByParent,
+    });
     const seenIds = new Set<string>();
     return rows.filter((row) => {
       if (seenIds.has(row.item.item_id)) return false;
@@ -2299,7 +2239,7 @@ const ColumnLane = memo(function ColumnLane({
     childTaskCountByParent,
     collapsed,
     featureCountByGoal,
-    hierarchyView,
+    renderItems,
     taskCountByGoal,
   ]);
 
@@ -2512,6 +2452,7 @@ const TYPE_ICON: Record<WorkItemType, string> = {
   feature: '📖',
   task: '☑',
   bug: '🐛',
+  research: 'R',
 };
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -2589,57 +2530,18 @@ const OutlineView = memo(function OutlineView({
 
     // Build hierarchy per column
     type ColHierarchy = {
-      goalRoots: WorkItem[];
-      rootFeatures: WorkItem[];
-      rootTasks: WorkItem[];
-      featuresByGoal: Map<string, WorkItem[]>;
-      tasksByFeature: Map<string, WorkItem[]>;
+      rows: FlattenedHierarchyRow[];
       totalCount: number;
     };
 
-    const buildHierarchy = (colItems: WorkItem[]): ColHierarchy => {
-      const goalRoots: WorkItem[] = [];
-      const rootFeatures: WorkItem[] = [];
-      const rootTasks: WorkItem[] = [];
-      const featuresByGoal = new Map<string, WorkItem[]>();
-      const tasksByFeature = new Map<string, WorkItem[]>();
-
-      for (const item of colItems) {
-        if (item.item_type === 'goal') {
-          goalRoots.push(item);
-          continue;
-        }
-        if (item.item_type === 'feature') {
-          const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-          if (parent?.item_type === 'goal') {
-            const bucket = featuresByGoal.get(parent.item_id) ?? [];
-            bucket.push(item);
-            featuresByGoal.set(parent.item_id, bucket);
-            continue;
-          }
-          rootFeatures.push(item);
-          continue;
-        }
-        // task or bug
-        const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-        if (parent?.item_type === 'feature') {
-          const bucket = tasksByFeature.get(parent.item_id) ?? [];
-          bucket.push(item);
-          tasksByFeature.set(parent.item_id, bucket);
-          continue;
-        }
-        rootTasks.push(item);
-      }
-
-      return {
-        goalRoots: sortByPosition(goalRoots),
-        rootFeatures: sortByPosition(rootFeatures),
-        rootTasks: sortByPosition(rootTasks),
-        featuresByGoal,
-        tasksByFeature,
-        totalCount: colItems.length,
-      };
-    };
+    const buildHierarchy = (colItems: WorkItem[]): ColHierarchy => ({
+      rows: buildPositionOrderedRows(sortByPosition(colItems), collapsed, {
+        featureCountByGoal,
+        taskCountByGoal,
+        childTaskCountByParent,
+      }),
+      totalCount: colItems.length,
+    });
 
     const result: { columnId: string; hierarchy: ColHierarchy }[] = [];
     for (const col of columns) {
@@ -2654,7 +2556,7 @@ const OutlineView = memo(function OutlineView({
     }
 
     return result;
-  }, [columns, itemsByColumnId, itemById]);
+  }, [childTaskCountByParent, collapsed, columns, featureCountByGoal, itemsByColumnId, itemById, taskCountByGoal]);
 
   const columnNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2732,44 +2634,8 @@ const OutlineView = memo(function OutlineView({
   );
 
   const renderHierarchy = useCallback(
-    (h: { goalRoots: WorkItem[]; rootFeatures: WorkItem[]; rootTasks: WorkItem[]; featuresByGoal: Map<string, WorkItem[]>; tasksByFeature: Map<string, WorkItem[]> }) => {
-      const rows: React.ReactNode[] = [];
-
-      for (const goal of h.goalRoots) {
-        rows.push(renderRow(goal, 0));
-        if (!collapsed.has(goal.item_id)) {
-          const features = h.featuresByGoal.get(goal.item_id) ?? [];
-          for (const feature of features) {
-            rows.push(renderRow(feature, 1));
-            if (!collapsed.has(feature.item_id)) {
-              const tasks = h.tasksByFeature.get(feature.item_id) ?? [];
-              for (const task of tasks) {
-                rows.push(renderRow(task, 2));
-              }
-            }
-          }
-        }
-      }
-
-      // Orphan features (no goal parent in this column)
-      for (const feature of h.rootFeatures) {
-        rows.push(renderRow(feature, 0));
-        if (!collapsed.has(feature.item_id)) {
-          const tasks = h.tasksByFeature.get(feature.item_id) ?? [];
-          for (const task of tasks) {
-            rows.push(renderRow(task, 1));
-          }
-        }
-      }
-
-      // Orphan tasks/bugs (no parent feature in this column)
-      for (const task of h.rootTasks) {
-        rows.push(renderRow(task, 0));
-      }
-
-      return rows;
-    },
-    [collapsed, renderRow]
+    (h: { rows: FlattenedHierarchyRow[] }) => h.rows.map((row) => renderRow(row.item, row.depth)),
+    [renderRow]
   );
 
   return (
@@ -2853,10 +2719,12 @@ export function BoardPage(): React.JSX.Element {
   }, [boardId]);
 
   const { data: project } = useProject(projectId);
-  const bootstrapQuery = useBoardBootstrap(boardId, { enabled: bootstrapEnabled, pageSize: 100 });
+  const bootstrapQuery = useBoardBootstrap(boardId, { enabled: bootstrapEnabled, pageSize: MAX_ITEMS_PAGE_SIZE });
   const waitingForBootstrap = bootstrapEnabled && bootstrapQuery.isLoading && !bootstrapQuery.error;
+  // Fetch board in parallel with bootstrap so columns/title can paint before
+  // the heavier bootstrap round-trip (items + rollups) completes.
   const { data: board, isLoading: boardLoading } = useBoard(boardId, {
-    enabled: !waitingForBootstrap,
+    enabled: Boolean(boardId),
   });
   const {
     data: workItems,
@@ -2868,11 +2736,10 @@ export function BoardPage(): React.JSX.Element {
     isRefreshing,
     error: itemsError,
     refetch: refetchItems,
-    loadMore,
     lastSyncedAt,
   } = useWorkItems(boardId, {
     query: workItemQuery,
-    pageSize: 100,
+    pageSize: MAX_ITEMS_PAGE_SIZE,
     progressive: true,
     enabled: !waitingForBootstrap,
   });
@@ -2907,24 +2774,6 @@ export function BoardPage(): React.JSX.Element {
 
   // Agent presence rail state
   const { presences: agentPresences } = useAgentPresence(projectAgents, projectId ?? undefined);
-
-  const [hydrationNoticeDismissed, setHydrationNoticeDismissed] = useState(false);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setHydrationNoticeDismissed(false);
-      if (typeof sessionStorage !== 'undefined' && boardId) {
-        setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
-      }
-    });
-  }, [boardId]);
-
-  const dismissHydrationNotice = useCallback(() => {
-    if (boardId && typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(`board-hydration-dismiss:${boardId}`, '1');
-    }
-    setHydrationNoticeDismissed(true);
-  }, [boardId]);
 
   const createItem = useCreateWorkItem();
   const moveItem = useMoveWorkItem(boardId);
@@ -3514,7 +3363,7 @@ export function BoardPage(): React.JSX.Element {
       columnId: string,
       title: string,
       itemType: WorkItemType,
-      options?: { priority?: WorkItemPriority },
+      options?: { priority?: WorkItemPriority; researchUrl?: string },
       onCreated?: (itemId: string) => void,
     ) => {
       if (!projectId || !boardId) return;
@@ -3526,6 +3375,7 @@ export function BoardPage(): React.JSX.Element {
           column_id: columnId,
           title,
           priority: options?.priority ?? 'medium',
+          ...(options?.researchUrl ? { research_url: options.researchUrl } : {}),
         },
         {
           onSuccess: (created) => {
@@ -3533,6 +3383,15 @@ export function BoardPage(): React.JSX.Element {
             const label = created.title.length > 48 ? `${created.title.slice(0, 48)}…` : created.title;
             showCopyToast(`Work item created: “${label}”`);
             onCreated?.(created.item_id);
+          },
+          onError: (error) => {
+            const msg =
+              error instanceof ApiError
+                ? error.message
+                : error instanceof Error
+                  ? error.message
+                  : 'Could not create work item';
+            showCopyToast(msg, 'error');
           },
         }
       );
@@ -3550,8 +3409,8 @@ export function BoardPage(): React.JSX.Element {
   const hasSupplementaryDataError = supplementarySettled && Boolean(participantsError || projectAgentsError);
   const hasWorkItemsLoadError = Boolean(itemsError);
   const showBlockingItemsError = hasWorkItemsLoadError && !itemsLoading && items.length === 0;
-  const showPartialHydrationNotice = !showBlockingItemsError && (isPartial || isBackgroundHydrating) && totalItemCount > 0;
-  const showHydrationAttention = showPartialHydrationNotice && !hydrationNoticeDismissed;
+  const showBoardItemsBootstrap =
+    !boardLoading && Boolean(board && columns.length > 0 && itemsLoading && items.length === 0);
 
   useEffect(() => {
     if (!boardId || boardLoading || !board) return;
@@ -3655,8 +3514,17 @@ export function BoardPage(): React.JSX.Element {
       <div
         ref={pageRef}
         className={`board-page board-page-density-compact${draggedItemId || dropSettling ? ' board-page-dragging' : ''}`}
+        aria-busy={
+          !boardLoading &&
+          Boolean(board && columns.length > 0 && (isPartial || isBackgroundHydrating) && totalItemCount > 0)
+        }
       >
         <div className="board-sticky-chrome">
+        {(boardLoading || showBoardItemsBootstrap) && (
+          <div className="board-page-loading-status" role="status" aria-live="polite">
+            {boardLoading ? 'Loading board…' : 'Loading work items…'}
+          </div>
+        )}
 
         {/* Unified toolbar: title + filters + density + settings */}
         {!boardLoading && board && columns.length > 0 && (
@@ -3687,33 +3555,6 @@ export function BoardPage(): React.JSX.Element {
         {!boardLoading && board && columns.length > 0 && hasSupplementaryDataError && (
           <div className="board-warning animate-fade-in-up" role="status" aria-live="polite">
             Some project-side data is unavailable right now. Work items can still load, but agent assignments or member details may be incomplete.
-          </div>
-        )}
-
-        {!boardLoading && board && columns.length > 0 && showHydrationAttention && (
-          <div className="board-hydration-hint" role="status" aria-live="polite">
-            <span className="board-hydration-hint-text">
-              Loading board… {loadedCount} / {totalItemCount} items
-            </span>
-            {isPartial && (
-              <button
-                type="button"
-                className="board-hydration-hint-action pressable"
-                onClick={() => void loadMore()}
-                data-haptic="light"
-              >
-                Load more
-              </button>
-            )}
-            <button
-              type="button"
-              className="board-hydration-hint-dismiss pressable"
-              aria-label="Dismiss loading notice"
-              onClick={dismissHydrationNotice}
-              data-haptic="light"
-            >
-              ×
-            </button>
           </div>
         )}
 
@@ -3885,6 +3726,7 @@ export function BoardPage(): React.JSX.Element {
             onCopyWorkItemId={handleCopyWorkItemId}
             onNotify={showCopyToast}
             onRequestClose={onCloseDrawer}
+            onOpenItem={onOpen}
           />
         )}
 

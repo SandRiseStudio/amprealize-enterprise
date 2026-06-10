@@ -15,6 +15,41 @@ export interface RazeLogContext {
   [key: string]: unknown;
 }
 
+/**
+ * Client-side perf breadcrumb. Records a `window.__perfMarks` entry and a
+ * `performance.mark('perf:<name>')` so harnesses and DevTools can read
+ * milestones without any server round-trip.
+ */
+interface PerfMarkEntry {
+  name: string;
+  t: number;
+  epoch: number;
+  context?: RazeLogContext;
+}
+
+declare global {
+  interface Window {
+    __perfMarks?: PerfMarkEntry[];
+  }
+}
+
+export function perfMark(name: string, context: RazeLogContext = {}): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const t = typeof performance !== 'undefined' ? performance.now() : 0;
+    const epoch = Date.now();
+    if (!window.__perfMarks) {
+      window.__perfMarks = [];
+    }
+    window.__perfMarks.push({ name, t, epoch, context });
+    if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+      performance.mark(`perf:${name}`);
+    }
+  } catch {
+    // Never let instrumentation break the page.
+  }
+}
+
 let razeIngestDisabled = false;
 
 export async function razeLog(

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UnifiedConversationWindow } from '../components/conversations/UnifiedConversationWindow';
 
@@ -86,9 +86,10 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('dialog', { name: /amprealize chat — project space/i })).toBeInTheDocument();
-    expect(screen.getByText('Project space')).toBeInTheDocument();
-    expect(screen.getByText('Inside this project workspace')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /chat — this project/i })).toBeInTheDocument();
+    const header = screen.getByRole('toolbar', { name: /drag header to move/i });
+    expect(within(header).getByText('This project')).toBeInTheDocument();
+    expect(screen.getByTitle(/threads scoped to this project/i)).toBeInTheDocument();
   });
 
   it('renders global chat context when requested', () => {
@@ -103,8 +104,8 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('dialog', { name: /amprealize chat — global home/i })).toBeInTheDocument();
-    expect(screen.getByText('Across accessible orgs, projects, boards, runs, files, and agents')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /chat — global home/i })).toBeInTheDocument();
+    expect(screen.getByTitle(/threads across orgs/i)).toBeInTheDocument();
   });
 
   it('renders close control in header', () => {
@@ -117,6 +118,6 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('button', { name: /close messages/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close chat/i })).toBeInTheDocument();
   });
 });

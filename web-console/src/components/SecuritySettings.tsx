@@ -29,6 +29,7 @@ import {
 } from '../api/identity';
 import type { OAuthProvider, MfaDevice } from '../types/auth';
 import { UserLLMCredentialsSection } from './UserLLMCredentialsSection';
+import { CompactLoadingShimmer } from './loading';
 import './SecuritySettings.css';
 
 // ---------------------------------------------------------------------------
@@ -520,7 +521,11 @@ export function SecuritySettings() {
   }, [userId, sendVerificationMutation]);
 
   if (!userId) {
-    return <div className="security-settings loading">Loading...</div>;
+    return (
+      <div className="security-settings loading">
+        <CompactLoadingShimmer label="Loading security settings" />
+      </div>
+    );
   }
 
   return (
@@ -553,7 +558,9 @@ export function SecuritySettings() {
       <section className="settings-section">
         <h2>Email Verification</h2>
         {loadingEmail ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading email verification" />
+          </div>
         ) : emailStatus ? (
           <div className="email-status">
             {emailStatus.email ? (
@@ -593,7 +600,9 @@ export function SecuritySettings() {
           Link your accounts for easier sign-in and additional features
         </p>
         {loadingProviders ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading connected accounts" />
+          </div>
         ) : (
           <div className="providers-list">
             {(['github', 'google'] as OAuthProvider[]).map((provider) => {
@@ -626,7 +635,9 @@ export function SecuritySettings() {
           Add an extra layer of security to your account
         </p>
         {loadingMfa ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading two-factor authentication" />
+          </div>
         ) : (
           <>
             <div className="mfa-status">

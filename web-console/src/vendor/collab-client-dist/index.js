@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useMemo, useCallback, useEffect } from 'react';
+import { memo, useRef, useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { jsxs, jsx } from 'react/jsx-runtime';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,6 +30,7 @@ var DocumentType = /* @__PURE__ */ ((DocumentType2) => {
 })(DocumentType || {});
 var ConversationScope = /* @__PURE__ */ ((ConversationScope2) => {
   ConversationScope2["GlobalUserHome"] = "global_user_home";
+  ConversationScope2["GlobalPersonalThread"] = "global_personal_thread";
   ConversationScope2["ProjectSpace"] = "project_space";
   ConversationScope2["ProjectRoom"] = "project_room";
   ConversationScope2["Dm"] = "dm";
@@ -516,6 +517,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -629,7 +633,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
   send(message) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      this.log("Sent:", message.type);
+      if (message.type !== "ping") {
+        this.log("Sent:", message.type);
+      }
     }
   }
   clearTimers() {
@@ -822,6 +828,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -841,6 +850,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
     } catch {
       this.log("Invalid JSON message", rawMessage);
       return;
+    }
+    if (this.config.debug && message.type && message.type !== "pong" && message.type !== "heartbeat") {
+      this.log("Recv:", message.type);
     }
     switch (message.type) {
       case "conversation.ready":
@@ -878,9 +890,14 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       case "heartbeat":
         break;
       case "token":
+      case "reply.started":
+      case "reply.step":
+      case "reply.token":
       case "structured_start":
       case "structured_update":
       case "complete":
+      case "reply.complete":
+      case "reply.error":
         break;
       case "pin.updated":
       case "system.announcement":
@@ -948,7 +965,17 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
   send(command) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command));
-      this.log("Sent:", command.type);
+      if (this.config.debug) {
+        if (command.type === "message.send") {
+          const meta = command.metadata;
+          this.log("Sent:", command.type, {
+            has_llm_model_id: Boolean(meta && typeof meta.llm_model_id === "string" && meta.llm_model_id),
+            content_len: typeof command.content === "string" ? command.content.length : 0
+          });
+        } else if (command.type !== "ping") {
+          this.log("Sent:", command.type);
+        }
+      }
     }
   }
   clearTimers() {
@@ -1723,6 +1750,71 @@ var EXECUTION_STYLES = `
   100% { transform: scale(1); opacity: 0.7; }
 }
 
+.ga-knowledge-receipt {
+  margin-top: var(--space-2);
+}
+
+.ga-knowledge-receipt-details {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius-lg);
+  background: rgba(15, 23, 42, 0.02);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ga-knowledge-receipt-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+}
+
+.ga-knowledge-receipt-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ga-knowledge-receipt-heading {
+  color: var(--color-text-primary);
+}
+
+.ga-knowledge-receipt-count {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.ga-knowledge-receipt-panel {
+  margin-top: var(--space-2);
+}
+
+.ga-knowledge-receipt-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ga-knowledge-receipt-item {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ga-knowledge-receipt-title {
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+}
+
+.ga-knowledge-receipt-meta {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
 @media (max-width: 900px) {
   .ga-exec-panel {
     padding: var(--space-3);
@@ -1856,6 +1948,57 @@ function ExecutionStatusBadge({
     }
   );
 }
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function KnowledgeRetrievalSummary({
+  data,
+  className,
+  heading = "Knowledge sources"
+}) {
+  const slice = useMemo(() => asRecord(data), [data]);
+  const count = typeof slice?.span_count === "number" ? slice.span_count : 0;
+  const spans = Array.isArray(slice?.spans) ? slice.spans : [];
+  const baseId = useId();
+  const panelId = `${baseId}-panel`;
+  const buttonId = `${baseId}-button`;
+  useEffect(() => {
+    ensureExecutionStyles();
+  }, []);
+  if (!slice || count === 0 || spans.length === 0) {
+    return null;
+  }
+  return /* @__PURE__ */ jsx("div", { className: `ga-knowledge-receipt ${className ?? ""}`.trim(), children: /* @__PURE__ */ jsxs("details", { className: "ga-knowledge-receipt-details", children: [
+    /* @__PURE__ */ jsxs(
+      "summary",
+      {
+        id: buttonId,
+        className: "ga-knowledge-receipt-summary",
+        "aria-controls": panelId,
+        children: [
+          /* @__PURE__ */ jsx("span", { className: "ga-knowledge-receipt-heading", children: heading }),
+          /* @__PURE__ */ jsxs("span", { className: "ga-knowledge-receipt-count", "aria-hidden": "true", children: [
+            "(",
+            count,
+            ")"
+          ] })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx("div", { id: panelId, role: "region", "aria-labelledby": buttonId, className: "ga-knowledge-receipt-panel", children: /* @__PURE__ */ jsx("ul", { className: "ga-knowledge-receipt-list", children: spans.map((row, idx) => {
+      const s = asRecord(row);
+      if (!s) return null;
+      const title = String(s.title ?? s.anchor ?? "source");
+      const channel = s.channel != null ? String(s.channel) : "";
+      const phase = s.phase != null ? String(s.phase) : "";
+      const meta = [channel, phase].filter(Boolean).join(" \xB7 ");
+      return /* @__PURE__ */ jsxs("li", { className: "ga-knowledge-receipt-item", children: [
+        /* @__PURE__ */ jsx("span", { className: "ga-knowledge-receipt-title", children: title }),
+        meta ? /* @__PURE__ */ jsx("span", { className: "ga-knowledge-receipt-meta", children: meta }) : null
+      ] }, String(s.span_id ?? idx));
+    }) }) })
+  ] }) });
+}
 function ExecutionStatusCard({
   status,
   isLoading = false,
@@ -1937,7 +2080,8 @@ function ExecutionStatusCard({
           /* @__PURE__ */ jsx("div", { className: "ga-exec-meta-label", children: "Cost" }),
           /* @__PURE__ */ jsx("div", { className: "ga-exec-meta-value", children: costLabel })
         ] })
-      ] })
+      ] }),
+      /* @__PURE__ */ jsx(KnowledgeRetrievalSummary, { data: status?.traceSummary?.knowledge_retrieval ?? null })
     ] })
   ] });
 }
@@ -2647,6 +2791,6 @@ var ClarificationPanel = memo(function ClarificationPanel2({
   ] });
 });
 
-export { ActorType, ClarificationPanel, CollabApi, CollabApiError, CollabClient, CollaborationRole, ConnectionState, ConversationScope, ConversationStreamClient, DocumentType, EditOperationType, ExecutionStatusBadge, ExecutionStatusCard, ExecutionStreamClient, ExecutionTimeline, MessageType, NotificationPreference, ParticipantRole, createCollabApi, createCollabClient, createConversationStreamClient, createExecutionStreamClient, useCollabApi, useCollaboration as useCollabDocument, useCollaboration, useGitHubBranches, useProjectSettings, useUpdateProjectSettings, useValidateGitHubRepo };
+export { ActorType, ClarificationPanel, CollabApi, CollabApiError, CollabClient, CollaborationRole, ConnectionState, ConversationScope, ConversationStreamClient, DocumentType, EditOperationType, ExecutionStatusBadge, ExecutionStatusCard, ExecutionStreamClient, ExecutionTimeline, KnowledgeRetrievalSummary, MessageType, NotificationPreference, ParticipantRole, createCollabApi, createCollabClient, createConversationStreamClient, createExecutionStreamClient, useCollabApi, useCollaboration as useCollabDocument, useCollaboration, useGitHubBranches, useProjectSettings, useUpdateProjectSettings, useValidateGitHubRepo };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

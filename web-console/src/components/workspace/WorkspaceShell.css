@@ -67,6 +67,7 @@
   height: 100%;
   position: relative;
   z-index: 1;
+  font-family: var(--font-sans);
   background: rgba(248, 252, 255, 0.76);
   backdrop-filter: blur(24px) saturate(140%);
   border-right: 1px solid color-mix(in srgb, var(--color-border-default) 88%, var(--glass-outline));
@@ -505,6 +506,7 @@
 }
 
 .breadcrumb-item.current {
+  font-family: var(--font-display);
   color: var(--color-text-primary);
   font-weight: var(--font-medium);
   cursor: default;

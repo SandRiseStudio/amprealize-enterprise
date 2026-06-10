@@ -2,13 +2,12 @@
  * StreamingMessage — Streaming AI message with thinking indicator.
  *
  * Shows a pulsing "thinking" indicator while waiting for tokens,
- * then renders incoming tokens progressively via react-markdown.
+ * then renders incoming tokens progressively via react-markdown (GFM, breaks, fenced highlight).
  * Crossfades to final state when streaming completes.
  */
 
 import { memo, useMemo } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ChatMarkdownWithArtifacts } from './chatArtifactChips';
 import { useMessageStream } from '../../api/conversations';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -78,9 +77,7 @@ export const StreamingMessage = memo(function StreamingMessage({
       </div>
       <div className="streaming-content">
         <div className="streaming-markdown">
-          <Markdown remarkPlugins={[remarkGfm]}>
-            {fullText}
-          </Markdown>
+          <ChatMarkdownWithArtifacts markdown={fullText} refs={[]} />
         </div>
         {isStreaming && <span className="streaming-cursor" />}
       </div>

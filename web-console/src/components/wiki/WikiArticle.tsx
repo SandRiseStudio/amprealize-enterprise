@@ -236,7 +236,12 @@ export const WikiArticle = memo(function WikiArticle({
 
   if (isLoading) {
     return (
-      <main className="wiki-article-pane">
+      <main
+        className="wiki-article-pane"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading article"
+      >
         <div className="wiki-article-shell">
           <div className="wiki-article-inner">
             <div className="wiki-skeleton wiki-skeleton-title" />

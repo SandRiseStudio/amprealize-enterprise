@@ -44,12 +44,17 @@ export const MessageComposer = memo(function MessageComposer({
   const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const [mentionAnchor, setMentionAnchor] = useState<number | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
+  const [confirmChatExecution, setConfirmChatExecution] = useState(false);
+  const [confirmChatExecutionCancel, setConfirmChatExecutionCancel] = useState(false);
+  const [executionWorkItemId, setExecutionWorkItemId] = useState('');
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sendMessage = useSendMessage();
   const { data: conversation } = useConversation(conversationId ?? undefined);
   const { data: participantsData } = useConversationParticipants(conversationId ?? undefined);
   const projectId = conversation?.project_id ?? undefined;
+  const conversationWorkItemId =
+    (conversation as { work_item_id?: string } | undefined)?.work_item_id ?? '';
   const globalUserId = projectId ? undefined : currentUserId ?? conversation?.created_by;
   const {
     data: projectModelAvailability,
@@ -98,6 +103,12 @@ export const MessageComposer = memo(function MessageComposer({
   useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  useEffect(() => {
+    if (conversationWorkItemId) {
+      setExecutionWorkItemId((prev) => (prev.trim() === '' ? conversationWorkItemId : prev));
+    }
+  }, [conversationWorkItemId]);
 
   useEffect(() => {
     if (availableModels.length === 0) {
@@ -208,17 +219,46 @@ export const MessageComposer = memo(function MessageComposer({
       return;
     }
 
-    sendMessage.mutate({
-      conversationId,
-      content: trimmed,
-      senderId: currentUserId,
-      parentId: replyToMessageId ?? undefined,
-      metadata: {
-        llm_model_id: modelForMetadata.model_id,
-        llm_provider: modelForMetadata.provider,
-        credential_scope: modelForMetadata.credential_source,
+    const trimmedWorkItem = executionWorkItemId.trim();
+    const meta: Record<string, unknown> = {
+      llm_model_id: modelForMetadata.model_id,
+      llm_provider: modelForMetadata.provider,
+      credential_scope: modelForMetadata.credential_source,
+    };
+    if (confirmChatExecution) {
+      meta.confirm_chat_execution = true;
+      if (projectId) {
+        meta.project_id = projectId;
+      }
+      if (trimmedWorkItem) {
+        meta.work_item_id = trimmedWorkItem;
+      }
+    }
+    if (confirmChatExecutionCancel) {
+      meta.confirm_chat_execution_cancel = true;
+      if (trimmedWorkItem) {
+        meta.work_item_id = trimmedWorkItem;
+      }
+      if (projectId) {
+        meta.project_id = projectId;
+      }
+    }
+
+    sendMessage.mutate(
+      {
+        conversationId,
+        content: trimmed,
+        senderId: currentUserId,
+        parentId: replyToMessageId ?? undefined,
+        workItemId: trimmedWorkItem || undefined,
+        metadata: meta,
       },
-    });
+      {
+        onError: () => {
+          /* keep UX simple; errors surface via mutation state */
+        },
+      },
+    );
 
     setValue('');
     onCancelReply?.();
@@ -236,6 +276,10 @@ export const MessageComposer = memo(function MessageComposer({
     availableModels,
     selectedModelId,
     sendBlockedByReadiness,
+    confirmChatExecution,
+    confirmChatExecutionCancel,
+    executionWorkItemId,
+    projectId,
   ]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -300,6 +344,36 @@ export const MessageComposer = memo(function MessageComposer({
           </button>
         </div>
       )}
+
+      <div className="msg-composer-exec-consent" aria-label="Chat execution consent">
+        <label>
+          <input
+            type="checkbox"
+            checked={confirmChatExecution}
+            onChange={(e) => setConfirmChatExecution(e.target.checked)}
+          />
+          Confirm start execution
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={confirmChatExecutionCancel}
+            onChange={(e) => setConfirmChatExecutionCancel(e.target.checked)}
+          />
+          Confirm cancel execution
+        </label>
+        <label className="msg-composer-exec-wi-label">
+          Work item ID
+          <input
+            type="text"
+            className="msg-composer-exec-wi"
+            value={executionWorkItemId}
+            onChange={(e) => setExecutionWorkItemId(e.target.value)}
+            placeholder="Optional if linked on conversation"
+            aria-label="Work item id for execution actions"
+          />
+        </label>
+      </div>
 
       <div className="msg-composer-input-row">
         <textarea

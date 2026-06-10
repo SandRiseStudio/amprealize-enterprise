@@ -27,7 +27,78 @@ import {
   type SearchResultsResponse,
 } from '../lib/collab-client';
 import { apiClient, ApiError, API_ORIGIN } from './client';
-import { razeLog } from '../telemetry/raze';
+import { perfMark, razeLog } from '../telemetry/raze';
+
+// ---------------------------------------------------------------------------
+// Chat load timing (mirror boardLoadBench logging shape).
+// Production: localStorage.setItem('amprealize.chatLoadBench', '1') then reload.
+// Development: on by default; disable with setItem('amprealize.chatLoadBench', '0').
+// Emits console [chatLoadBench] lines + performance.mark('perf:chat:…').
+// ---------------------------------------------------------------------------
+
+const CHAT_LOAD_BENCH_LS_KEY = 'amprealize.chatLoadBench';
+
+/** Monotonic counter for correlating DevTools `[chatLoadBench]` message fetch lines. */
+let chatBenchMessagesFetchSeq = 0;
+
+function isViteDev(): boolean {
+  try {
+    return typeof import.meta !== 'undefined' && import.meta.env?.DEV === true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when client-side chat load benchmarking is enabled. */
+export function isChatLoadBenchEnabled(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem(CHAT_LOAD_BENCH_LS_KEY);
+    if (raw === '0' || raw === 'off') return false;
+    if (raw === '1') return true;
+    return isViteDev();
+  } catch {
+    return false;
+  }
+}
+
+function chatLoadBench(phase: string, detail: Record<string, unknown>): void {
+  if (!isChatLoadBenchEnabled()) return;
+  console.log('[chatLoadBench]', { phase, ...detail });
+}
+
+function chatLoadBenchMark(name: string, detail: Record<string, unknown> = {}): void {
+  if (!isChatLoadBenchEnabled()) return;
+  try {
+    perfMark(`chat:${name}`, detail);
+  } catch {
+    /* perf API missing in test env */
+  }
+}
+
+/** UI-layer milestones (e.g. spinner cleared) — console + perf mark when bench is on. */
+export function chatLoadBenchPhase(phase: string, detail: Record<string, unknown>): void {
+  chatLoadBench(phase, detail);
+  chatLoadBenchMark(phase, detail);
+}
+
+/** Dedupes React Strict Mode remount double-fire for the same thread (~120ms). */
+let threadFirstPaintBenchMs = 0;
+let threadFirstPaintBenchConversationId: string | null = null;
+
+export function chatLoadBenchThreadFirstPaint(conversationId: string, detail: Record<string, unknown>): void {
+  if (!isChatLoadBenchEnabled()) return;
+  const now = performance.now();
+  if (
+    threadFirstPaintBenchConversationId === conversationId &&
+    now - threadFirstPaintBenchMs < 120
+  ) {
+    return;
+  }
+  threadFirstPaintBenchConversationId = conversationId;
+  threadFirstPaintBenchMs = now;
+  chatLoadBenchPhase('thread_first_paint', detail);
+}
 
 // ---------------------------------------------------------------------------
 // Query key factory
@@ -183,20 +254,24 @@ function removeMessageFromCollections(
           ...old,
           pages: old.pages.map((page) => {
             const nextItems = page.items.filter((item) => item.id !== messageId);
+            const removed = page.items.length - nextItems.length;
+            const nextTotal = page.total >= 0 ? page.total - removed : page.total;
             return {
               ...page,
               items: nextItems,
-              total: page.total - (page.items.length - nextItems.length),
+              total: nextTotal,
             };
           }),
         };
       }
 
       const nextItems = old.items.filter((item) => item.id !== messageId);
+      const removed = old.items.length - nextItems.length;
+      const nextTotal = old.total >= 0 ? old.total - removed : old.total;
       return {
         ...old,
         items: nextItems,
-        total: old.total - (old.items.length - nextItems.length),
+        total: nextTotal,
       };
     },
   );
@@ -252,38 +327,80 @@ function replaceMessageInCollections(
 interface UseConversationsOptions {
   projectId?: string | null;
   scope?: string;
+  scopes?: string[];
   includeArchived?: boolean;
+  includeTotal?: boolean;
   limit?: number;
   offset?: number;
   enabled?: boolean;
 }
 
 export function useConversations(opts: UseConversationsOptions) {
-  const { projectId, scope, includeArchived, limit = 50, offset = 0, enabled = true } = opts;
-  const filters = { scope, includeArchived, limit, offset };
+  const {
+    projectId,
+    scope,
+    scopes,
+    includeArchived,
+    includeTotal = true,
+    limit = 50,
+    offset = 0,
+    enabled = true,
+  } = opts;
+  const filters = { scope, scopes, includeArchived, includeTotal, limit, offset };
   return useQuery<ConversationListResponse>({
     queryKey: conversationKeys.list(projectId ?? null, filters),
     queryFn: async () => {
+      const t0 = performance.now();
       const params = new URLSearchParams();
-      if (scope) params.set('scope', scope);
+      if (scopes?.length) {
+        for (const s of scopes) params.append('scopes', s);
+      } else if (scope) {
+        params.set('scope', scope);
+      }
       if (includeArchived) params.set('include_archived', 'true');
+      if (!includeTotal) params.set('include_total', 'false');
       params.set('limit', String(limit));
       params.set('offset', String(offset));
       const qs = params.toString();
       const basePath = projectId ? `/v1/projects/${projectId}/conversations` : '/v1/conversations';
-      return apiClient.get<ConversationListResponse>(
+      const data = await apiClient.get<ConversationListResponse>(
         `${basePath}${qs ? `?${qs}` : ''}`,
       );
+      if (isChatLoadBenchEnabled()) {
+        const duration_ms = Math.round(performance.now() - t0);
+        const detail = {
+          duration_ms,
+          project_id: projectId ?? 'global',
+          item_count: data.items.length,
+          total: data.total,
+          limit,
+          offset,
+        };
+        chatLoadBench('conversation_list_fetch', detail);
+        chatLoadBenchMark('conversation_list_fetch', detail);
+      }
+      return data;
     },
     enabled,
     staleTime: 5_000,
+    refetchOnWindowFocus: false,
   });
 }
 
 export function useConversation(conversationId: string | undefined) {
   return useQuery<Conversation>({
     queryKey: conversationKeys.detail(conversationId ?? ''),
-    queryFn: () => apiClient.get<Conversation>(`/v1/conversations/${conversationId}`),
+    queryFn: async () => {
+      const t0 = performance.now();
+      const data = await apiClient.get<Conversation>(`/v1/conversations/${conversationId}`);
+      if (isChatLoadBenchEnabled()) {
+        const duration_ms = Math.round(performance.now() - t0);
+        const detail = { conversation_id: conversationId, duration_ms };
+        chatLoadBench('conversation_detail_fetch', detail);
+        chatLoadBenchMark('conversation_detail_fetch', detail);
+      }
+      return data;
+    },
     enabled: !!conversationId,
     staleTime: 10_000,
   });
@@ -322,21 +439,53 @@ interface UseInfiniteMessagesOptions {
   parentId?: string;
   limit?: number;
   enabled?: boolean;
+  includeTotal?: boolean;
 }
 
 export function useInfiniteMessages(opts: UseInfiniteMessagesOptions) {
-  const { conversationId, parentId, limit = 50, enabled = true } = opts;
+  const { conversationId, parentId, limit = 50, enabled = true, includeTotal = false } = opts;
   return useInfiniteQuery<MessageListResponse>({
-    queryKey: conversationKeys.messages(conversationId, { parentId, limit, infinite: true }),
-    queryFn: async ({ pageParam = 0 }) => {
+    queryKey: conversationKeys.messages(conversationId, {
+      parentId,
+      limit,
+      infinite: true,
+      includeTotal,
+    }),
+    queryFn: async ({ pageParam = 0, direction }) => {
+      const t0 = performance.now();
       const params = new URLSearchParams();
       if (parentId) params.set('parent_id', parentId);
+      if (!includeTotal) params.set('include_total', 'false');
       params.set('limit', String(limit));
       params.set('offset', String(pageParam));
       const qs = params.toString();
-      return apiClient.get<MessageListResponse>(
+      const data = await apiClient.get<MessageListResponse>(
         `/v1/conversations/${conversationId}/messages${qs ? `?${qs}` : ''}`,
       );
+      if (isChatLoadBenchEnabled()) {
+        const duration_ms = Math.round(performance.now() - t0);
+        const offset = Number(pageParam);
+        const page_index = limit > 0 ? Math.floor(offset / limit) : 0;
+        chatBenchMessagesFetchSeq += 1;
+        const detail: Record<string, unknown> = {
+          fetch_seq: chatBenchMessagesFetchSeq,
+          conversation_id: conversationId,
+          duration_ms,
+          offset,
+          limit,
+          page_item_count: data.items.length,
+          total: data.total,
+          has_more: data.has_more,
+          page_index,
+          direction,
+        };
+        chatLoadBench('messages_page_fetch', detail);
+        chatLoadBenchMark('messages_page_fetch', detail);
+        if (offset === 0) {
+          chatLoadBenchMark('messages_first_page', detail);
+        }
+      }
+      return data;
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -345,6 +494,7 @@ export function useInfiniteMessages(opts: UseInfiniteMessagesOptions) {
     },
     enabled: enabled && !!conversationId,
     staleTime: 2_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -877,6 +1027,8 @@ export function useConversationSocket(
 ): UseConversationSocketResult {
   const qc = useQueryClient();
   const clientRef = useRef<ConversationStreamClient | null>(null);
+  const wsConnectBenchStartRef = useRef(0);
+  const wsBenchLoggedRef = useRef(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     ConnectionState.Disconnected,
   );
@@ -913,6 +1065,17 @@ export function useConversationSocket(
     const offConnected = client.on('connected', (payload) => {
       setConnectionState(ConnectionState.Connected);
       razeLog('INFO', 'conversation.ws.connected', { conversation_id: payload.conversation_id });
+      if (
+        isChatLoadBenchEnabled() &&
+        !wsBenchLoggedRef.current &&
+        wsConnectBenchStartRef.current > 0
+      ) {
+        wsBenchLoggedRef.current = true;
+        const duration_ms = Math.round(performance.now() - wsConnectBenchStartRef.current);
+        const detail = { conversation_id: payload.conversation_id, duration_ms };
+        chatLoadBench('ws_connected', detail);
+        chatLoadBenchMark('ws_connected', detail);
+      }
     });
     const offDisconnected = client.on('disconnected', () => {
       setConnectionState(ConnectionState.Disconnected);
@@ -1016,6 +1179,10 @@ export function useConversationSocket(
       return;
     }
 
+    if (isChatLoadBenchEnabled()) {
+      wsConnectBenchStartRef.current = performance.now();
+      wsBenchLoggedRef.current = false;
+    }
     client.connect(normalizedConversationId);
   }, [normalizedConversationId, userId]);
 
@@ -1030,6 +1197,12 @@ export interface UseMessageStreamResult {
   tokens: string[];
   fullText: string;
   isStreaming: boolean;
+  phase: string | null;
+  statusLabel: string;
+  sourceCounts: Record<string, number> | null;
+  traceSteps: Array<Record<string, unknown>>;
+  sourceRows: Array<Record<string, unknown>>;
+  badge: string | null;
   error: string | null;
 }
 
@@ -1039,10 +1212,30 @@ export function useMessageStream(
 ): UseMessageStreamResult {
   const [tokens, setTokens] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [phase, setPhase] = useState<string | null>(null);
+  const [statusLabel, setStatusLabel] = useState('Thinking...');
+  const [sourceCounts, setSourceCounts] = useState<Record<string, number> | null>(null);
+  const [traceSteps, setTraceSteps] = useState<Array<Record<string, unknown>>>([]);
+  const [sourceRows, setSourceRows] = useState<Array<Record<string, unknown>>>([]);
+  const [badge, setBadge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sawReplyTokenRef = useRef(false);
+  const processedEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!conversationId || !messageId) return;
+
+    setIsStreaming(true);
+    setTokens([]);
+    setPhase('connecting');
+    setStatusLabel('Thinking...');
+    setSourceCounts(null);
+    setTraceSteps([]);
+    setSourceRows([]);
+    setBadge(null);
+    setError(null);
+    sawReplyTokenRef.current = false;
+    processedEventIdsRef.current = new Set();
 
     const token = apiClient.getToken?.() ?? '';
     const url = `${API_ORIGIN}/api/v1/conversations/${conversationId}/stream/${messageId}?token=${encodeURIComponent(token)}`;
@@ -1050,25 +1243,109 @@ export function useMessageStream(
 
     es.onopen = () => {
       setIsStreaming(true);
-      setTokens([]);
       setError(null);
     };
 
-    es.addEventListener('token', (ev) => {
+    const shouldProcessEvent = (data: Record<string, unknown>) => {
+      const eventId = typeof data._event_id === 'string' ? data._event_id : null;
+      if (!eventId) return true;
+      if (processedEventIdsRef.current.has(eventId)) return false;
+      processedEventIdsRef.current.add(eventId);
+      return true;
+    };
+
+    const applyTraceData = (data: Record<string, unknown>) => {
+      if (data.source_counts && typeof data.source_counts === 'object') {
+        setSourceCounts(data.source_counts as Record<string, number>);
+      }
+      if (Array.isArray(data.trace_steps)) {
+        setTraceSteps((prev) => [...prev, ...(data.trace_steps as Array<Record<string, unknown>>)]);
+      }
+      if (Array.isArray(data.source_rows)) {
+        setSourceRows(data.source_rows as Array<Record<string, unknown>>);
+      }
+      if (typeof data.badge === 'string') {
+        setBadge(data.badge);
+      }
+    };
+
+    const handleTokenEvent = (ev: MessageEvent<string>, eventName: 'token' | 'reply.token') => {
       try {
         const data = JSON.parse(ev.data);
-        setTokens((prev) => [...prev, data.token]);
+        if (!shouldProcessEvent(data)) return;
+        if (eventName === 'reply.token') {
+          sawReplyTokenRef.current = true;
+        } else if (sawReplyTokenRef.current) {
+          return;
+        }
+        if (typeof data.label === 'string') setStatusLabel(data.label);
+        if (typeof data.phase === 'string') setPhase(data.phase);
+        applyTraceData(data);
+        if (typeof data.token === 'string') {
+          setTokens((prev) => [...prev, data.token]);
+        }
       } catch {
         // ignore malformed token events
       }
-    });
+    };
 
-    es.addEventListener('complete', () => {
+    const handleStepEvent = (ev: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (!shouldProcessEvent(data)) return;
+        if (typeof data.label === 'string') setStatusLabel(data.label);
+        if (typeof data.phase === 'string') setPhase(data.phase);
+        applyTraceData(data);
+      } catch {
+        // ignore malformed lifecycle events
+      }
+    };
+
+    const handleCompleteEvent = (ev: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (!shouldProcessEvent(data)) return;
+        if (typeof data.content === 'string' && data.content.length > 0) {
+          setTokens([data.content]);
+        }
+        if (typeof data.label === 'string') setStatusLabel(data.label);
+        if (typeof data.phase === 'string') setPhase(data.phase);
+        applyTraceData(data);
+      } catch {
+        // Legacy complete events can omit parseable metadata.
+      }
       setIsStreaming(false);
       es.close();
-    });
+    };
 
-    es.addEventListener('error', () => {
+    const handleReplyErrorEvent = (ev: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (!shouldProcessEvent(data)) return;
+        setError(typeof data.error === 'string' ? data.error : 'Stream connection lost');
+        if (typeof data.label === 'string') setStatusLabel(data.label);
+        if (typeof data.phase === 'string') setPhase(data.phase);
+      } catch {
+        setError('Stream connection lost');
+      }
+      setIsStreaming(false);
+      es.close();
+    };
+
+    es.addEventListener('token', (ev) => handleTokenEvent(ev as MessageEvent<string>, 'token'));
+    es.addEventListener('reply.token', (ev) => handleTokenEvent(ev as MessageEvent<string>, 'reply.token'));
+    es.addEventListener('reply.started', handleStepEvent);
+    es.addEventListener('reply.step', handleStepEvent);
+
+    es.addEventListener('complete', handleCompleteEvent);
+    es.addEventListener('reply.complete', handleCompleteEvent);
+    es.addEventListener('reply.error', handleReplyErrorEvent);
+
+    es.addEventListener('error', (ev) => {
+      if ('data' in ev && typeof ev.data === 'string') {
+        handleReplyErrorEvent(ev as MessageEvent<string>);
+        return;
+      }
       // EventSource fires a generic error on connection close
       if (es.readyState === EventSource.CLOSED) {
         setIsStreaming(false);
@@ -1087,5 +1364,5 @@ export function useMessageStream(
 
   const fullText = tokens.join('');
 
-  return { tokens, fullText, isStreaming, error };
+  return { tokens, fullText, isStreaming, phase, statusLabel, sourceCounts, traceSteps, sourceRows, badge, error };
 }

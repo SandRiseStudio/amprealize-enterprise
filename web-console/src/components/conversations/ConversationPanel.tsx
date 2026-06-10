@@ -195,7 +195,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   // ── Mobile: BottomSheet ────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <BottomSheet onRequestClose={requestClose} title="Conversations" maxHeight="85vh">
+      <BottomSheet onRequestClose={requestClose} title="Chats" maxHeight="85vh">
         <div className="conversation-panel-mobile">
           {/* On mobile: show sidebar if no conversation selected, else show thread */}
           {activeConversationId ? (
@@ -229,12 +229,12 @@ export const ConversationPanel = memo(function ConversationPanel({
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
-      aria-label="Conversations"
+      aria-label="Chats"
     >
       <div className="conversation-panel">
         {/* Header */}
         <div className="conversation-panel-header" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1 }}>
-          <h2 className="conversation-panel-title">Conversations</h2>
+          <h2 className="conversation-panel-title">Chats</h2>
           <div className="conversation-panel-header-actions">
             {activeConversationId && (
               <button
@@ -252,7 +252,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               type="button"
               className="conversation-panel-close pressable"
               onClick={requestClose}
-              aria-label="Close conversations"
+              aria-label="Close chats"
               data-haptic="light"
             >
               <CloseIcon />
@@ -261,7 +261,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         </div>
 
         {/* Body (below header) */}
-        <div className="conversation-panel-body" style={{ marginTop: 52 }}>
+        <div className="conversation-panel-body" style={{ marginTop: 40 }}>
           {/* Sidebar — conversation list */}
           <div className="conversation-panel-sidebar">
             {sidebarContent}

@@ -8,7 +8,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useElementVirtualizer } from '../../hooks/useElementVirtualizer';
-import { useInfiniteMessages } from '../../api/conversations';
+import { chatLoadBenchThreadFirstPaint, isChatLoadBenchEnabled, useInfiniteMessages } from '../../api/conversations';
 import type { ConversationMessage } from '../../lib/collab-client';
 import { MessageBubble } from './MessageBubble';
 import { StreamingMessage } from './StreamingMessage';
@@ -133,6 +133,10 @@ export const MessageList = memo(function MessageList({
   const parentRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const wasAtBottomRef = useRef(true);
+  const threadBenchStartRef = useRef(0);
+  const threadFirstPaintLoggedRef = useRef<string | null>(null);
+  /** Blocks history prefetch while scrollTop is still at "top" before initial scroll-to-bottom. */
+  const suppressOlderPrefetchRef = useRef(true);
 
   const {
     data: infiniteData,
@@ -141,6 +145,26 @@ export const MessageList = memo(function MessageList({
     hasNextPage: hasNextPageRaw,
     isFetchingNextPage,
   } = useInfiniteMessages({ conversationId });
+
+  useEffect(() => {
+    threadBenchStartRef.current = performance.now();
+    threadFirstPaintLoggedRef.current = null;
+    suppressOlderPrefetchRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!isChatLoadBenchEnabled()) return;
+    if (isLoading) return;
+    if (threadFirstPaintLoggedRef.current === conversationId) return;
+    threadFirstPaintLoggedRef.current = conversationId;
+    const messageCount = (infiniteData?.pages ?? []).flatMap((p) => p.items).length;
+    chatLoadBenchThreadFirstPaint(conversationId, {
+      conversation_id: conversationId,
+      duration_ms: Number((performance.now() - threadBenchStartRef.current).toFixed(2)),
+      message_count: messageCount,
+      empty_thread: messageCount === 0,
+    });
+  }, [isLoading, conversationId, infiniteData]);
 
   const hasNextPage = hasNextPageRaw ?? false;
   const allMessages = useMemo(
@@ -174,11 +198,25 @@ export const MessageList = memo(function MessageList({
     overscan: 8,
   });
 
-  // Scroll to bottom on new messages (if already at bottom)
+  // Scroll to bottom on new messages (if already at bottom); then allow "load older" scroll handling.
   useEffect(() => {
-    if (wasAtBottomRef.current && rowsWithStreaming.length > 0) {
+    if (rowsWithStreaming.length === 0) {
+      suppressOlderPrefetchRef.current = false;
+      return;
+    }
+    if (wasAtBottomRef.current) {
       virtualizer.scrollToIndex(rowsWithStreaming.length - 1, { align: 'end', behavior: 'smooth' });
     }
+    let innerFrame = 0;
+    const outerFrame = requestAnimationFrame(() => {
+      innerFrame = requestAnimationFrame(() => {
+        suppressOlderPrefetchRef.current = false;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerFrame);
+      cancelAnimationFrame(innerFrame);
+    };
   }, [rowsWithStreaming.length, virtualizer]);
 
   // Track scroll position
@@ -190,7 +228,8 @@ export const MessageList = memo(function MessageList({
     setIsAtBottom(atBottom);
     wasAtBottomRef.current = atBottom;
 
-    // Load more on scroll to top
+    // Load more on scroll to top (skip until initial scroll-to-bottom has settled)
+    if (suppressOlderPrefetchRef.current) return;
     if (el.scrollTop < 60 && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
@@ -202,8 +241,13 @@ export const MessageList = memo(function MessageList({
 
   if (isLoading) {
     return (
-      <div className="msg-list-loading">
-        <div className="msg-list-spinner" />
+      <div
+        className="msg-list-loading"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading messages"
+      >
+        <div className="msg-list-spinner" aria-hidden />
       </div>
     );
   }

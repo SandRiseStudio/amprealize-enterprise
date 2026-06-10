@@ -174,7 +174,7 @@
   color: var(--color-text-tertiary);
   font-size: 10px;
   font-weight: var(--font-medium);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-family: var(--font-mono);
   line-height: 1.4;
   letter-spacing: 0.02em;
   pointer-events: none;

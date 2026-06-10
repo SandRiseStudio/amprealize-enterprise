@@ -64,6 +64,12 @@ export interface UnifiedConversationWindowProps {
   /** Bump to re-apply initialTarget (e.g. new DM from dock). */
   initialTargetKey: number;
   onClose: () => void;
+  /** Desktop: header drag start/end (dock↔window connector hides while dragging). */
+  onDragStateChange?: (isDragging: boolean) => void;
+  /** Desktop: after a header pointer-drag ends, `moved` is true if the window position changed during that gesture. */
+  onFloatingPointerDragCommitted?: (detail: { moved: boolean }) => void;
+  /** Desktop: floating shell element for layout (dock bridge). Cleared when switching to mobile sheet. */
+  onFloatingShellRef?: (el: HTMLDivElement | null) => void;
 }
 
 interface DragState {
@@ -74,7 +80,9 @@ interface DragState {
   offsetY: number;
 }
 
-function useFloatingDrag() {
+function useFloatingDrag(
+  onPointerDragCommittedRef?: React.MutableRefObject<((detail: { moved: boolean }) => void) | undefined>,
+) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<DragState>({
@@ -85,6 +93,12 @@ function useFloatingDrag() {
     offsetY: 0,
   });
   const panelRef = useRef<HTMLDivElement>(null);
+  const gestureStartPosRef = useRef({ x: 0, y: 0 });
+  const latestPosRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    latestPosRef.current = position;
+  }, [position]);
 
   const handlePointerDown = useCallback((e: ReactPointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
@@ -93,6 +107,7 @@ function useFloatingDrag() {
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
+    gestureStartPosRef.current = { x: latestPosRef.current.x, y: latestPosRef.current.y };
     dragRef.current = {
       active: true,
       startX: e.clientX,
@@ -119,6 +134,7 @@ function useFloatingDrag() {
       nextY = Math.max(-baseTop, Math.min(window.innerHeight - baseTop - elRect.height, nextY));
     }
 
+    latestPosRef.current = { x: nextX, y: nextY };
     setPosition({ x: nextX, y: nextY });
   }, [position.x, position.y]);
 
@@ -127,7 +143,11 @@ function useFloatingDrag() {
     e.currentTarget.releasePointerCapture(e.pointerId);
     dragRef.current.active = false;
     setIsDragging(false);
-  }, []);
+    const start = gestureStartPosRef.current;
+    const end = latestPosRef.current;
+    const moved = end.x !== start.x || end.y !== start.y;
+    onPointerDragCommittedRef?.current?.({ moved });
+  }, [onPointerDragCommittedRef]);
 
   const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLElement>) => {
     if (!e.shiftKey) return;
@@ -213,6 +233,9 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   initialTarget,
   initialTargetKey,
   onClose,
+  onDragStateChange,
+  onFloatingPointerDragCommitted,
+  onFloatingShellRef,
 }: UnifiedConversationWindowProps) {
   const [phase, setPhase] = useState<Phase>('entering');
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -223,17 +246,41 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
   const closeOnceRef = useRef(false);
   const isMobile = useIsMobile();
 
-  const { position, panelRef, isDragging, dragHandlers } = useFloatingDrag();
+  const onPointerDragCommittedRef = useRef(onFloatingPointerDragCommitted);
+  onPointerDragCommittedRef.current = onFloatingPointerDragCommitted;
+  const { position, panelRef, isDragging, dragHandlers } = useFloatingDrag(onPointerDragCommittedRef);
 
-  const { data: convList } = useConversations({ projectId, enabled: contextKind === 'project' && !!projectId });
+  useEffect(() => {
+    onDragStateChange?.(isDragging);
+  }, [isDragging, onDragStateChange]);
+
+  useEffect(() => {
+    if (isMobile) {
+      onFloatingShellRef?.(null);
+    }
+  }, [isMobile, onFloatingShellRef]);
+
+  useEffect(() => {
+    return () => {
+      onFloatingShellRef?.(null);
+    };
+  }, [onFloatingShellRef]);
+
+  const { data: convList } = useConversations({
+    projectId,
+    includeTotal: false,
+    enabled: contextKind === 'project' && !!projectId,
+  });
   const { data: activeConv } = useConversation(activeConversationId ?? undefined);
 
   const { connectionState } = useConversationSocket(activeConversationId ?? undefined, currentUserId);
 
   const headerTitle = useMemo(() => {
-    if (!activeConversationId) return 'Messages';
-    if (activeConv?.title) return activeConv.title;
-    if (activeConv?.scope === ConversationScope.GlobalUserHome) return 'Global chat';
+    if (!activeConversationId) return 'Chats';
+    const titled = activeConv?.title?.trim();
+    if (titled) return titled;
+    if (activeConv?.scope === ConversationScope.GlobalUserHome) return 'Main chat';
+    if (activeConv?.scope === ConversationScope.GlobalPersonalThread) return 'New chat';
     if (activeConv?.scope === ConversationScope.ProjectRoom || activeConv?.scope === ConversationScope.ProjectSpace) {
       return 'Project room';
     }
@@ -241,11 +288,22 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
     return 'Direct message';
   }, [activeConversationId, activeConv?.title, activeConv?.scope]);
 
-  const contextDisplay = contextLabel ?? (contextKind === 'global' ? 'Global home' : 'Project space');
-  const contextHint =
-    contextKind === 'global'
-      ? 'Across accessible orgs, projects, boards, runs, files, and agents'
-      : 'Inside this project workspace';
+  const contextDisplay = contextLabel ?? (contextKind === 'global' ? 'Workspace' : 'This project');
+  const contextHint = useMemo(
+    () =>
+      contextKind === 'global'
+        ? 'Threads across orgs, projects, boards, runs, and agents.'
+        : 'Threads scoped to this project.',
+    [contextKind],
+  );
+
+  const connectionIssueLabel = useMemo(() => {
+    if (!activeConversationId) return null;
+    if (connectionState === ConnectionState.Connected) return null;
+    if (connectionState === ConnectionState.Reconnecting) return 'Reconnecting…';
+    if (connectionState === ConnectionState.Connecting) return 'Connecting…';
+    return 'Offline';
+  }, [activeConversationId, connectionState]);
 
   useEffect(() => {
     queueMicrotask(() => setSearchOpen(false));
@@ -409,8 +467,11 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
     (el: HTMLDivElement | null) => {
       (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
       shellRef.current = el;
+      if (!isMobile) {
+        onFloatingShellRef?.(el);
+      }
     },
-    [panelRef],
+    [panelRef, isMobile, onFloatingShellRef],
   );
 
   const desktopShell = (
@@ -421,7 +482,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
         transform: `translate(${position.x}px, ${position.y}px)`,
       }}
       role="dialog"
-      aria-label={`Amprealize Chat — ${contextDisplay} — ${headerTitle}`}
+      aria-label={`Chat — ${contextDisplay} — ${headerTitle}`}
       aria-modal="false"
       tabIndex={-1}
       onKeyDown={handlePanelKeyDown}
@@ -432,25 +493,21 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
         {...dragHandlers}
         tabIndex={0}
         role="toolbar"
-        aria-label="Messages window — drag to reposition"
+        aria-label="Chat — drag header to move"
       >
         <div className="conversation-floating-header-text unified-conversation-header-text">
-          <span className="unified-conversation-context-row">
-            <span className={`unified-conversation-context-pill unified-conversation-context-pill--${contextKind}`}>
-              {contextDisplay}
+          <span
+            className={`unified-conversation-context-pill unified-conversation-context-pill--${contextKind}`}
+            title={contextHint}
+          >
+            {contextDisplay}
+          </span>
+          <span className="conversation-floating-name unified-conversation-thread-title">{headerTitle}</span>
+          {connectionIssueLabel ? (
+            <span className="conversation-floating-status unified-conversation-connection-badge" role="status">
+              {connectionIssueLabel}
             </span>
-            <span className="unified-conversation-context-hint">{contextHint}</span>
-          </span>
-          <span className="conversation-floating-name">{headerTitle}</span>
-          <span className="conversation-floating-status">
-            {activeConversationId
-              ? connectionState === ConnectionState.Connected
-                ? 'Live'
-                : connectionState === ConnectionState.Reconnecting
-                  ? 'Reconnecting…'
-                  : 'Offline'
-              : ' '}
-          </span>
+          ) : null}
         </div>
         <div
           className="conversation-floating-header-actions"
@@ -472,7 +529,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
             type="button"
             className="conversation-floating-action pressable"
             onClick={handleClose}
-            aria-label="Close messages — reopen from the dock when you need chat"
+            aria-label="Close chat"
             title="Close"
             data-haptic="light"
           >
@@ -507,7 +564,7 @@ export const UnifiedConversationWindow = memo(function UnifiedConversationWindow
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
                   <path d="M10 12L6 8l4-4" />
                 </svg>
-                <span>Conversations</span>
+                <span>Threads</span>
               </button>
               {threadContent}
             </>

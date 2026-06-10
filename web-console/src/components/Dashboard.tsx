@@ -22,10 +22,10 @@ import { useShellTitle } from './workspace/useShell';
 import { useBoardsMultiProject, type Board } from '../api/boards';
 import { orgContextStore, useOrgContext } from '../store/orgContextStore';
 import {
-  useDashboardStats,
   useOrganizations,
   useProjects,
   useRecentRuns,
+  useBehaviors,
   type Project,
   type Agent,
   type Run,
@@ -54,6 +54,7 @@ import {
   PERSONAL_SCOPE_SHORT_HINT,
 } from '../copy/scopeLabels';
 import { razeLog } from '../telemetry/raze';
+import { DashboardProjectCardSkeleton, DashboardStatCardSkeleton } from './loading';
 import './Dashboard.css';
 
 // ---------------------------------------------------------------------------
@@ -702,30 +703,6 @@ const EmptyState = memo(function EmptyState({
 });
 
 // ---------------------------------------------------------------------------
-// Skeleton Loading Components
-// ---------------------------------------------------------------------------
-
-const StatCardSkeleton = () => (
-  <div className="stat-card skeleton">
-    <div className="skeleton-icon animate-shimmer" />
-    <div className="stat-card-content">
-      <span className="skeleton-text skeleton-value animate-shimmer" />
-      <span className="skeleton-text skeleton-label animate-shimmer" />
-    </div>
-  </div>
-);
-
-const ProjectCardSkeleton = () => (
-  <div className="project-card skeleton">
-    <div className="project-card-header">
-      <span className="skeleton-text skeleton-title animate-shimmer" />
-    </div>
-    <span className="skeleton-text skeleton-description animate-shimmer" />
-    <span className="skeleton-text skeleton-meta animate-shimmer" />
-  </div>
-);
-
-// ---------------------------------------------------------------------------
 // Utility Functions
 // ---------------------------------------------------------------------------
 
@@ -792,7 +769,6 @@ export function Dashboard() {
   }, [scopePerfKey]);
 
   // API hooks
-  const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: organizations = [] } = useOrganizations();
   const {
     data: projects = [],
@@ -813,6 +789,17 @@ export function Dashboard() {
     isFetching: runsFetching,
     isError: runsError,
   } = useRecentRuns(5);
+  const { data: behaviors = [] } = useBehaviors();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const stats = useMemo(() => ({
+    running_runs: recentRuns.filter(r => r.status === 'running').length,
+    completed_runs_today: recentRuns.filter(
+      r => r.status === 'completed' && (r.started_at ?? '').startsWith(today)
+    ).length,
+    total_behaviors: behaviors.length,
+  }), [recentRuns, behaviors, today]);
+  const statsLoading = runsLoading;
   const sortedOrganizations = useMemo(
     () => [...organizations].sort((a, b) => a.name.localeCompare(b.name)),
     [organizations]
@@ -1024,10 +1011,10 @@ export function Dashboard() {
         <section className="dashboard-stats" aria-label="Key metrics">
           {statsLoading ? (
             <>
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
             </>
           ) : (
             <>
@@ -1108,9 +1095,9 @@ export function Dashboard() {
                       </button>
                     )}
                   </div>
-                  <ProjectCardSkeleton />
-                  <ProjectCardSkeleton />
-                  <ProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
                 </>
               ) : displayedProjects.length > 0 ? (
                 displayedProjects.map((project) => {
