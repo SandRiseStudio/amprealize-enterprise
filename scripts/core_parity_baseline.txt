@@ -54,7 +54,6 @@ DIFFER   device_flow.py
 DIFFER   edition.py
 DIFFER   execution_gateway.py
 DIFFER   execution_gateway_adapter.py
-DIFFER   execution_gateway_contracts.py
 DIFFER   execution_wiring.py
 DIFFER   execution_worker.py
 DIFFER   feature_flags.py
@@ -143,12 +142,6 @@ DIFFER   tool_executor.py
 DIFFER   trace_analysis_service.py
 DIFFER   trace_analysis_service_postgres.py
 DIFFER   wiki_service.py
-MISSING  wizard/__init__.py
-MISSING  wizard/analyzer.py
-MISSING  wizard/display.py
-MISSING  wizard/generator.py
-MISSING  wizard/prompts.py
-MISSING  wizard/runner.py
 DIFFER   work_item_execution_contracts.py
 DIFFER   work_item_execution_service.py
 DIFFER   zombie_reaper.py

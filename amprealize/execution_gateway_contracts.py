@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Optional, Protocol, TYPE_CHECKING, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING, runtime_checkable
 
 if TYPE_CHECKING:
     from .work_item_execution_contracts import AgentExecutionMode
@@ -57,6 +57,7 @@ class NewExecutionMode(str, Enum):
     CONTAINER_ISOLATED = "container_isolated"
     CONTAINER_CONNECTED = "container_connected"
     LOCAL_DIRECT = "local_direct"
+    LOCAL_CONNECTOR_HYBRID = "local_connector_hybrid"
 
 
 class OutputTarget(str, Enum):
@@ -159,6 +160,8 @@ class ExecutionRequest:
 
     # Request metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
+    #: Explicit override; if unset, ``metadata["execution_workspace_kind"]`` is used in the gateway.
+    execution_workspace_kind: Optional[str] = None
     request_id: str = field(default_factory=lambda: f"req-{uuid.uuid4().hex[:12]}")
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -170,12 +173,11 @@ class ExecutionRequest:
 
 @dataclass
 class GatewayQueuePayload:
-    """Normalized gateway payload stored on queued execution jobs.
+    """Normalized payload stored on execution-queue jobs created by the gateway.
 
-    ExecutionJob keeps queue-level identifiers at the top level. This payload
-    preserves gateway-specific intent, source, output, surface, governance,
-    idempotency, and chat linkage so workers can resume a request through the
-    same resolved contract used by REST, MCP, board, chat, and CLI starts.
+    ExecutionJob keeps queue-level fields at the top level. This payload carries
+    gateway-specific intent, source, output, surface, and governance metadata so
+    workers can resume the same resolved path across board, chat, API, MCP, and CLI.
     """
 
     request_id: str
@@ -212,11 +214,8 @@ class GatewayQueuePayload:
             conversation_id=request.conversation_id,
             message_id=request.message_id,
             idempotency_key=request.idempotency_key,
-            agent_execution_mode=(
-                request.agent_execution_mode.value
-                if request.agent_execution_mode
-                else None
-            ),
+            agent_execution_mode=request.agent_execution_mode.value
+            if request.agent_execution_mode else None,
             policy_context=dict(request.policy_context),
             risk_classification=request.risk_classification,
             requires_approval=request.requires_approval,
@@ -451,7 +450,7 @@ def resolve_output_target(
     if output_override is not None:
         return output_override
 
-    if mode == NewExecutionMode.LOCAL_DIRECT:
+    if mode in (NewExecutionMode.LOCAL_DIRECT, NewExecutionMode.LOCAL_CONNECTOR_HYBRID):
         return OutputTarget.LOCAL_SYNC
 
     if mode == NewExecutionMode.CONTAINER_CONNECTED:
