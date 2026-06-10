@@ -160,8 +160,7 @@ class AgentLifecycleActionService:
         }
         return self._policy_engine.evaluate(
             build_execution_policy_request(
-                request_id=request.request_id
-                or f"agent-lifecycle-{request.action_type.value}",
+                request_id=request.request_id or f"agent-lifecycle-{request.action_type.value}",
                 user_id=request.user_id,
                 org_id=request.org_id,
                 project_id=request.project_id,
@@ -180,11 +179,7 @@ class AgentLifecycleActionService:
         payload.setdefault("project_id", request.project_id)
         payload.setdefault(
             "actor",
-            {
-                "id": request.approved_by or request.user_id,
-                "role": "user",
-                "surface": "chat",
-            },
+            {"id": request.approved_by or request.user_id, "role": "user", "surface": "chat"},
         )
         if request.action_type == AgentLifecycleActionType.DISCOVER:
             if hasattr(self._agent_registry, "search_agents"):
@@ -202,28 +197,16 @@ class AgentLifecycleActionService:
                 **dict(payload.get("metadata") or {}),
                 "chat_lifecycle_action": request.action_type.value,
             }
-            return await self._call(
-                self._agent_registry.update_agent,
-                request.agent_id,
-                payload,
-            )
+            return await self._call(self._agent_registry.update_agent, request.agent_id, payload)
         if request.action_type == AgentLifecycleActionType.PUBLISH:
             if not request.agent_id:
                 raise ValueError("agent_id is required to publish an agent")
-            return await self._call(
-                self._agent_registry.publish_agent,
-                request.agent_id,
-                payload,
-            )
+            return await self._call(self._agent_registry.publish_agent, request.agent_id, payload)
         if request.action_type == AgentLifecycleActionType.ARCHIVE_DELETE:
             if not request.agent_id:
                 raise ValueError("agent_id is required to archive or delete an agent")
             if hasattr(self._agent_registry, "deprecate_agent"):
-                return await self._call(
-                    self._agent_registry.deprecate_agent,
-                    request.agent_id,
-                    payload,
-                )
+                return await self._call(self._agent_registry.deprecate_agent, request.agent_id, payload)
             return await self._call(self._agent_registry.delete_agent, request.agent_id)
         if request.action_type == AgentLifecycleActionType.ASSIGN_TO_PROJECT:
             if not request.agent_id or not request.project_id:

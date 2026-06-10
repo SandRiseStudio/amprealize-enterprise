@@ -49,6 +49,7 @@ _DECISION_RANK = {
     PolicyDecision.REVIEW: 1,
     PolicyDecision.DENY: 2,
 }
+
 _DENY_RISKS = frozenset({"deny", "denied", "blocked", "prohibited"})
 _REVIEW_RISKS = frozenset(
     {
@@ -177,7 +178,9 @@ class PolicyCompositionEngine:
         try:
             directives = list(request.directives)
             directives.extend(self._directives_from_chat_matrix(request))
-            directives.extend(self._directives_from_policy_context(request.policy_context))
+            directives.extend(
+                self._directives_from_policy_context(request.policy_context)
+            )
             directives.extend(self._directives_from_tool_policy(request))
             directives.extend(self._directives_from_action_risk(request))
 
@@ -192,8 +195,7 @@ class PolicyCompositionEngine:
                 )
 
             decision = max(
-                directives,
-                key=lambda item: _DECISION_RANK[item.decision],
+                directives, key=lambda item: _DECISION_RANK[item.decision]
             ).decision
             reasons = [
                 directive.reason
@@ -305,8 +307,7 @@ class PolicyCompositionEngine:
 
         raw_policies = policy_context.get("policies") or ()
         if isinstance(raw_policies, Sequence) and not isinstance(
-            raw_policies,
-            (str, bytes),
+            raw_policies, (str, bytes)
         ):
             for raw_policy in raw_policies:
                 if not isinstance(raw_policy, Mapping):
@@ -337,9 +338,9 @@ class PolicyCompositionEngine:
         self,
         request: PolicyEvaluationRequest,
     ) -> Iterable[PolicyDirective]:
-        tool_name = request.policy_context.get("mcp_tool_name") or request.policy_context.get(
-            "tool_name"
-        )
+        tool_name = request.policy_context.get(
+            "mcp_tool_name"
+        ) or request.policy_context.get("tool_name")
         if not tool_name or not request.execution_policy:
             return ()
 
@@ -370,7 +371,9 @@ class PolicyCompositionEngine:
         self,
         request: PolicyEvaluationRequest,
     ) -> Iterable[PolicyDirective]:
-        raw_risk = request.risk_classification or request.policy_context.get("action_risk")
+        raw_risk = request.risk_classification or request.policy_context.get(
+            "action_risk"
+        )
         if not raw_risk:
             return ()
 

@@ -38,6 +38,7 @@ def load_global_boolean_overrides(dsn: str) -> Dict[str, bool]:
 def upsert_global_boolean(dsn: str, flag_name: str, enabled: bool) -> None:
     """Insert or update a global boolean flag row."""
     import psycopg2
+
     from psycopg2.extras import Json
 
     sql = """
