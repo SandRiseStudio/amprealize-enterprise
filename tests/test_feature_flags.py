@@ -367,7 +367,11 @@ class TestDefaultCatalogue:
         assert svc.get_flag("feature.quality_gates") is not None
 
     def test_default_count(self):
-        assert len(DEFAULT_FLAGS) == 9
+        assert len(DEFAULT_FLAGS) == 12
+
+    def test_bci_rerank_flag_present(self):
+        svc = FeatureFlagService()
+        assert svc.get_flag("feature.nvidia_bci_rerank") is not None
 
     def test_legacy_env_metadata(self):
         svc = FeatureFlagService()

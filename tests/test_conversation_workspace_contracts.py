@@ -17,8 +17,10 @@ from amprealize.conversation_contracts import (
     ConversationScope,
     ConversationScopeResolution,
     ConversationWorkspaceKind,
+    GLOBAL_WORKSPACE_SCOPES,
     PROJECT_SCOPED_CONVERSATION_SCOPES,
     get_chat_permission_requirement,
+    is_global_workspace_scope,
     normalize_conversation_scope,
 )
 
@@ -27,22 +29,40 @@ pytestmark = pytest.mark.unit
 
 def test_target_scopes_cover_global_and_project_workspace_model() -> None:
     assert ConversationScope.GLOBAL_USER_HOME.value == "global_user_home"
+    assert ConversationScope.GLOBAL_PERSONAL_THREAD.value == "global_personal_thread"
+    assert ConversationScope.GLOBAL_USER_HOME in GLOBAL_WORKSPACE_SCOPES
+    assert ConversationScope.GLOBAL_PERSONAL_THREAD in GLOBAL_WORKSPACE_SCOPES
+    assert ConversationScope.GLOBAL_USER_HOME.is_global
+    assert ConversationScope.GLOBAL_PERSONAL_THREAD.is_global
     assert ConversationScope.PROJECT_SPACE.value == "project_space"
     assert ConversationScope.GROUP_CHAT in PROJECT_SCOPED_CONVERSATION_SCOPES
     assert ConversationScope.WORK_ITEM_THREAD in PROJECT_SCOPED_CONVERSATION_SCOPES
     assert ConversationScope.RUN_THREAD in PROJECT_SCOPED_CONVERSATION_SCOPES
 
 
-def test_global_scope_resolution_rejects_project_binding() -> None:
-    resolution = ConversationScopeResolution(
-        scope=ConversationScope.GLOBAL_USER_HOME,
-        workspace_kind=ConversationWorkspaceKind.GLOBAL,
-        user_id="user-1",
-        project_id="proj-1",
-    )
+def test_is_global_workspace_scope_matches_enum_and_storage_strings() -> None:
+    assert is_global_workspace_scope(ConversationScope.GLOBAL_USER_HOME)
+    assert is_global_workspace_scope(ConversationScope.GLOBAL_PERSONAL_THREAD)
+    assert is_global_workspace_scope("global_user_home")
+    assert is_global_workspace_scope("global_personal_thread")
+    assert not is_global_workspace_scope("project_space")
+    assert not is_global_workspace_scope(ConversationScope.PROJECT_SPACE)
 
-    with pytest.raises(ValueError, match="must not be bound to a project_id"):
-        resolution.validate()
+
+def test_global_scope_resolution_rejects_project_binding() -> None:
+    for scope in (
+        ConversationScope.GLOBAL_USER_HOME,
+        ConversationScope.GLOBAL_PERSONAL_THREAD,
+    ):
+        resolution = ConversationScopeResolution(
+            scope=scope,
+            workspace_kind=ConversationWorkspaceKind.GLOBAL,
+            user_id="user-1",
+            project_id="proj-1",
+        )
+
+        with pytest.raises(ValueError, match="must not be bound to a project_id"):
+            resolution.validate()
 
 
 def test_project_scoped_resolution_requires_project_id() -> None:
@@ -57,12 +77,20 @@ def test_project_scoped_resolution_requires_project_id() -> None:
 
 
 def test_conversation_workspace_kind_distinguishes_global_from_project() -> None:
-    global_conversation = Conversation(
+    global_home = Conversation(
         id="conv-global",
         project_id=None,
         org_id=None,
         scope=ConversationScope.GLOBAL_USER_HOME,
         title="Nick's chat",
+        created_by="user-1",
+    )
+    global_thread = Conversation(
+        id="conv-global-thread",
+        project_id=None,
+        org_id=None,
+        scope=ConversationScope.GLOBAL_PERSONAL_THREAD,
+        title="Side thread",
         created_by="user-1",
     )
     project_conversation = Conversation(
@@ -74,9 +102,11 @@ def test_conversation_workspace_kind_distinguishes_global_from_project() -> None
         created_by="user-1",
     )
 
-    assert global_conversation.workspace_kind == ConversationWorkspaceKind.GLOBAL
+    assert global_home.workspace_kind == ConversationWorkspaceKind.GLOBAL
+    assert global_thread.workspace_kind == ConversationWorkspaceKind.GLOBAL
     assert project_conversation.workspace_kind == ConversationWorkspaceKind.PROJECT
-    assert global_conversation.to_dict()["project_id"] is None
+    assert global_home.to_dict()["project_id"] is None
+    assert global_thread.to_dict()["project_id"] is None
 
 
 def test_legacy_agent_dm_normalizes_to_target_dm_scope() -> None:

@@ -51,6 +51,27 @@ class _FakeConversationService:
     def add_participant(self, conversation_id, **kwargs):
         self.participant_adds.append({"conversation_id": conversation_id, **kwargs})
 
+    def get_conversation(self, conversation_id, user_id=None, org_id=None):
+        """Minimal stub for transcript thread-summary lookup (OSS reply service)."""
+
+        class _Conv:
+            metadata: dict = {}
+
+        return _Conv()
+
+    def list_messages(
+        self,
+        conversation_id,
+        *,
+        user_id=None,
+        org_id=None,
+        include_thread_replies=False,
+        limit=100,
+        offset=0,
+    ):
+        """Empty history — transcript builder only needs the API surface."""
+        return [], 0, False
+
     def send_message(self, conversation_id, **kwargs):
         self.messages.append({"conversation_id": conversation_id, **kwargs})
 
@@ -94,8 +115,40 @@ async def test_generate_reply_records_route_metadata_and_selected_model():
     assert llm_client.calls[0]["project_id"] == "proj-1"
     stored_metadata = conversation_service.messages[0]["metadata"]
     assert stored_metadata["chat_route"]["candidates"][0]["action_id"] == "execution.start"
+    assert stored_metadata["chat_query_intent"] == "mutate"
     assert stored_metadata["chat_route_mode"] == "deterministic"
     assert stored_metadata["chat_route_requires_approval"] is True
     assert stored_metadata["chat_route_policy_context"]["chat_action"] == "execute"
     assert audit.records[0].event_type == "intent_classification"
     assert audit.records[0].metadata["selected_model"] == "nvidia-deepseek-v4-flash"
+    assert audit.records[0].metadata["chat_query_intent"] == "mutate"
+
+
+@pytest.mark.asyncio
+async def test_generate_reply_skips_inventory_fast_path_for_conversational_intent():
+    """Meta / capability questions stay on LLM path (no deterministic inventory fast path)."""
+    llm_client = _FakeLLMClient()
+    conversation_service = _FakeConversationService()
+    service = ConversationReplyService(
+        context_composer=_FakeComposer(),
+        conversation_service=conversation_service,
+        llm_client=llm_client,
+    )
+
+    result = await service.generate_reply(
+        ReplyRequest(
+            conversation_id="conv-2",
+            user_message_id="msg-user-2",
+            user_message_content="Do you have access to files on my local machine?",
+            user_id="user-1",
+            project_id="proj-1",
+            org_id="org-1",
+            metadata={"llm_model_id": "m1", "credential_scope": "project"},
+        )
+    )
+
+    assert result.success is True
+    stored = conversation_service.messages[0]["metadata"]
+    assert stored["chat_query_intent"] == "conversational_non_inventory"
+    assert stored.get("direct_answer") is not True
+    assert llm_client.calls
