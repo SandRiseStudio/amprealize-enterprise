@@ -101,7 +101,7 @@ class PostgresRunService:
                 )
                 cur.execute(
                     """
-                    INSERT INTO runs (
+                    INSERT INTO execution.runs (
                         id, created_at, updated_at,
                         user_id, project_id, session_id, actor_surface,
                         status, workflow_id, workflow_name,
@@ -187,7 +187,7 @@ class PostgresRunService:
 
         params.append(limit)
         query = f"""
-            SELECT * FROM runs
+            SELECT * FROM execution.runs
             {where_clause}
             ORDER BY created_at DESC
             LIMIT %s
@@ -245,7 +245,7 @@ class PostgresRunService:
 
                 cur.execute(
                     """
-                    UPDATE runs
+                    UPDATE execution.runs
                     SET
                         status = %s,
                         started_at = %s,
@@ -324,7 +324,7 @@ class PostgresRunService:
 
                 cur.execute(
                     """
-                    UPDATE runs
+                    UPDATE execution.runs
                     SET
                         status = %s,
                         completed_at = %s,
@@ -438,7 +438,7 @@ class PostgresRunService:
 
         def _execute(conn: Any) -> None:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM runs WHERE id = %s", (run_id,))
+                cur.execute("DELETE FROM execution.runs WHERE id = %s", (run_id,))
                 if cur.rowcount == 0:
                     raise RunNotFoundError(f"Run '{run_id}' not found")
 
@@ -458,7 +458,7 @@ class PostgresRunService:
         """Fetch a single run row as a dict."""
         with self._connection() as conn:
             with conn.cursor(cursor_factory=self._extras.RealDictCursor) as cur:
-                cur.execute("SELECT * FROM runs WHERE id = %s", (run_id,))
+                cur.execute("SELECT * FROM execution.runs WHERE id = %s", (run_id,))
                 row = cur.fetchone()
                 return dict(row) if row else None
 
@@ -578,7 +578,7 @@ class PostgresRunService:
 
         # Check if step exists (using step_id stored in input_data)
         cur.execute(
-            "SELECT id, input_data, completed_at FROM run_steps WHERE run_id = %s AND input_data->>'_step_id' = %s ORDER BY step_number DESC LIMIT 1",
+            "SELECT id, input_data, completed_at FROM execution.run_steps WHERE run_id = %s AND input_data->>'_step_id' = %s ORDER BY step_number DESC LIMIT 1",
             (run_id, step_id),
         )
         row = cur.fetchone()
@@ -586,7 +586,7 @@ class PostgresRunService:
         if not row:
             # Fallback: look up by name for backward compatibility
             cur.execute(
-                "SELECT id, input_data, completed_at FROM run_steps WHERE run_id = %s AND name = %s ORDER BY step_number DESC LIMIT 1",
+                "SELECT id, input_data, completed_at FROM execution.run_steps WHERE run_id = %s AND name = %s ORDER BY step_number DESC LIMIT 1",
                 (run_id, name),
             )
             row = cur.fetchone()
@@ -602,7 +602,7 @@ class PostgresRunService:
 
             cur.execute(
                 """
-                UPDATE run_steps
+                UPDATE execution.run_steps
                 SET name = %s,
                     status = %s,
                     input_data = %s,
@@ -620,14 +620,14 @@ class PostgresRunService:
         else:
             # Insert new step - get next step_number
             cur.execute(
-                "SELECT COALESCE(MAX(step_number), 0) + 1 FROM run_steps WHERE run_id = %s",
+                "SELECT COALESCE(MAX(step_number), 0) + 1 FROM execution.run_steps WHERE run_id = %s",
                 (run_id,),
             )
             next_step_number = cur.fetchone()[0]
 
             cur.execute(
                 """
-                INSERT INTO run_steps (
+                INSERT INTO execution.run_steps (
                     run_id, step_number, name, status, started_at, completed_at, input_data
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s

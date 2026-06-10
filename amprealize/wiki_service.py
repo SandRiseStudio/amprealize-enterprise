@@ -490,7 +490,8 @@ class WikiService:
         """Ingest a research evaluation into the Research Wiki.
 
         Extracts entities and concepts from the report, creates/updates pages,
-        and updates index + log.
+        and updates index + log. Reruns with the same paper title overwrite the
+        evaluation summary at ``evaluations/<slug>.md`` (stable slug from title).
 
         Args:
             paper_title: Title of the evaluated paper
@@ -504,7 +505,7 @@ class WikiService:
         created_pages: List[str] = []
         updated_pages: List[str] = []
 
-        # 1. Create evaluation summary page
+        # 1. Create or replace evaluation summary page (same title → same slug → overwrite on rerun)
         slug = re.sub(r'[^a-z0-9]+', '-', paper_title.lower()).strip('-')[:60]
         eval_path = f"evaluations/{slug}.md"
         confidence = "high" if overall_score >= 7 else ("medium" if overall_score >= 4 else "low")
@@ -517,20 +518,33 @@ class WikiService:
         if exec_match:
             eval_body += "## Key Findings\n\n" + exec_match.group(1).strip() + "\n"
 
-        result = self.create_page(
-            domain=domain,
-            page_path=eval_path,
-            title=f"Evaluation: {paper_title}",
-            page_type="evaluation-summary",
-            body=eval_body,
-            extra_frontmatter={
-                "sources": sources or [paper_id],
-                "confidence": confidence,
-                "tags": [verdict.lower()],
-            },
-        )
-        if result["success"]:
-            created_pages.append(eval_path)
+        eval_full = self._resolve_page_path(domain, eval_path)
+        fm_updates = {
+            "title": f"Evaluation: {paper_title}",
+            "sources": sources or [paper_id],
+            "confidence": confidence,
+            "tags": [verdict.lower()],
+        }
+        if eval_full.exists():
+            self.update_page(
+                domain=domain,
+                page_path=eval_path,
+                body_additions=eval_body,
+                frontmatter_updates=fm_updates,
+                replace_body=True,
+            )
+            updated_pages.append(eval_path)
+        else:
+            result = self.create_page(
+                domain=domain,
+                page_path=eval_path,
+                title=f"Evaluation: {paper_title}",
+                page_type="evaluation-summary",
+                body=eval_body,
+                extra_frontmatter=fm_updates,
+            )
+            if result["success"]:
+                created_pages.append(eval_path)
 
         # 2. Extract entities and concepts (simple extraction from report)
         entities, concepts = self._extract_entities_and_concepts(markdown_report)

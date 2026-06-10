@@ -11,7 +11,7 @@
       },
       "scope": {
         "type": "string",
-        "enum": ["project_room", "agent_dm", "global_user_home", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
+        "enum": ["project_room", "agent_dm", "global_user_home", "global_personal_thread", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
         "description": "Optional filter by conversation scope"
       },
       "include_archived": {

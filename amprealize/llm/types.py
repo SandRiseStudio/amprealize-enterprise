@@ -192,9 +192,9 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
     ),
     "nvidia-kimi-k2-thinking": ModelDefinition(
         model_id="nvidia-kimi-k2-thinking",
-        api_name="moonshotai/kimi-k2-thinking",
+        api_name="moonshotai/kimi-k2.6",
         provider=ProviderType.NVIDIA,
-        display_name="Kimi K2 Thinking (NVIDIA NIM)",
+        display_name="Kimi K2.6 (NVIDIA NIM)",
         context_limit=256_000,
         max_output_tokens=16_384,
         input_price_per_m=0.0,
@@ -208,7 +208,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         provider_base_url="https://integrate.api.nvidia.com/v1",
         metadata={
             "publisher": "Moonshot AI",
-            "source": "https://build.nvidia.com/moonshotai/kimi-k2-thinking",
+            "source": "https://build.nvidia.com/moonshotai/kimi-k2.6",
             "use_cases": ["agentic-ai", "reasoning", "tool-calling"],
             "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
         },

@@ -86,10 +86,15 @@ def _history_assignable_type(item_type: WorkItemType) -> str:
     Older DBs enforce CHECK (... 'epic','story',... ) without 'goal'. The work_items row uses
     unified types (goal/feature/...); for audit rows we map goal -> epic so assign/unassign
     succeeds before/whether migration 20260402_widen_assignment is applied.
+
+    ``research`` is also omitted from ``valid_assignable_type`` (Postgres and SQLite); map to
+    ``task`` so assignment_history inserts succeed for research work items.
     """
     v = item_type.value
     if v == "goal":
         return "epic"
+    if v == "research":
+        return "task"
     return v
 
 
@@ -379,7 +384,7 @@ class BoardService:
                 cur.execute(
                     """
                     SELECT wi.id
-                    FROM work_items wi
+                    FROM board.work_items wi
                     JOIN auth.projects p ON p.project_id = wi.project_id
                     WHERE p.slug = %s
                       AND wi.display_number = %s
@@ -416,7 +421,7 @@ class BoardService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id FROM work_items
+                    SELECT id FROM board.work_items
                     WHERE project_id = %s AND display_number = %s
                     """,
                     (project_id, display_number),
@@ -484,7 +489,7 @@ class BoardService:
                 # Let database generate UUID via gen_random_uuid()
                 cur.execute(
                     """
-                    INSERT INTO boards (project_id, name, description, settings,
+                    INSERT INTO board.boards (project_id, name, description, settings,
                                        created_at, updated_at, created_by, org_id,
                                        display_number)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -573,7 +578,7 @@ class BoardService:
         for name, pos, color, status_map in defaults:
             # Let database generate UUID via gen_random_uuid()
             cur.execute(
-                """INSERT INTO columns (board_id, name, position, color, status_mapping, created_at, updated_at)
+                """INSERT INTO board.columns (board_id, name, position, color, status_mapping, created_at, updated_at)
                    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s)""",
                 (board_id, name, pos, color, status_map.value, timestamp, timestamp),
             )
@@ -589,7 +594,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 # Use 'id' column (database schema uses UUID id, not board_id)
-                cur.execute("SELECT * FROM boards WHERE id = %s::uuid", (board_id,))
+                cur.execute("SELECT * FROM board.boards WHERE id = %s::uuid", (board_id,))
                 row = cur.fetchone()
                 if row:
                     cols = [d[0] for d in cur.description]
@@ -642,7 +647,7 @@ class BoardService:
             values.extend([limit, offset])
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT * FROM boards {where_sql} ORDER BY created_at ASC LIMIT %s OFFSET %s",
+                    f"SELECT * FROM board.boards {where_sql} ORDER BY created_at ASC LIMIT %s OFFSET %s",
                     values,
                 )
                 cols = [d[0] for d in cur.description]
@@ -689,7 +694,7 @@ class BoardService:
             updates.append("updated_at = %s"); values.append(timestamp)
             values.append(board_id)
             with conn.cursor() as cur:
-                cur.execute(f"UPDATE boards SET {', '.join(updates)} WHERE id = %s::uuid", values)
+                cur.execute(f"UPDATE board.boards SET {', '.join(updates)} WHERE id = %s::uuid", values)
 
         self._pool.run_transaction(
             operation="board.update", service_prefix="board",
@@ -704,7 +709,7 @@ class BoardService:
         def _execute(conn: Any) -> None:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM boards WHERE id = %s::uuid", (board_id,))
+                cur.execute("DELETE FROM board.boards WHERE id = %s::uuid", (board_id,))
 
         self._pool.run_transaction(
             operation="board.delete", service_prefix="board",
@@ -729,7 +734,7 @@ class BoardService:
             with conn.cursor() as cur:
                 # Let database generate UUID, use 'columns' table
                 cur.execute(
-                    """INSERT INTO columns (board_id, name, position, status_mapping, wip_limit, created_at, updated_at)
+                    """INSERT INTO board.columns (board_id, name, position, status_mapping, wip_limit, created_at, updated_at)
                        VALUES (%s::uuid, %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
                     (
@@ -758,7 +763,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 # Use 'columns' table and 'id' column
-                cur.execute("SELECT * FROM columns WHERE id = %s::uuid", (column_id,))
+                cur.execute("SELECT * FROM board.columns WHERE id = %s::uuid", (column_id,))
                 row = cur.fetchone()
                 if row:
                     cols = [d[0] for d in cur.description]
@@ -797,7 +802,7 @@ class BoardService:
             with conn.cursor() as cur:
                 # Use 'columns' table (database schema uses 'columns', not 'board_columns')
                 cur.execute(
-                    "SELECT * FROM columns WHERE board_id = %s::uuid ORDER BY position",
+                    "SELECT * FROM board.columns WHERE board_id = %s::uuid ORDER BY position",
                     (board_id,)
                 )
                 cols = [d[0] for d in cur.description]
@@ -846,7 +851,7 @@ class BoardService:
                         # Moving up: target gets new_pos, columns in [new_pos, old_pos) shift +1
                         # Step 1: Offset affected columns
                         cur.execute(
-                            """UPDATE columns
+                            """UPDATE board.columns
                                SET position = position + 1000
                                WHERE board_id = %s::uuid AND (id = %s::uuid OR (position >= %s AND position < %s))""",
                             (board_id, column_id, new_pos, old_pos),
@@ -854,12 +859,12 @@ class BoardService:
                         # Step 2: Set final positions
                         # Target column goes to new_pos
                         cur.execute(
-                            "UPDATE columns SET position = %s, updated_at = %s WHERE id = %s::uuid",
+                            "UPDATE board.columns SET position = %s, updated_at = %s WHERE id = %s::uuid",
                             (new_pos, timestamp, column_id),
                         )
                         # Shifted columns go to their new positions (original + 1)
                         cur.execute(
-                            """UPDATE columns
+                            """UPDATE board.columns
                                SET position = position - 1000 + 1, updated_at = %s
                                WHERE board_id = %s::uuid AND position >= 1000""",
                             (timestamp, board_id),
@@ -868,7 +873,7 @@ class BoardService:
                         # Moving down: target gets new_pos, columns in (old_pos, new_pos] shift -1
                         # Step 1: Offset affected columns
                         cur.execute(
-                            """UPDATE columns
+                            """UPDATE board.columns
                                SET position = position + 1000
                                WHERE board_id = %s::uuid AND (id = %s::uuid OR (position > %s AND position <= %s))""",
                             (board_id, column_id, old_pos, new_pos),
@@ -876,12 +881,12 @@ class BoardService:
                         # Step 2: Set final positions
                         # Target column goes to new_pos
                         cur.execute(
-                            "UPDATE columns SET position = %s, updated_at = %s WHERE id = %s::uuid",
+                            "UPDATE board.columns SET position = %s, updated_at = %s WHERE id = %s::uuid",
                             (new_pos, timestamp, column_id),
                         )
                         # Shifted columns go to their new positions (original - 1)
                         cur.execute(
-                            """UPDATE columns
+                            """UPDATE board.columns
                                SET position = position - 1000 - 1, updated_at = %s
                                WHERE board_id = %s::uuid AND position >= 1000""",
                             (timestamp, board_id),
@@ -903,7 +908,7 @@ class BoardService:
                         where_sql += " AND updated_at = %s"
                         where_values.append(request.expected_updated_at)
                     cur.execute(
-                        f"UPDATE columns SET {', '.join(updates)} WHERE {where_sql}",
+                        f"UPDATE board.columns SET {', '.join(updates)} WHERE {where_sql}",
                         values + where_values,
                     )
                     if request.expected_updated_at is not None and cur.rowcount == 0:
@@ -956,7 +961,7 @@ class BoardService:
                 # Normalize target position to end-of-column
                 cur.execute(
                     """SELECT COALESCE(MAX(position), -1) + 1
-                       FROM work_items
+                       FROM board.work_items
                        WHERE board_id = %s AND column_id = %s AND id <> %s""",
                     (item.board_id, to_column_id, item_id),
                 )
@@ -966,20 +971,20 @@ class BoardService:
                 if from_column_id == to_column_id:
                     # Close gap at old position
                     cur.execute(
-                        """UPDATE work_items
+                        """UPDATE board.work_items
                            SET position = position - 1
                            WHERE board_id = %s AND column_id = %s AND position > %s""",
                         (item.board_id, to_column_id, item.position),
                     )
                     # Make room at new position
                     cur.execute(
-                        """UPDATE work_items
+                        """UPDATE board.work_items
                            SET position = position + 1
                            WHERE board_id = %s AND column_id = %s AND position >= %s AND id <> %s""",
                         (item.board_id, to_column_id, target_position, item_id),
                     )
                     cur.execute(
-                        """UPDATE work_items
+                        """UPDATE board.work_items
                            SET position = %s, updated_at = %s
                            WHERE id = %s""",
                         (target_position, timestamp, item_id),
@@ -988,14 +993,14 @@ class BoardService:
                     if from_column_id is not None:
                         # Close gap in source column
                         cur.execute(
-                            """UPDATE work_items
+                            """UPDATE board.work_items
                                SET position = position - 1
                                WHERE board_id = %s AND column_id = %s AND position > %s""",
                             (item.board_id, from_column_id, item.position),
                         )
                     # Make room in destination column
                     cur.execute(
-                        """UPDATE work_items
+                        """UPDATE board.work_items
                            SET position = position + 1
                            WHERE board_id = %s AND column_id = %s AND position >= %s""",
                         (item.board_id, to_column_id, target_position),
@@ -1003,14 +1008,14 @@ class BoardService:
                     # Also sync status from destination column's status_mapping
                     if new_status is not None:
                         cur.execute(
-                            """UPDATE work_items
+                            """UPDATE board.work_items
                                SET column_id = %s, position = %s, status = %s, updated_at = %s
                                WHERE id = %s""",
                             (to_column_id, target_position, new_status.value, timestamp, item_id),
                         )
                     else:
                         cur.execute(
-                            """UPDATE work_items
+                            """UPDATE board.work_items
                                SET column_id = %s, position = %s, updated_at = %s
                                WHERE id = %s""",
                             (to_column_id, target_position, timestamp, item_id),
@@ -1020,12 +1025,12 @@ class BoardService:
                 if from_column_id is not None:
                     if request.expected_from_column_updated_at is None:
                         cur.execute(
-                            "UPDATE columns SET updated_at = %s WHERE id = %s",
+                            "UPDATE board.columns SET updated_at = %s WHERE id = %s",
                             (timestamp, from_column_id),
                         )
                     else:
                         cur.execute(
-                            """UPDATE columns SET updated_at = %s
+                            """UPDATE board.columns SET updated_at = %s
                                WHERE id = %s AND updated_at = %s""",
                             (timestamp, from_column_id, request.expected_from_column_updated_at),
                         )
@@ -1037,12 +1042,12 @@ class BoardService:
                 if to_column_id is not None and to_column_id != from_column_id:
                     if request.expected_to_column_updated_at is None:
                         cur.execute(
-                            "UPDATE columns SET updated_at = %s WHERE id = %s",
+                            "UPDATE board.columns SET updated_at = %s WHERE id = %s",
                             (timestamp, to_column_id),
                         )
                     else:
                         cur.execute(
-                            """UPDATE columns SET updated_at = %s
+                            """UPDATE board.columns SET updated_at = %s
                                WHERE id = %s AND updated_at = %s""",
                             (timestamp, to_column_id, request.expected_to_column_updated_at),
                         )
@@ -1081,7 +1086,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT id FROM work_items
+                    """SELECT id FROM board.work_items
                        WHERE board_id = %s AND column_id = %s""",
                     (column.board_id, request.column_id),
                 )
@@ -1097,7 +1102,7 @@ class BoardService:
 
                 values.extend([timestamp, column.board_id, request.column_id])
                 cur.execute(
-                    f"""UPDATE work_items
+                    f"""UPDATE board.work_items
                         SET position = CASE id {' '.join(case_parts)} END,
                             updated_at = %s
                         WHERE board_id = %s AND column_id = %s""",
@@ -1106,12 +1111,12 @@ class BoardService:
 
                 if request.expected_column_updated_at is None:
                     cur.execute(
-                        "UPDATE columns SET updated_at = %s WHERE id = %s",
+                        "UPDATE board.columns SET updated_at = %s WHERE id = %s",
                         (timestamp, request.column_id),
                     )
                 else:
                     cur.execute(
-                        """UPDATE columns SET updated_at = %s
+                        """UPDATE board.columns SET updated_at = %s
                            WHERE id = %s AND updated_at = %s""",
                         (timestamp, request.column_id, request.expected_column_updated_at),
                     )
@@ -1140,7 +1145,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id FROM columns WHERE board_id = %s",
+                    "SELECT id FROM board.columns WHERE board_id = %s",
                     (board_id,),
                 )
                 existing_ids = [str(r[0]) for r in cur.fetchall()]
@@ -1159,19 +1164,19 @@ class BoardService:
                 # 1) shift all positions into a temporary range (preserves uniqueness)
                 # 2) assign final positions.
                 cur.execute(
-                    "SELECT COALESCE(MAX(position), 0) FROM columns WHERE board_id = %s",
+                    "SELECT COALESCE(MAX(position), 0) FROM board.columns WHERE board_id = %s",
                     (board_id,),
                 )
                 max_position = int(cur.fetchone()[0] or 0)
                 temp_offset = max_position + len(existing_ids) + 1
                 cur.execute(
-                    "UPDATE columns SET position = position + %s WHERE board_id = %s",
+                    "UPDATE board.columns SET position = position + %s WHERE board_id = %s",
                     (temp_offset, board_id),
                 )
 
                 values.append(board_id)
                 cur.execute(
-                    f"""UPDATE columns
+                    f"""UPDATE board.columns
                         SET position = CASE id {' '.join(case_parts)} END
                         WHERE board_id = %s""",
                     values,
@@ -1180,7 +1185,7 @@ class BoardService:
                 if request.expected_columns_updated_at:
                     for col_id, expected in request.expected_columns_updated_at.items():
                         cur.execute(
-                            """UPDATE columns SET updated_at = %s
+                            """UPDATE board.columns SET updated_at = %s
                                WHERE id = %s AND updated_at = %s""",
                             (timestamp, col_id, expected),
                         )
@@ -1190,7 +1195,7 @@ class BoardService:
                             )
                 else:
                     cur.execute(
-                        "UPDATE columns SET updated_at = %s WHERE board_id = %s",
+                        "UPDATE board.columns SET updated_at = %s WHERE board_id = %s",
                         (timestamp, board_id),
                     )
 
@@ -1209,7 +1214,7 @@ class BoardService:
         def _execute(conn: Any) -> None:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM columns WHERE id = %s", (column_id,))
+                cur.execute("DELETE FROM board.columns WHERE id = %s", (column_id,))
 
         self._pool.run_transaction(
             operation="column.delete", service_prefix="board",
@@ -1275,7 +1280,7 @@ class BoardService:
             project_id = None
             if request.board_id:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT project_id FROM boards WHERE id = %s::uuid", (request.board_id,))
+                    cur.execute("SELECT project_id FROM board.boards WHERE id = %s::uuid", (request.board_id,))
                     prow = cur.fetchone()
                     if prow:
                         project_id = prow[0]
@@ -1290,7 +1295,7 @@ class BoardService:
                 if column_id and request.board_id:
                     cur.execute(
                         """
-                        UPDATE work_items
+                        UPDATE board.work_items
                         SET position = position + 1
                         WHERE board_id = %s::uuid AND column_id = %s::uuid
                         """,
@@ -1299,7 +1304,7 @@ class BoardService:
 
                 cur.execute(
                     """
-                    INSERT INTO work_items (
+                    INSERT INTO board.work_items (
                         item_type, project_id, board_id, column_id, parent_id,
                         title, description, status, priority, position,
                         points,
@@ -1347,7 +1352,7 @@ class BoardService:
         def _query(conn: Any) -> Optional[Dict]:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM work_items WHERE id = %s", (item_id,))
+                cur.execute("SELECT * FROM board.work_items WHERE id = %s", (item_id,))
                 row = cur.fetchone()
                 if row:
                     cols = [d[0] for d in cur.description]
@@ -1375,7 +1380,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM work_items WHERE id = ANY(%s::uuid[]) ORDER BY created_at",
+                    "SELECT * FROM board.work_items WHERE id = ANY(%s::uuid[]) ORDER BY created_at",
                     (item_ids,),
                 )
                 cols = [d[0] for d in cur.description]
@@ -1519,7 +1524,7 @@ class BoardService:
                     """SELECT parent_id,
                               COUNT(*) AS child_count,
                               COUNT(*) FILTER (WHERE status IN ('done')) AS completed_child_count
-                       FROM work_items
+                       FROM board.work_items
                        WHERE parent_id = ANY(%s::uuid[])
                        GROUP BY parent_id""",
                     (parent_ids,),
@@ -1686,7 +1691,7 @@ class BoardService:
             values.append(item_id)
 
             with conn.cursor() as cur:
-                cur.execute(f"UPDATE work_items SET {', '.join(updates)} WHERE id = %s", values)
+                cur.execute(f"UPDATE board.work_items SET {', '.join(updates)} WHERE id = %s", values)
 
         self._pool.run_transaction(
             operation="work_item.update", service_prefix="board",
@@ -1768,12 +1773,12 @@ class BoardService:
                 # Batch update all items to done
                 if done_column_id:
                     cur.execute(
-                        "UPDATE work_items SET status = %s, column_id = %s, updated_at = %s WHERE id = ANY(%s::uuid[])",
+                        "UPDATE board.work_items SET status = %s, column_id = %s, updated_at = %s WHERE id = ANY(%s::uuid[])",
                         (WorkItemStatus.DONE.value, done_column_id, timestamp, items_to_complete),
                     )
                 else:
                     cur.execute(
-                        "UPDATE work_items SET status = %s, updated_at = %s WHERE id = ANY(%s::uuid[])",
+                        "UPDATE board.work_items SET status = %s, updated_at = %s WHERE id = ANY(%s::uuid[])",
                         (WorkItemStatus.DONE.value, timestamp, items_to_complete),
                     )
 
@@ -1822,11 +1827,11 @@ class BoardService:
             with conn.cursor() as cur:
                 if cascade:
                     # Find and delete children
-                    cur.execute("SELECT id FROM work_items WHERE parent_id = %s", (item_id,))
+                    cur.execute("SELECT id FROM board.work_items WHERE parent_id = %s", (item_id,))
                     deleted_children = [str(r[0]) for r in cur.fetchall()]
                     if deleted_children:
-                        cur.execute("DELETE FROM work_items WHERE parent_id = %s", (item_id,))
-                cur.execute("DELETE FROM work_items WHERE id = %s", (item_id,))
+                        cur.execute("DELETE FROM board.work_items WHERE parent_id = %s", (item_id,))
+                cur.execute("DELETE FROM board.work_items WHERE id = %s", (item_id,))
 
         self._pool.run_transaction(
             operation="work_item.delete", service_prefix="board",
@@ -1970,7 +1975,7 @@ class BoardService:
             child_agg_lateral = """LEFT JOIN LATERAL (
                     SELECT COUNT(*)::int AS child_count,
                            COUNT(*) FILTER (WHERE status IN ('done'))::int AS completed_child_count
-                    FROM work_items children
+                    FROM board.work_items children
                     WHERE children.parent_id = w.id
                 ) ca ON TRUE"""
             total_col = ", COUNT(*) OVER()::bigint AS _total" if include_total else ""
@@ -1984,8 +1989,8 @@ class BoardService:
                                    ca.child_count AS _child_count,
                                    ca.completed_child_count AS _completed_child_count
                                    {total_col}
-                            FROM work_items w
-                            JOIN boards b ON w.board_id = b.id
+                            FROM board.work_items w
+                            JOIN board.boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
                             {child_agg_lateral}
                             {where} {order_clause} LIMIT %s OFFSET %s""",
@@ -1997,8 +2002,8 @@ class BoardService:
                                    ca.child_count AS _child_count,
                                    ca.completed_child_count AS _completed_child_count
                                    {total_col}
-                            FROM work_items w
-                            LEFT JOIN boards b ON w.board_id = b.id
+                            FROM board.work_items w
+                            LEFT JOIN board.boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
                             {child_agg_lateral}
                             {where} {order_clause} LIMIT %s OFFSET %s""",
@@ -2012,7 +2017,7 @@ class BoardService:
         )
         items = [self._row_to_work_item(r) for r in results]
 
-        # Build display and child summary fields from inline JOIN columns.
+        # Build display and child summary fields from inline JOIN board.columns.
         for item, row in zip(items, results):
             slug = row.get("_project_slug")
             if slug and item.display_number and not item.display_id:
@@ -2117,11 +2122,11 @@ class BoardService:
             with conn.cursor() as cur:
                 if needs_board_join:
                     cur.execute(
-                        f"SELECT COUNT(*) FROM work_items w JOIN boards b ON w.board_id = b.id {where}",
+                        f"SELECT COUNT(*) FROM board.work_items w JOIN board.boards b ON w.board_id = b.id {where}",
                         values,
                     )
                 else:
-                    cur.execute(f"SELECT COUNT(*) FROM work_items w {where}", values)
+                    cur.execute(f"SELECT COUNT(*) FROM board.work_items w {where}", values)
                 return cur.fetchone()[0]
 
         return self._pool.run_query(
@@ -2165,7 +2170,7 @@ class BoardService:
                 cur.execute(
                     """SELECT COUNT(*) AS total,
                               COUNT(*) FILTER (WHERE status IN ('done')) AS completed
-                       FROM work_items
+                       FROM board.work_items
                        WHERE parent_id = %s""",
                     (parent.item_id,),
                 )
@@ -2199,12 +2204,12 @@ class BoardService:
             with conn.cursor() as cur:
                 if done_column_id:
                     cur.execute(
-                        "UPDATE work_items SET status = %s, column_id = %s, updated_at = %s WHERE id = %s",
+                        "UPDATE board.work_items SET status = %s, column_id = %s, updated_at = %s WHERE id = %s",
                         (WorkItemStatus.DONE.value, done_column_id, timestamp, parent.item_id),
                     )
                 else:
                     cur.execute(
-                        "UPDATE work_items SET status = %s, updated_at = %s WHERE id = %s",
+                        "UPDATE board.work_items SET status = %s, updated_at = %s WHERE id = %s",
                         (WorkItemStatus.DONE.value, timestamp, parent.item_id),
                     )
 
@@ -2436,7 +2441,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
                 cur.execute(
-                    """UPDATE work_items SET assignee_id = %s, assignee_type = %s,
+                    """UPDATE board.work_items SET assignee_id = %s, assignee_type = %s,
                        assigned_at = %s, assigned_by = %s, updated_at = %s WHERE id = %s""",
                     (request.assignee_id, request.assignee_type.value, timestamp, actor.id, timestamp, item_id),
                 )
@@ -2489,7 +2494,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
                 cur.execute(
-                    """UPDATE work_items SET assignee_id = NULL, assignee_type = NULL,
+                    """UPDATE board.work_items SET assignee_id = NULL, assignee_type = NULL,
                        assigned_at = NULL, assigned_by = NULL, updated_at = %s WHERE id = %s""",
                     (timestamp, item_id),
                 )
@@ -2544,7 +2549,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO sprints (board_id, name, goal, status,
+                    """INSERT INTO board.sprints (board_id, name, goal, status,
                        start_date, end_date, created_at, updated_at)
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                        RETURNING id""",
@@ -2569,7 +2574,7 @@ class BoardService:
         def _query(conn: Any) -> Optional[Dict]:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM sprints WHERE id = %s", (sprint_id,))
+                cur.execute("SELECT * FROM board.sprints WHERE id = %s", (sprint_id,))
                 row = cur.fetchone()
                 if row:
                     cols = [d[0] for d in cur.description]
@@ -2618,7 +2623,7 @@ class BoardService:
             updates.append("updated_at = %s"); values.append(timestamp)
             values.append(sprint_id)
             with conn.cursor() as cur:
-                cur.execute(f"UPDATE sprints SET {', '.join(updates)} WHERE id = %s", values)
+                cur.execute(f"UPDATE board.sprints SET {', '.join(updates)} WHERE id = %s", values)
 
         self._pool.run_transaction(
             operation="sprint.update", service_prefix="board",
@@ -2633,7 +2638,7 @@ class BoardService:
         def _execute(conn: Any) -> None:
             self._pool.set_tenant_context(conn, org_id, actor.id)
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM sprints WHERE id = %s", (sprint_id,))
+                cur.execute("DELETE FROM board.sprints WHERE id = %s", (sprint_id,))
 
         self._pool.run_transaction(
             operation="sprint.delete", service_prefix="board",
@@ -2670,7 +2675,7 @@ class BoardService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO sprint_stories (sprint_id, story_id, added_at, added_by, org_id)
+                    INSERT INTO board.sprint_stories (sprint_id, story_id, added_at, added_by, org_id)
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (sprint_id, story_id) DO NOTHING
                     """,
@@ -2696,7 +2701,7 @@ class BoardService:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT sprint_id, story_id, added_at, added_by FROM sprint_stories WHERE sprint_id = %s ORDER BY added_at ASC",
+                    "SELECT sprint_id, story_id, added_at, added_by FROM board.sprint_stories WHERE sprint_id = %s ORDER BY added_at ASC",
                     (sprint_id,),
                 )
                 cols = [d[0] for d in cur.description]
@@ -3153,7 +3158,7 @@ class BoardService:
                 # First try exact status_mapping match
                 cur.execute(
                     """
-                    SELECT * FROM columns
+                    SELECT * FROM board.columns
                     WHERE board_id = %s::uuid AND status_mapping = %s
                     ORDER BY position ASC
                     LIMIT 1
@@ -3171,7 +3176,7 @@ class BoardService:
                         placeholders = ",".join(["%s"] * len(name_candidates))
                         cur.execute(
                             f"""
-                            SELECT * FROM columns
+                            SELECT * FROM board.columns
                             WHERE board_id = %s::uuid
                               AND status_mapping IS NULL
                               AND LOWER(TRIM(name)) IN ({placeholders})

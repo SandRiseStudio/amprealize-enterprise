@@ -4566,6 +4566,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "project_room",
         "agent_dm",
         "global_user_home",
+        "global_personal_thread",
         "project_space",
         "dm",
         "group_chat",

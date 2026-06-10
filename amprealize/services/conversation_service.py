@@ -235,7 +235,7 @@ class ConversationService:
         if normalized_scope.is_global:
             if project_id is not None:
                 raise ConversationServiceError(
-                    "global_user_home conversations must not include project_id"
+                    "global workspace conversations must not include project_id"
                 )
             return normalized_scope
         if normalized_scope.is_project_scoped and not project_id:
@@ -479,7 +479,7 @@ class ConversationService:
                 raise ConversationServiceError(f"{scope.value} requires project_id")
             if scope.is_global and project_id is not None:
                 raise ConversationServiceError(
-                    "global_user_home conversations must not include project_id"
+                    "global workspace conversations must not include project_id"
                 )
 
         def _query(conn: Any) -> Tuple[List[Conversation], int]:
@@ -857,9 +857,9 @@ class ConversationService:
                     """,
                     (msg_id, conversation_id, sender_id, sender_type.value,
                      content, message_type.value,
-                     json.dumps(structured_payload) if structured_payload else None,
+                     json.dumps(structured_payload, default=str) if structured_payload else None,
                      parent_id, run_id, behavior_id, work_item_id,
-                     json.dumps(message_metadata), now),
+                     json.dumps(message_metadata, default=str), now),
                 )
 
                 # Touch conversation updated_at

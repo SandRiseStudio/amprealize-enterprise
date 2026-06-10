@@ -919,3 +919,6 @@ class SuggestAgentResponse(BaseModel):
 
 # If callers want unified types explicitly, prefer importing WorkItem/
 # CreateWorkItemRequest/UpdateWorkItemRequest directly.
+
+# Shared validation used by BoardService / execution paths (OSS parity).
+from amprealize.boards.contracts import validate_research_url  # noqa: E402

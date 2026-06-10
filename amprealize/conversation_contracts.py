@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 
 class ConversationScope(str, Enum):
     GLOBAL_USER_HOME = "global_user_home"
+    # Additional project-less chats; unlimited per user (unlike uq_global_user_home).
+    GLOBAL_PERSONAL_THREAD = "global_personal_thread"
     PROJECT_SPACE = "project_space"
     PROJECT_ROOM = "project_room"
     DM = "dm"
@@ -34,11 +36,29 @@ class ConversationScope(str, Enum):
 
     @property
     def is_global(self) -> bool:
-        return self == ConversationScope.GLOBAL_USER_HOME
+        return self in GLOBAL_WORKSPACE_SCOPES
 
     @property
     def is_project_scoped(self) -> bool:
         return self in PROJECT_SCOPED_CONVERSATION_SCOPES
+
+
+GLOBAL_WORKSPACE_SCOPES = frozenset(
+    {
+        ConversationScope.GLOBAL_USER_HOME,
+        ConversationScope.GLOBAL_PERSONAL_THREAD,
+    }
+)
+
+
+def is_global_workspace_scope(scope: ConversationScope | str) -> bool:
+    """True for global_user_home and global_personal_thread (project-less user chats)."""
+    if isinstance(scope, ConversationScope):
+        return scope in GLOBAL_WORKSPACE_SCOPES
+    try:
+        return ConversationScope(scope) in GLOBAL_WORKSPACE_SCOPES
+    except ValueError:
+        return False
 
 
 PROJECT_SCOPED_CONVERSATION_SCOPES = frozenset(
@@ -52,6 +72,7 @@ PROJECT_SCOPED_CONVERSATION_SCOPES = frozenset(
         ConversationScope.RUN_THREAD,
     }
 )
+
 
 LEGACY_CONVERSATION_SCOPE_ALIASES = {
     ConversationScope.PROJECT_ROOM: ConversationScope.PROJECT_ROOM,
@@ -195,7 +216,7 @@ class Conversation:
     def workspace_kind(self) -> ConversationWorkspaceKind:
         return (
             ConversationWorkspaceKind.GLOBAL
-            if self.scope == ConversationScope.GLOBAL_USER_HOME
+            if self.scope in GLOBAL_WORKSPACE_SCOPES
             else ConversationWorkspaceKind.PROJECT
         )
 
@@ -341,7 +362,9 @@ class ConversationScopeResolution:
     def validate(self) -> None:
         if self.scope.is_global:
             if self.project_id is not None:
-                raise ValueError("global user chat must not be bound to a project_id")
+                raise ValueError(
+                    "global workspace conversation must not be bound to a project_id"
+                )
             return
         if self.project_id is None:
             raise ValueError(f"{self.scope.value} requires a project_id")

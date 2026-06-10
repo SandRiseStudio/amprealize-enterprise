@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from .conversation_contracts import (
     ChatPermissionAction,
@@ -252,6 +253,105 @@ class ChatRouteMode(str, Enum):
     HYBRID = "hybrid"
 
 
+class ChatWorkspaceIntent(str, Enum):
+    """Intent buckets for workspace chat routing (deterministic vs hybrid)."""
+
+    LIST_INVENTORY = "list_inventory"
+    MUTATE = "mutate"
+    ANALYTICS_OR_RATE = "analytics_or_rate"
+    AMBIGUOUS_SCOPE = "ambiguous_scope"
+    WORKSPACE_PRIORITIZE = "workspace_prioritize"
+    CONVERSATIONAL_NON_INVENTORY = "conversational_non_inventory"
+
+
+def detect_chat_workspace_intent(message: str) -> str:
+    """Classify the user's message for routing; safe to call on any non-empty string."""
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", message.lower()).strip()
+    if not normalized:
+        return ChatWorkspaceIntent.LIST_INVENTORY.value
+    if re.search(
+        r"\b(create|add|make|execute|run|start|dispatch|trigger|update|set|delete|remove|cancel|stop)\b",
+        normalized,
+    ):
+        return ChatWorkspaceIntent.MUTATE.value
+    if re.search(
+        r"\b(what should i work on|what to work on|what do i work on|prioritize|priorities for today|"
+        r"focus today|next up|what should i focus|pick my next|start with what)\b",
+        normalized,
+    ) or (
+        bool(re.search(r"\b(work on|focus on)\b", normalized))
+        and bool(re.search(r"\b(today|now|next)\b", normalized))
+    ):
+        return ChatWorkspaceIntent.WORKSPACE_PRIORITIZE.value
+    if re.search(
+        r"\b(velocity|throughput|lead time|cycle time|how quickly|how fast|median|p95|percentile)\b",
+        normalized,
+    ) or (
+        bool(re.search(r"\b(backlog|todo|queued|open)\b", normalized))
+        and bool(re.search(r"\b(in progress|in-progress|started|doing|wip)\b", normalized))
+        and bool(re.search(r"\b(time|duration|moving|transition|days|hours)\b", normalized))
+    ):
+        return ChatWorkspaceIntent.ANALYTICS_OR_RATE.value
+    if _is_conversational_non_inventory_intent(normalized):
+        return ChatWorkspaceIntent.CONVERSATIONAL_NON_INVENTORY.value
+    if re.search(r"\b(which board|what board|which project|what project)\b", normalized):
+        return ChatWorkspaceIntent.AMBIGUOUS_SCOPE.value
+    return ChatWorkspaceIntent.LIST_INVENTORY.value
+
+
+def _is_conversational_non_inventory_intent(normalized: str) -> bool:
+    """Meta questions, capability, or local-runtime access — not tabular inventory lists."""
+
+    if re.search(
+        r"\b(who are you|what model are you|what llm|which model are you|are you gpt|are you claude|"
+        r"how do you work|are you an ai|are you connected to|what can you do for me|"
+        r"what are your limitations|where do you run)\b",
+        normalized,
+    ):
+        return True
+    if re.search(r"\b(can you|could you)\s+(see|read|open|access)\b", normalized) and re.search(
+        r"\b(path|paths|folder|folders|directory|directories|filesystem|file system|"
+        r"disk|machine|computer|laptop|local|repo|git)\b",
+        normalized,
+    ):
+        return True
+    if re.search(r"\bdo you have access\b", normalized):
+        if re.search(
+            r"\b(how many|list\b|show me|show all|what are the|which projects?|what projects|count\b)\b",
+            normalized,
+        ):
+            return False
+        if re.search(
+            r"\b(local|path|paths|filesystem|file system|files?|folders?|directories?|"
+            r"disk|machine|computer|laptop|my machine|repo root|workspace path)\b",
+            normalized,
+        ):
+            return True
+        return True
+    if re.search(r"\b(my|our)\s+(local|machine|computer|disk|laptop)\b", normalized) and re.search(
+        r"\b(access|see|read|files?|path|paths|folders?)\b",
+        normalized,
+    ):
+        return True
+    return False
+
+
+def enrich_chat_routing_metadata(metadata: Mapping[str, Any], message: str) -> Dict[str, Any]:
+    """Copy metadata, attach ``chat_query_intent``, and optionally select hybrid routing."""
+
+    out = dict(metadata)
+    intent = detect_chat_workspace_intent(message)
+    out["chat_query_intent"] = intent
+    if intent in {
+        ChatWorkspaceIntent.ANALYTICS_OR_RATE.value,
+        ChatWorkspaceIntent.AMBIGUOUS_SCOPE.value,
+    }:
+        if not out.get("chat_route_mode"):
+            out["chat_route_mode"] = ChatRouteMode.HYBRID.value
+    return out
+
+
 class ChatActionRouter:
     """Route natural-language chat text to typed action candidates."""
 
@@ -272,7 +372,7 @@ class ChatActionRouter:
                 normalized_message=normalized_message,
                 preset=preset,
             )
-            for pattern in self._matching_patterns(normalized_message, preset)
+            for pattern in self._matching_patterns(request, normalized_message, preset)
         ]
         if not candidates:
             candidates = [
@@ -312,9 +412,16 @@ class ChatActionRouter:
 
     def _matching_patterns(
         self,
+        request: ChatActionRouteRequest,
         normalized_message: str,
         preset: Optional[str],
     ) -> Iterable[_RoutePattern]:
+        slot_followup = bool((request.metadata or {}).get("work_item_slot_followup"))
+        if slot_followup:
+            for pattern in _ROUTE_PATTERNS:
+                if pattern.category == ChatActionCategory.WORK_MANAGEMENT:
+                    yield pattern
+            return
         for pattern in _ROUTE_PATTERNS:
             if preset and preset == pattern.preset:
                 yield pattern
@@ -394,6 +501,8 @@ class ChatActionRouter:
             ChatActionCategory.INVITE_SHARE,
         }:
             if pattern.category == ChatActionCategory.WORK_MANAGEMENT:
+                if (request.metadata or {}).get("work_item_slot_followup"):
+                    return False
                 return not any(
                     keyword in normalized_message
                     for keyword in {"work item", "task", "bug", "feature", "goal", "research", "ticket"}

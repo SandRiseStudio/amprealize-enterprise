@@ -1004,7 +1004,13 @@ class BehaviorService:
 
         return results
 
-    def search_behaviors(self, request: SearchBehaviorsRequest, actor: Optional[Actor] = None) -> List[BehaviorSearchResult]:
+    def search_behaviors(
+        self,
+        request: SearchBehaviorsRequest,
+        actor: Optional[Actor] = None,
+        *,
+        telemetry_session_id: Optional[str] = None,
+    ) -> List[BehaviorSearchResult]:
         """Search behaviors by query, tags, role focus.
 
         Uses optimized JOIN query to eliminate N+1 performance problem.
@@ -1084,6 +1090,7 @@ class BehaviorService:
                 "results": len(limited),
             },
             actor=self._actor_payload(actor) if actor else None,
+            session_id=telemetry_session_id,
         )
         return limited
 
@@ -1094,6 +1101,8 @@ class BehaviorService:
         limit: int = 5,
         actor: Optional[Actor] = None,
         role_context: Optional[RoleContext] = None,
+        *,
+        telemetry_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get relevant behaviors for a task before execution.
 
@@ -1122,6 +1131,7 @@ class BehaviorService:
                     **role_context.to_telemetry_payload(),
                 },
                 actor=self._actor_payload(actor) if actor else None,
+                session_id=telemetry_session_id,
             )
 
         # Search for relevant behaviors
@@ -1134,7 +1144,11 @@ class BehaviorService:
             status="APPROVED",
             limit=limit,
         )
-        results = self.search_behaviors(search_request, actor)
+        results = self.search_behaviors(
+            search_request,
+            actor,
+            telemetry_session_id=telemetry_session_id,
+        )
 
         # Format behaviors for agent prompt consumption
         recommended = []
@@ -1164,6 +1178,7 @@ class BehaviorService:
                 "behavior_names": [r.behavior.name for r in results[:limit]],
             },
             actor=self._actor_payload(actor) if actor else None,
+            session_id=telemetry_session_id,
         )
 
         return {

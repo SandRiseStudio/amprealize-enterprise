@@ -7,11 +7,11 @@
     "properties": {
       "project_id": {
         "type": "string",
-        "description": "Project ID to create the conversation in. Required for project-scoped conversations; omit for global_user_home."
+        "description": "Project ID to create the conversation in. Required for project-scoped conversations; omit for global_user_home or global_personal_thread."
       },
       "scope": {
         "type": "string",
-        "enum": ["project_room", "agent_dm", "global_user_home", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
+        "enum": ["project_room", "agent_dm", "global_user_home", "global_personal_thread", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
         "default": "project_room",
         "description": "Conversation scope type"
       },

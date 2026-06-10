@@ -16,13 +16,22 @@ try:
     from amprealize.enterprise.research.prompts import (
         COMPREHENSION_SYSTEM_PROMPT,
         COMPREHENSION_USER_PROMPT,
+        CONCLUSION_PROMPT,
         EVALUATION_SYSTEM_PROMPT,
         EVALUATION_USER_PROMPT,
+        FIGURE_CAPTION_PROMPT,
         RECOMMENDATION_SYSTEM_PROMPT,
         RECOMMENDATION_USER_PROMPT,
+        RESEARCH_SYSTEM_PROMPT,
+        SECTION_PROMPT,
+        SYNTHESIS_SYSTEM_PROMPT,
+        TABLE_CAPTION_PROMPT,
         format_comprehension_prompt,
         format_evaluation_prompt,
         format_recommendation_prompt,
+        format_research_prompt,
+        format_section_prompt,
+        format_synthesis_prompt,
     )
     from amprealize.enterprise.research.codebase_analyzer import (
         CodebaseAnalyzer,
@@ -39,9 +48,18 @@ except ImportError:
     EVALUATION_USER_PROMPT = ""
     RECOMMENDATION_SYSTEM_PROMPT = ""
     RECOMMENDATION_USER_PROMPT = ""
+    RESEARCH_SYSTEM_PROMPT = ""
+    SYNTHESIS_SYSTEM_PROMPT = ""
+    SECTION_PROMPT = ""
+    CONCLUSION_PROMPT = ""
+    FIGURE_CAPTION_PROMPT = ""
+    TABLE_CAPTION_PROMPT = ""
     format_comprehension_prompt = None  # type: ignore[assignment]
     format_evaluation_prompt = None  # type: ignore[assignment]
     format_recommendation_prompt = None  # type: ignore[assignment]
+    format_research_prompt = None  # type: ignore[assignment]
+    format_synthesis_prompt = None  # type: ignore[assignment]
+    format_section_prompt = None  # type: ignore[assignment]
     CodebaseAnalyzer = None  # type: ignore[assignment,misc]
     CodebaseSnapshot = None  # type: ignore[assignment,misc]
     get_codebase_context = None  # type: ignore[assignment]
@@ -54,9 +72,18 @@ __all__ = [
     "EVALUATION_USER_PROMPT",
     "RECOMMENDATION_SYSTEM_PROMPT",
     "RECOMMENDATION_USER_PROMPT",
+    "RESEARCH_SYSTEM_PROMPT",
+    "SYNTHESIS_SYSTEM_PROMPT",
+    "SECTION_PROMPT",
+    "CONCLUSION_PROMPT",
+    "FIGURE_CAPTION_PROMPT",
+    "TABLE_CAPTION_PROMPT",
     "format_comprehension_prompt",
     "format_evaluation_prompt",
     "format_recommendation_prompt",
+    "format_research_prompt",
+    "format_synthesis_prompt",
+    "format_section_prompt",
     "CodebaseAnalyzer",
     "CodebaseSnapshot",
     "get_codebase_context",

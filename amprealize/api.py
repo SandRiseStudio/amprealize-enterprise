@@ -8725,6 +8725,7 @@ def create_app(
                 conversation_service=conversation_service,
                 llm_client=LLMClient(credential_resolver=_conversation_llm_credential_resolver),
                 event_hub=conversation_event_hub,
+                reply_project_service=getattr(container, "org_service", None),
             )
             conversation_routes = create_conversation_routes(
                 conversation_service=conversation_service,
@@ -8868,59 +8869,82 @@ def create_app(
         logger.warning("Wiki routes unavailable: %s", exc)
 
     # ------------------------------------------------------------------
+    # Neon compute keepalive
+    # ------------------------------------------------------------------
+    # Neon suspends the Postgres compute after ~5 min idle.  The first query
+    # after suspension pays a ~10s cold-start (observed: 10s context phase vs
+    # 416ms warm).  The pooler endpoint keeps pgBouncer warm but NOT the
+    # underlying compute.  Free-tier Neon forbids changing suspend_timeout via
+    # the API, so we keep the compute warm with a tiny periodic SELECT 1.
+    _keepalive_enabled = os.getenv(
+        "AMPREALIZE_NEON_KEEPALIVE", "true"
+    ).lower() not in ("0", "false", "no", "off")
+    _run_service_for_keepalive = getattr(container, "run_service", None)
+    _keepalive_pool = getattr(_run_service_for_keepalive, "_pool", None)
+    _keepalive_dsn = getattr(_run_service_for_keepalive, "_dsn", "") or ""
+    if (
+        _keepalive_enabled
+        and _keepalive_pool is not None
+        and any(
+            h in _keepalive_dsn
+            for h in ("neon.tech", "supabase.co", "cockroachlabs.cloud")
+        )
+    ):
+        try:
+            _keepalive_interval = int(
+                os.getenv("AMPREALIZE_NEON_KEEPALIVE_INTERVAL_SECONDS", "180")
+            )
+        except (TypeError, ValueError):
+            _keepalive_interval = 180
+
+        async def _neon_keepalive_loop() -> None:
+            def _ping() -> None:
+                with _keepalive_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                        cur.fetchone()
+
+            # Eager startup ping — warms Neon compute before the first request arrives.
+            try:
+                await asyncio.to_thread(_ping)
+                logger.info("Neon keepalive startup ping ok")
+            except Exception as exc:
+                logger.warning("Neon keepalive startup ping failed: %s", exc)
+
+            while True:
+                try:
+                    await asyncio.sleep(_keepalive_interval)
+                    await asyncio.to_thread(_ping)
+                    logger.debug("Neon keepalive ping ok")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # never let the loop die
+                    logger.warning("Neon keepalive ping failed: %s", exc)
+
+        @app.on_event("startup")
+        async def _start_neon_keepalive() -> None:
+            app.state.neon_keepalive_task = asyncio.create_task(
+                _neon_keepalive_loop()
+            )
+            logger.info(
+                "Neon compute keepalive started (interval=%ds)",
+                _keepalive_interval,
+            )
+
+        @app.on_event("shutdown")
+        async def _stop_neon_keepalive() -> None:
+            task = getattr(app.state, "neon_keepalive_task", None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("Neon compute keepalive stopped")
+
+    # ------------------------------------------------------------------
     # Dashboard Stats
     # ------------------------------------------------------------------
-    @app.get("/api/v1/dashboard/stats")
-    async def dashboard_stats() -> Dict[str, Any]:
-        """
-        Get aggregated dashboard statistics.
-
-        Returns counts and summaries for display on the main dashboard.
-        """
-        from datetime import datetime, timezone
-
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-        # Get counts from services
-        total_behaviors = 0
-        total_runs = 0
-        running_runs = 0
-        completed_today = 0
-        failed_today = 0
-
-        try:
-            behaviors = container.behavior_service.list_behaviors()
-            total_behaviors = len(behaviors)
-        except Exception:
-            pass
-
-        try:
-            runs = container.run_service.list_runs(limit=1000)
-            total_runs = len(runs)
-            for run in runs:
-                if run.get("status") == "RUNNING":
-                    running_runs += 1
-                started_at = run.get("started_at", "")
-                if started_at and started_at.startswith(today):
-                    if run.get("status") == "COMPLETED":
-                        completed_today += 1
-                    elif run.get("status") == "FAILED":
-                        failed_today += 1
-        except Exception:
-            pass
-
-        return {
-            "total_projects": 0,  # Projects not implemented yet
-            "total_agents": 0,  # Agents not implemented yet
-            "active_agents": 0,
-            "busy_agents": 0,
-            "total_runs": total_runs,
-            "running_runs": running_runs,
-            "completed_runs_today": completed_today,
-            "failed_runs_today": failed_today,
-            "total_behaviors": total_behaviors,
-        }
-
     # ------------------------------------------------------------------
     # Operations & Monitoring
     # ------------------------------------------------------------------

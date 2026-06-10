@@ -121,6 +121,20 @@ _MIGRATED_FLAGS: List[FeatureFlag] = [
     ),
 ]
 
+# BCI / retrieval (NVIDIA NeMo rerank NIM — optional post-FAISS reordering).
+_BCI_RETRIEVAL_FLAGS: List[FeatureFlag] = [
+    FeatureFlag(
+        name="feature.nvidia_bci_rerank",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_NVIDIA_BCI_RERANK", "false").lower() == "true",
+        description=(
+            "Re-order BCI behavior candidates using NVIDIA NeMo rerank NIM after "
+            "FAISS / hybrid merge (requires NVIDIA_API_KEY or NVIDIA_NIM_API_KEY)"
+        ),
+        metadata={"legacy_env": "AMPREALIZE_NVIDIA_BCI_RERANK"},
+    ),
+]
+
 # New E4 flags.
 _E4_FLAGS: List[FeatureFlag] = [
     FeatureFlag(
@@ -171,7 +185,37 @@ _WHITEBOARD_FLAGS: List[FeatureFlag] = [
     ),
 ]
 
-DEFAULT_FLAGS: List[FeatureFlag] = _MIGRATED_FLAGS + _E4_FLAGS + _WHITEBOARD_FLAGS
+_CHAT_ANALYSIS_FLAGS: List[FeatureFlag] = [
+    FeatureFlag(
+        name="feature.chat_insight_narrator",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_INSIGHT_NARRATOR", "true").lower() == "true",
+        description="Append LLM interpretation to deterministic resource_analysis replies (no new numbers)",
+        metadata={"surface": "chat"},
+    ),
+    FeatureFlag(
+        name="feature.chat_analysis_runner",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_ANALYSIS_RUNNER", "true").lower() == "true",
+        description="Bounded multi-step resource analysis when analytics intent and fast path misses",
+        metadata={"surface": "chat"},
+    ),
+    FeatureFlag(
+        name="feature.chat_inventory_fast_path_strict",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_INVENTORY_FAST_PATH_STRICT", "false").lower()
+        == "true",
+        description=(
+            "When enabled, list_inventory chat only uses the workspace inventory fast path "
+            "for high-confidence tabular phrasing (allowlist) without conversational soft markers"
+        ),
+        metadata={"surface": "chat", "legacy_env": "AMPREALIZE_ENABLE_CHAT_INVENTORY_FAST_PATH_STRICT"},
+    ),
+]
+
+DEFAULT_FLAGS: List[FeatureFlag] = (
+    _MIGRATED_FLAGS + _BCI_RETRIEVAL_FLAGS + _E4_FLAGS + _WHITEBOARD_FLAGS + _CHAT_ANALYSIS_FLAGS
+)
 
 
 # ---------------------------------------------------------------------------

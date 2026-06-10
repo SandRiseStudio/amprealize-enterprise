@@ -294,8 +294,14 @@ class MCPError:
 class MCPServiceRegistry:
     """Lazy initializer for MCP service singletons using PostgreSQL DSNs."""
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        telemetry_client: Optional[Any] = None,
+    ) -> None:
         self._logger = logger or logging.getLogger("amprealize.mcp_server.services")
+        self._telemetry_client: Optional[Any] = None
+        self._telemetry_client_override: Optional[Any] = telemetry_client
         self._behavior_service: Optional[BehaviorService] = None
         self._bci_service: Optional[BCIService] = None
         self._workflow_service: Optional[WorkflowService] = None
@@ -367,6 +373,28 @@ class MCPServiceRegistry:
         # will share the same underlying connection pool (via _POOL_CACHE).
         self._pools: Dict[str, PostgresPool] = {}
         self._permission_service_cache: Any = _MCP_PERMISSION_SERVICE_UNSET
+
+    def telemetry_client(self) -> Any:
+        """Shared :class:`~amprealize.telemetry.TelemetryClient` for MCP surfaces.
+
+        Uses ``AMPREALIZE_TELEMETRY_PG_DSN`` / ``AMPREALIZE_TELEMETRY_PATH`` via
+        :func:`~amprealize.telemetry.create_sink_from_env` unless a client was
+        injected (tests or embedding).
+        """
+        if self._telemetry_client_override is not None:
+            return self._telemetry_client_override
+        if self._telemetry_client is None:
+            from pathlib import Path
+
+            from .telemetry import TelemetryClient, create_sink_from_env
+
+            default_path = Path.home() / ".amprealize" / "telemetry" / "events.jsonl"
+            sink = create_sink_from_env(default_path=default_path)
+            self._telemetry_client = TelemetryClient(
+                sink=sink,
+                default_actor={"id": "amprealize-mcp", "role": "SYSTEM", "surface": "mcp"},
+            )
+        return self._telemetry_client
 
     def permission_service(self) -> Optional[Any]:
         """Lazy singleton ``AsyncPermissionService`` when an auth/org DSN is configured."""
@@ -1184,7 +1212,10 @@ class MCPServiceRegistry:
             store = self.credential_store()
             credential_resolver = _create_credential_resolver_from_store(store)
 
-            client = LLMClient(credential_resolver=credential_resolver)
+            client = LLMClient(
+                credential_resolver=credential_resolver,
+                telemetry=self.telemetry_client(),
+            )
             self._logger.info("Initialized LLMClient for MCP")
             self._llm_client = client
         return self._llm_client
@@ -1321,11 +1352,17 @@ class MCPServer:
     AUTH_REQUIRED = -32001  # Custom code for authentication required
     ACCESS_DENIED = -32003  # Custom code for authorization denied
 
-    def __init__(self) -> None:
+    def __init__(self, telemetry_client: Optional[Any] = None) -> None:
         """Initialize MCP server with tool handlers."""
         self._setup_logging()
         self._logger = logging.getLogger("amprealize.mcp_server")
-        self._services = MCPServiceRegistry(logger=self._logger)
+        self._hot_path_logging_enabled = os.environ.get(
+            "AMPREALIZE_MCP_HOT_PATH_LOGS", "false"
+        ).lower() in ("1", "true", "yes", "on")
+        self._services = MCPServiceRegistry(
+            logger=self._logger,
+            telemetry_client=telemetry_client,
+        )
 
         # Session context for authentication (Phase 1: MCP_AUTH_IMPLEMENTATION_PLAN.md)
         self._session_context = MCPSessionContext()
@@ -2023,10 +2060,103 @@ class MCPServer:
             },
         )
 
+    def _emit_mcp_tool_telemetry(
+        self,
+        *,
+        event_type: str,
+        normalized_tool_name: str,
+        tool_params: Dict[str, Any],
+        request_trace_id: str,
+        call_id: str,
+        elapsed_ms: int,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit execution.tool.* telemetry with shared execution_observability envelope."""
+
+        if os.environ.get("AMPREALIZE_MCP_TOOL_TELEMETRY", "true").lower() in (
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            return
+        try:
+            from .execution_observability import (
+                ExecutionObservabilityContext,
+                sanitize_observability_payload,
+            )
+
+            internal_tool_name = self._denormalize_tool_name(normalized_tool_name)
+            session = self._session_context
+            work_item_id = (
+                str(
+                    tool_params.get("work_item_id") or tool_params.get("_work_item_id") or "",
+                ).strip()
+                or "-"
+            )
+            project_id = (
+                str(tool_params.get("project_id") or (session.project_id or "")).strip()
+                or "-"
+            )
+            run_raw = tool_params.get("run_id")
+            run_id: Optional[str] = None
+            if run_raw is not None:
+                run_id = str(run_raw).strip() or None
+
+            conversation_id: Optional[str] = None
+            raw_conv = tool_params.get("conversation_id")
+            if raw_conv is not None and str(raw_conv).strip():
+                conversation_id = str(raw_conv).strip()
+            else:
+                sess = tool_params.get("_session")
+                if isinstance(sess, dict):
+                    nested = sess.get("conversation_id")
+                    if nested is not None and str(nested).strip():
+                        conversation_id = str(nested).strip()
+
+            eo = ExecutionObservabilityContext(
+                run_id=run_id,
+                cycle_id=None,
+                work_item_id=work_item_id,
+                project_id=project_id,
+                org_id=session.org_id,
+                surface="mcp",
+                request_id=request_trace_id,
+                conversation_id=conversation_id,
+            )
+            meta = eo.to_metadata()
+            payload: Dict[str, Any] = {
+                "tool_name": internal_tool_name,
+                "call_id": call_id,
+                "phase": "mcp",
+                "elapsed_ms": elapsed_ms,
+                "trace_id": f"mcp:{request_trace_id}",
+                "span_id": call_id,
+                **meta,
+            }
+            if extra:
+                payload.update(extra)
+
+            actor_id = session.identity or "anonymous"
+            actor_role = "ADMIN" if session.is_admin else "USER"
+            self._services.telemetry_client().emit_event(
+                event_type=event_type,
+                payload=sanitize_observability_payload(payload),
+                run_id=eo.run_id,
+                session_id=conversation_id or self._client_id,
+                actor={
+                    "id": actor_id,
+                    "role": actor_role,
+                    "surface": "mcp",
+                },
+            )
+        except Exception as exc:
+            self._logger.debug("MCP tool telemetry emit failed: %s", exc, exc_info=True)
+
     async def _handle_tools_call(self, request_id: Optional[str], params: Dict[str, Any]) -> str:
         """Handle MCP tools/call request with rate limiting, timeout, and latency tracking."""
-        from .mcp_rate_limiter import RateLimitDecision
         import uuid as uuid_module
+        from .mcp_rate_limiter import RateLimitDecision
 
         # Generate unique trace ID for this tool call (for debugging hangs)
         trace_id = str(uuid_module.uuid4())[:8]
@@ -2044,6 +2174,8 @@ class MCPServer:
                 "Missing required parameter: name",
             )
 
+        call_id = str(uuid_module.uuid4())
+
         # Apply rate limiting (docs/contracts/MCP_SERVER_DESIGN.md §9)
         client_id = self._client_id or f"anonymous:{id(self)}"
         self._logger.debug(f"[{trace_id}] RATE_LIMIT_CHECK: client={client_id}, tool={tool_name}")
@@ -2053,6 +2185,31 @@ class MCPServer:
             self._logger.warning(
                 f"Rate limit blocked: client={client_id}, tool={tool_name}, "
                 f"rule={rate_result.rule_name}, retry_after={rate_result.retry_after_seconds}"
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.denied",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params if isinstance(tool_params, dict) else {},
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=0,
+                extra={
+                    "reason": rate_result.message,
+                    "policy": rate_result.rule_name or "mcp_rate_limit",
+                    "success": False,
+                },
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.performance",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params if isinstance(tool_params, dict) else {},
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=0,
+                extra={
+                    "status": "denied",
+                    "reason": rate_result.message,
+                },
             )
             return self._error_response(
                 request_id,
@@ -2073,7 +2230,8 @@ class MCPServer:
         # Start timing
         start_time = time.time()
 
-        self._logger.info(f"[{trace_id}] TOOL_DISPATCH_START: {tool_name}")
+        if getattr(self, "_hot_path_logging_enabled", False):
+            self._logger.info(f"[{trace_id}] TOOL_DISPATCH_START: {tool_name}")
         self._logger.debug(f"[{trace_id}] TOOL_PARAMS: {tool_params}")
 
         # Increment counters
@@ -2082,6 +2240,7 @@ class MCPServer:
 
         # Configurable timeout for tool execution (default 60s to catch hanging tools)
         tool_timeout = float(os.environ.get("MCP_TOOL_TIMEOUT_SECONDS", "60"))
+        tool_params_dict = tool_params if isinstance(tool_params, dict) else {}
 
         try:
             # Wrap dispatch in timeout to catch hanging tools
@@ -2093,18 +2252,71 @@ class MCPServer:
 
             # Record latency
             duration = time.time() - start_time
+            elapsed_ms = int(duration * 1000)
             if tool_name not in self._metrics["tool_latency_seconds"]:
                 self._metrics["tool_latency_seconds"][tool_name] = []
             self._metrics["tool_latency_seconds"][tool_name].append(duration)
 
-            self._logger.info(f"[{trace_id}] TOOL_COMPLETE: {tool_name} in {duration:.3f}s")
+            preview = (
+                result_str[:512]
+                if isinstance(result_str, str) and result_str
+                else None
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.completed",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={
+                    "success": True,
+                    "output_preview": preview,
+                },
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.performance",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={"status": "completed"},
+            )
+
+            if getattr(self, "_hot_path_logging_enabled", False):
+                self._logger.info(f"[{trace_id}] TOOL_COMPLETE: {tool_name} in {duration:.3f}s")
             return result_str
 
         except asyncio.TimeoutError:
             duration = time.time() - start_time
+            elapsed_ms = int(duration * 1000)
             self._metrics["errors_total"] += 1
             self._logger.error(
                 f"[{trace_id}] TOOL_TIMEOUT: {tool_name} exceeded {tool_timeout}s timeout after {duration:.3f}s"
+            )
+            err_text = f"Tool timed out after {tool_timeout}s"
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.failed",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={
+                    "success": False,
+                    "error": err_text,
+                    "error_class": "TimeoutError",
+                },
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.performance",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={"status": "failed", "error_class": "TimeoutError"},
             )
             return self._error_response(
                 request_id,
@@ -2115,7 +2327,30 @@ class MCPServer:
         except Exception as e:
             self._metrics["errors_total"] += 1
             duration = time.time() - start_time
+            elapsed_ms = int(duration * 1000)
             self._logger.error(f"[{trace_id}] TOOL_ERROR: {tool_name} failed after {duration:.3f}s: {e}", exc_info=True)
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.failed",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={
+                    "success": False,
+                    "error": str(e)[:500],
+                    "error_class": type(e).__name__,
+                },
+            )
+            self._emit_mcp_tool_telemetry(
+                event_type="execution.tool.performance",
+                normalized_tool_name=str(tool_name),
+                tool_params=tool_params_dict,
+                request_trace_id=trace_id,
+                call_id=call_id,
+                elapsed_ms=elapsed_ms,
+                extra={"status": "failed", "error_class": type(e).__name__},
+            )
             raise
 
     def _denormalize_tool_name(self, normalized_name: str) -> str:
