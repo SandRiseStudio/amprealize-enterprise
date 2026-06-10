@@ -38,9 +38,11 @@ RUN apt-get update \
 
 # ---------------------------------------------------------------------------
 # Dependency layer — copy manifests only for docker layer caching.
-# [semantic] is intentionally omitted: torch/transformers/sentence-transformers
-# are ~2 GB and only needed for the BCI embedding pipeline (M3+). The API
-# degrades gracefully to keyword-only retrieval when they are absent.
+# [semantic] enables the BCI embedding pipeline (sentence-transformers + faiss).
+# torch is installed CPU-only (download.pytorch.org/whl/cpu, ~200 MB) instead of
+# the default CUDA build (~2-3 GB) since the API runs on CPU-only Fly VMs. The
+# MiniLM model is lazy-loaded on first BCI request (EMBEDDING_MODEL_LAZY_LOAD),
+# so startup stays fast; absent these deps the API degrades to keyword-only.
 #
 # Local workspace packages (packages/*) are required by the amprealize package
 # at import time. They are lightweight (pydantic, pyyaml, etc.) and not on PyPI.
@@ -55,7 +57,8 @@ COPY packages/midnighter  packages/midnighter
 COPY packages/execution-queue packages/execution-queue
 COPY packages/billing     packages/billing
 RUN pip install --upgrade pip \
-    && pip install ".[postgres,telemetry,redis]" \
+    && pip install torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install ".[postgres,telemetry,redis,semantic]" \
     && pip install \
         -e packages/breakeramp \
         -e packages/raze \
