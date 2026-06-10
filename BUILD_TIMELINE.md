@@ -1,3 +1,87 @@
+| 243 | board_service.py schema-qualified table names | ### #243 - Parity with OSS #353: schema-qualified all unqualified table references in `board_service.py`. ~78 query sites updated. Eliminates intermittent `relation "boards" does not exist` pgBouncer search_path errors (2026-05-15)
+**Implementation:** `amprealize/services/board_service.py`
+**Behaviors cited:** `behavior_migrate_postgres_schema`, `behavior_update_docs_after_changes` (Student)
+
+| 242 | Neon compute keepalive (chat cold-start) | ### #242 - Parity with OSS #352: in-app background keepalive `SELECT 1` against the run-service Neon pool every `AMPREALIZE_NEON_KEEPALIVE_INTERVAL_SECONDS` (default 180s) prevents Neon compute ~5-min idle autosuspend, eliminating the ~10s chat cold-start after idle. Free-tier Neon API rejects `suspend_timeout` changes (HTTP 412), so keepalive is the only viable fix. Opt out with `AMPREALIZE_NEON_KEEPALIVE=false`. FastAPI startup/shutdown task in `create_app`, gated to cloud DSNs (2026-05-15)
+**Milestone:** Same chat cold-start elimination as OSS **#352** in the enterprise app.
+
+**Implementation:** `amprealize/api.py` (`_neon_keepalive_loop`, startup/shutdown events).
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+| 241 | Chat system prompt: local execution vs chat | ### #241 - Parity with OSS #350: `DEFAULT_SYSTEM_PROMPT` local_connector / run-lease vs chat text distinction (2026-05-05)
+
+| 240 | Chat clarification short-circuit + empty reply guard | ### #240 - Parity with OSS #349: `routing_clarification` path when `requires_clarification` and intent is not `conversational_non_inventory`; empty stream / persist guard (`_EMPTY_LLM_REPLY_PLACEHOLDER`) in `conversation_reply_service.py` (2026-05-05)
+**Milestone:** Same reply orchestration hardening as OSS **#349** in the enterprise-vendored service.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 239 | ConversationScope GLOBAL_PERSONAL_THREAD + DB | ### #239 - Enum + migration parity for `global_personal_thread` (2026-05-05)
+**Milestone:** Enterprise `ConversationScope` now includes **`GLOBAL_PERSONAL_THREAD`** (same as OSS), with **`GLOBAL_WORKSPACE_SCOPES`**, **`is_global_workspace_scope`**, and **`Conversation.workspace_kind`** aligned on both global scopes. Alembic **`20260505_global_personal_thread_ent`** merges heads (`20260414_whiteboard_snapshots`, `20260426_llm_credential_user_scope`) and extends `messaging.conversations` scope + `conversations_project_scope_binding_check` so `global_personal_thread` rows may exist with `project_id IS NULL`. MCP tool schemas, CLI scope choices, and `packages/collab-client` enum updated.
+
+**Implementation:** `amprealize/conversation_contracts.py`, `migrations/versions/20260505_add_global_personal_thread_scope.py`, `amprealize/services/conversation_service.py` (error copy), `mcp/tools/conversations.*.json`, `amprealize/mcp_tool_manifests/conversations.*.json`, `amprealize/cli.py`, `packages/collab-client/src/types.ts`, `tests/test_conversation_workspace_contracts.py`
+
+**Validation:** `PYTHONPATH=amprealize pytest tests/test_conversation_workspace_contracts.py -q -o addopts=''`; `python scripts/validate_migrations.py`; `alembic heads` (single head after merge revision).
+
+**Behaviors cited:** `behavior_migrate_postgres_schema`, `behavior_update_docs_after_changes` (Student)
+
+
+| 238 | Chat reply full OSS surface parity | ### #238 - Vendored OSS reply stack + context composer (2026-05-05)
+**Milestone:** Enterprise now ships the **same** `ConversationReplyService` implementation as OSS (minus `OSSProjectService` import → `multi_tenant.oss_project_service`), including global DSN **context fallback** (`build_chat_context_composer`), **multi-turn transcript** (`chat_transcript`), **targeted workspace fetch**, **platform / execution / observability** direct-answer branches, **reply.* SSE** phases, **Tracer** chat spans (`observability_tracing` + contracts stack), and **workspace_activity** fairness hooks. **ContextComposer** replaced with OSS copy (workspace inventory provider, `DataSourceType.WORKSPACE_INVENTORY`, `org_id`/`project_id`/`conversation_scope` on `compose`). Supporting modules vendored from OSS: `global_chat_context.py`, `chat_workspace_targeted_fetch.py`, `chat_resource_actions.py`, `workspace_activity.py`, `observability_access.py`, `observability_analytics.py`, `observability_contracts.py`, `observability_attributes.py`, `observability_tracing.py`, `observability_chat.py`, `chat_transcript.py`. **Contracts (interim):** `is_global_workspace_scope()` for mixed clients until **#239** added the enum + DB value. **Board:** `validate_research_url` re-exported from `boards.contracts` in `multi_tenant/board_contracts` so `chat_resource_actions` imports resolve.
+
+**Implementation:** `amprealize/services/conversation_reply_service.py`, `amprealize/context_composer.py`, `amprealize/conversation_contracts.py`, `amprealize/multi_tenant/board_contracts.py`, plus vendored files above; `tests/test_conversation_reply_routing.py` (fake `ConversationService` transcript stubs).
+
+**Validation:** `PYTHONPATH=amprealize pytest tests/test_conversation_reply_routing.py tests/test_context_composer.py -q -o addopts=''`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+
+| 237 | Telemetry warehouse + MCP parity | ### #237 - OSS parity: `postgres_telemetry`, `llm/client`, `execution_observability`, MCP tool telemetry (2026-05-05)
+**Milestone:** Enterprise runtime matched OSS for token-level LLM telemetry, observability warehouse projection, shared EO helpers, MCP `execution.tool.*` emissions with conversation correlation, and `BehaviorService` `telemetry_session_id` on `behaviors.*` events.
+
+**Implementation:** `amprealize/storage/postgres_telemetry.py`, `amprealize/llm/client.py`, `amprealize/execution_observability.py`, `amprealize/mcp_server.py` (`MCPServiceRegistry.telemetry_client`, `_emit_mcp_tool_telemetry`, `_handle_tools_call`), `amprealize/behavior_service.py`, `tests/test_postgres_telemetry_sink.py`, `tests/test_llm_client.py`, `docs/contracts/TELEMETRY_SCHEMA.md` (plus explicit **telemetry Postgres schema** prerequisite pointing at OSS `migrations_telemetry/versions/`).
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+
+| 236 | Research evaluate list parsing parity | ### #236 - ``evaluation_parse`` + ``evaluate_paper`` (2026-05-05)
+**Milestone:** Same as OSS **#339**: evaluation LLM JSON sometimes used **strings** in object-shaped arrays → ``'str' object has no attribute 'get'`` in ``evaluate_paper``.
+
+**Fix:** **``amprealize/research/evaluation_parse.py``** (extended alongside OSS): comprehend **claimed_results**, recommend **roadmap** / **adoption** / **blocking_dependencies**, **get_paper** + **SQLite hydration**, **``parse_parsed_sections``**, **Postgres** / **SQLite** paper search helpers (**``paper_summaries_from_postgres_search``**, **``paper_summaries_from_sqlite_rows``**). Semantic parity with SandRiseStudio/amprealize **#339**.
+
+**Behaviors cited:** ``behavior_update_docs_after_changes``, ``behavior_validate_cross_surface_parity`` (Student)
+
+
+| 235 | Enterprise research prompts parity | ### #235 - Mirror OSS research prompts + ResearchService replace/JSON (2026-05-05)
+**Milestone:** Runtime images that use **amprealize-enterprise** loaded research prompts from ``amprealize.enterprise.research.prompts``, which previously lacked comprehension/evaluation templates—imports failed or fell back to empty strings while ``ResearchService`` still called ``.format(agent_playbook=...)`` on non-placeholder templates.
+
+**Fix:** Implemented full **``amprealize/enterprise/research/prompts.py``** (semantic parity with OSS ``amprealize/research/prompts.py``): JSON-only comprehension contract, evaluation/recommendation system prompts with ``__AGENT_PLAYBOOK__`` / ``__CODEBASE_CONTEXT__``, format helpers. **Stub** ``amprealize/research/prompts.py`` re-exports general + pipeline symbols. **``research/__init__.py``** exports ``RESEARCH_*`` and ``format_research_prompt`` / etc. **``research_service.py``**: ``str.replace`` injection, ``_normalize_comprehension_dict``, OSS-style ``_extract_json`` with ``raw_decode``, evaluation honesty addendum. **``tests/test_research_extract_json.py``** added.
+
+**Implementation:** ``amprealize/enterprise/research/prompts.py``, ``amprealize/research/prompts.py``, ``amprealize/research/__init__.py``, ``amprealize/research_service.py``, ``tests/test_research_extract_json.py``, ``docs/AGENT_OSS_ENTERPRISE_GUIDE.md``
+
+**Validation:** ``PYTHONPATH=amprealize pytest tests/test_research_extract_json.py -q``
+
+**Behaviors cited:** ``behavior_update_docs_after_changes``, ``behavior_validate_cross_surface_parity`` (Student)
+
+
+| 234 | Resource analysis insights block (OSS parity) | ### #234 - MessageBubble insights for resource_analysis (2026-04-30)
+**Milestone:** **`ResourceAnalysisInsightsBlock`** renders **`structured_payload.insights.by_item_type`** (**Types in this scope**); **`MessageComponents`** test covers insights; **`ConversationPanel.css`** styles aligned with OSS.
+
+**Implementation:** `web-console/src/components/conversations/MessageBubble.tsx`, `ConversationPanel.css`, `web-console/src/test/MessageComponents.test.tsx`
+
+**Validation:** `npm test -- --run src/test/MessageComponents.test.tsx`
+
+**Behaviors cited:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+| 233 | Web console chat: OSS MessageBubble + SSE stream parity | ### #233 - Enterprise chat inline artifacts (2026-04-30)
+**Milestone:** **`MessageBubble`** / **`ConversationPanel.css`** aligned with OSS for inline **`resource_analysis`** chips; **`useMessageStream`** handles **`reply.*`** events and **`complete.content`**; **`MessageComponents`** tests use **`MemoryRouter`** and stream mock parity.
+
+**Implementation:** `web-console/src/components/conversations/MessageBubble.tsx`, `ConversationPanel.css`, `web-console/src/api/conversations.ts`, `web-console/src/test/MessageComponents.test.tsx`
+
+**Validation:** `npm test -- --run src/test/MessageComponents.test.tsx`
+
+**Behaviors cited:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
 | 232 | BreakerAmp wait-health / baked API — OSS parity | ### #232 - BreakerAmp wait-health / baked API — OSS parity (2026-04-27)
 **Milestone:** Ported OSS BreakerAmp stack readiness and baked API image support into `amprealize-enterprise` (`health_wait`, `restart --wait`, `wait-health`, blueprint `AMPREALIZE_API_SKIP_PIP` / `AMPREALIZE_API_IMAGE`, `deployment/Dockerfile.api-dev`, docs).
 

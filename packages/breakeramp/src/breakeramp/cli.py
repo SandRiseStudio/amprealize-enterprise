@@ -2379,23 +2379,26 @@ def list_environments(
         "--no-reconcile",
         help="Skip container reality check (faster but may show stale entries)",
     ),
-    keep_stale: bool = typer.Option(
+    prune_stale: bool = typer.Option(
         False,
-        "--keep-stale",
-        help="Don't auto-remove stale state files for missing containers",
+        "--prune-stale",
+        help=(
+            "Delete environment/manifest JSON when reconcile finds no matching containers "
+            "(destructive; default is to keep files)"
+        ),
     ),
 ) -> None:
     """List active environments.
 
     Shows all environments currently deployed or in progress.
-    By default, reconciles with actual container state and removes stale entries.
+    Reconciles for display; pass ``--prune-stale`` to remove JSON for missing-container runs.
     """
     service = get_service()
 
     try:
         environments = service.list_environments(
             reconcile=not no_reconcile,
-            auto_cleanup=not keep_stale,
+            auto_cleanup=prune_stale,
         )
     except Exception as e:
         console.print(f"[red]List failed: {e}[/red]")

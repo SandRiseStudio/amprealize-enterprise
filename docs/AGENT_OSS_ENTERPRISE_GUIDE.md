@@ -230,8 +230,9 @@ stay in OSS. Organization/invitation/settings services are enterprise-only.
 ### `amprealize/research/`
 | File | Enterprise Import | Stub Pattern | OSS Behavior |
 |------|-------------------|-------------|--------------|
-| `__init__.py` | `.research.prompts`, `.research.codebase_analyzer` | Empty strings + `None` | `_ENTERPRISE_AVAILABLE = False`; prompts are `""` |
-| `prompts.py` | `.research.prompts` | Empty strings + raise on format | Format functions raise |
+| `__init__.py` | `.enterprise.research.prompts`, `.enterprise.research.codebase_analyzer` | Empty strings + `None` | `_ENTERPRISE_AVAILABLE = False`; prompts are `""` |
+| `prompts.py` | `.enterprise.research.prompts` | Empty strings + `ImportError` on format helpers | Re-exports full prompt set when enterprise is installed (parity with OSS ``amprealize/research/prompts.py``) |
+| `enterprise/research/prompts.py` | *(canonical)* | — | **Source of truth** for comprehension/evaluation/recommendation templates (``__AGENT_PLAYBOOK__`` / ``__CODEBASE_CONTEXT__``, JSON-only contracts); keep in sync with OSS ``amprealize/research/prompts.py``. |
 | `codebase_analyzer.py` | `.research.codebase_analyzer` | `None` | Feature absent |
 | `report.py` | `.research.report` | Raise on call | `render_report()` raises |
 | `ingesters/__init__.py` | `.research.ingesters` | `None` | All ingesters are `None` |

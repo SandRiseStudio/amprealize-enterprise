@@ -5,6 +5,7 @@ protocol using Podman as the container runtime.
 """
 
 import json
+import logging
 import os
 import platform
 import shutil
@@ -12,7 +13,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .base import (
     CleanupResult,
@@ -26,6 +27,60 @@ from .base import (
     ResourceInfo,
     ResourceUsage,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_podman_connection_label(
+    base_machine_name: str,
+    *,
+    connection_exists: Callable[[str], bool],
+) -> Optional[str]:
+    """Return an existing Podman connection name for *base_machine_name*.
+
+    Podman may register only ``<machine>-root`` (rootful) on some hosts; prefer
+    the base name when present, otherwise the ``-root`` variant.
+    """
+    if not base_machine_name:
+        return None
+    if connection_exists(base_machine_name):
+        return base_machine_name
+    rooted = f"{base_machine_name}-root"
+    if connection_exists(rooted):
+        return rooted
+    return None
+
+
+def recommend_podman_cli_default_connection(
+    machines: List[MachineInfo],
+    *,
+    connection_exists: Callable[[str], bool],
+) -> Optional[str]:
+    """Pick ``podman system connection default`` target for Amprealize workflows.
+
+    Prefer ``amprealize-dev`` whenever that machine is running (including when
+    ``amprealize-test`` is also running). If only ``amprealize-test`` is running,
+    use that connection. When no machine is running, prefer an existing
+    ``amprealize-dev`` connection entry (or ``amprealize-dev-root``), then test.
+    """
+    by_name = {m.name: m for m in machines}
+    dev = by_name.get("amprealize-dev")
+    test = by_name.get("amprealize-test")
+    if dev is not None and dev.running:
+        chosen = resolve_podman_connection_label("amprealize-dev", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+    if test is not None and test.running:
+        chosen = resolve_podman_connection_label("amprealize-test", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+    chosen = resolve_podman_connection_label("amprealize-dev", connection_exists=connection_exists)
+    if chosen:
+        return chosen
+    chosen = resolve_podman_connection_label("amprealize-test", connection_exists=connection_exists)
+    if chosen:
+        return chosen
+    return None
 
 
 class PodmanExecutor(ResourceCapableExecutor):
@@ -70,6 +125,51 @@ class PodmanExecutor(ResourceCapableExecutor):
                         If None, uses the default connection.
         """
         self.connection = connection
+
+    @staticmethod
+    def _parse_podman_ps_json_stdout(stdout: Optional[str]) -> List[Dict[str, Any]]:
+        """Parse ``podman ps --format json`` stdout (JSON array or NDJSON)."""
+        text = (stdout or "").strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [x for x in parsed if isinstance(x, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+        except json.JSONDecodeError:
+            pass
+        rows: List[Dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+        return rows
+
+    @staticmethod
+    def _container_name_from_ps_row(row: Dict[str, Any]) -> str:
+        names = row.get("Names")
+        if isinstance(names, list) and names:
+            first = names[0]
+            return str(first).strip() if first is not None else ""
+        if isinstance(names, str):
+            return names.strip()
+        single = row.get("Name")
+        return str(single).strip() if single else ""
+
+    @staticmethod
+    def _container_state_from_ps_row(row: Dict[str, Any]) -> str:
+        raw = row.get("State", row.get("Status", "unknown"))
+        if raw is None:
+            return "unknown"
+        return str(raw)
 
     def _run_podman(
         self,
@@ -294,6 +394,56 @@ class PodmanExecutor(ResourceCapableExecutor):
                 return True
         return False
 
+    def recommend_system_default_connection(self) -> Optional[str]:
+        """Resolve host CLI default connection name for Amprealize Podman machines."""
+        try:
+            machines = self.list_machines()
+        except Exception:
+            machines = []
+        return recommend_podman_cli_default_connection(
+            machines,
+            connection_exists=self.connection_exists,
+        )
+
+    def sync_system_default_connection(self, preferred_connection: Optional[str] = None) -> bool:
+        """Run ``podman system connection default`` to match running machines.
+
+        If *preferred_connection* is set and that machine is running, use it
+        (after resolving ``-root``) so ``breakeramp apply`` aligns the host CLI
+        with the environment machine even when the machine was already up.
+
+        Otherwise prefer ``amprealize-dev`` when it is running; if only
+        ``amprealize-test`` runs, select that connection so bare ``podman`` hits
+        a live socket.
+        """
+        try:
+            name: Optional[str] = None
+            if preferred_connection:
+                base = preferred_connection.replace("-root", "")
+                try:
+                    machines = self.list_machines()
+                except Exception:
+                    machines = []
+                by_name = {m.name: m for m in machines}
+                mach = by_name.get(base)
+                if mach is not None and mach.running:
+                    name = self.resolve_connection_for_machine(base)
+                    if not name and self.connection_exists(preferred_connection):
+                        name = preferred_connection
+            if not name:
+                name = self.recommend_system_default_connection()
+            if not name:
+                return False
+            result = subprocess.run(
+                ["podman", "system", "connection", "default", name],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
     def _try_switch_connection_variant_for_current_machine(self) -> bool:
         """Try switching between <machine> and <machine>-root connections.
 
@@ -387,6 +537,7 @@ class PodmanExecutor(ResourceCapableExecutor):
 
         # Give the proxy a moment to come up.
         time.sleep(2.0)
+        self.sync_system_default_connection()
         return True
 
     def _get_any_machine_name(self) -> Optional[str]:
@@ -443,6 +594,7 @@ class PodmanExecutor(ResourceCapableExecutor):
             started = run_local(["podman", "machine", "start", existing])
             if started.returncode == 0:
                 time.sleep(2.0)  # Give proxy time to come up
+                self.sync_system_default_connection()
                 return True
             # If start failed, the machine may be in a bad state
             logger.warning(f"Failed to start existing machine '{existing}', attempting recovery...")
@@ -452,6 +604,7 @@ class PodmanExecutor(ResourceCapableExecutor):
             started = run_local(["podman", "machine", "start", existing])
             if started.returncode == 0:
                 time.sleep(2.0)
+                self.sync_system_default_connection()
                 return True
             return False
 
@@ -481,6 +634,7 @@ class PodmanExecutor(ResourceCapableExecutor):
 
         # Give the proxy time to come up
         time.sleep(2.0)
+        self.sync_system_default_connection()
         logger.info(f"Podman machine '{machine_name}' started successfully")
         return True
 
@@ -1046,6 +1200,7 @@ class PodmanExecutor(ResourceCapableExecutor):
                 pass
             else:
                 raise
+        self.sync_system_default_connection()
 
     def stop_machine(self, name: str) -> None:
         """Stop a Podman machine.
@@ -1061,6 +1216,7 @@ class PodmanExecutor(ResourceCapableExecutor):
                 pass
             else:
                 raise
+        self.sync_system_default_connection()
 
     def init_machine(
         self,
@@ -1326,17 +1482,14 @@ class PodmanExecutor(ResourceCapableExecutor):
         if result.returncode != 0:
             return []
 
-        try:
-            containers = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError:
-            return []
+        containers = self._parse_podman_ps_json_stdout(result.stdout)
 
         return [
             ContainerInfo(
-                container_id=c.get("Id", "")[:12],
-                name=c.get("Names", [""])[0] if isinstance(c.get("Names"), list) else c.get("Names", ""),
-                status=c.get("State", "unknown"),
-                image=c.get("Image", ""),
+                container_id=str(c.get("Id") or c.get("id") or "")[:12],
+                name=self._container_name_from_ps_row(c),
+                status=self._container_state_from_ps_row(c),
+                image=str(c.get("Image", "") or ""),
                 created=c.get("Created"),
             )
             for c in containers

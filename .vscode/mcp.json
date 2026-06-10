@@ -2,11 +2,17 @@
   "servers": {
     "amprealize": {
       "type": "stdio",
-      "command": "python3",
+      "command": "/Users/nick/Main/.venv/bin/python",
       "args": ["scripts/start_amprealize_mcp.py"],
-      "cwd": "/Users/nick/amprealize",
+      "cwd": "/Users/nick/Main/amprealize-enterprise",
       "env": {
-        "PYTHONUNBUFFERED": "1"
+        "PYTHONUNBUFFERED": "1",
+        "MCP_REQUIRE_AUTH": "false",
+        "AMPREALIZE_ENABLE_WHITEBOARD": "true",
+        "AMPREALIZE_MCP_STARTUP_GROUPS": "whiteboard",
+        "AMPREALIZE_CONSOLE_URL": "http://localhost:5173",
+        "AMPREALIZE_MCP_ICON_PATH": "/Users/nick/Main/files/images/amprealize_logo.png",
+        "AMPREALIZE_DEFAULT_APPROVER": "nick.sanders.a@gmail.com"
       }
     }
   }

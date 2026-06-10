@@ -439,6 +439,7 @@ export interface ExecutionStreamEvents {
 
 export enum ConversationScope {
   GlobalUserHome = 'global_user_home',
+  GlobalPersonalThread = 'global_personal_thread',
   ProjectSpace = 'project_space',
   ProjectRoom = 'project_room',
   Dm = 'dm',

@@ -96,6 +96,22 @@ Deletion requests (GDPR) executed via anonymization job that strips actor PII wh
 - Configure Kafka topic and connector to warehouse with encryption at rest.
 - Document querying patterns in developer guide (`docs/analytics/telemetry_queries.md`).
 
+## Postgres self-hosted warehouse: E2E join keys (OSS parity)
+
+Canonical implementation: `amprealize/storage/postgres_telemetry.py` (shared with `amprealize-enterprise`). Raw events live in `telemetry_events`; `PostgresTelemetryWarehouse._project_event` writes `observability_records` and typed tables (`observability_generations`, `observability_tool_calls`, …) **only if** those tables exist on the telemetry Postgres.
+
+**Schema requirement:** the database pointed at by `AMPREALIZE_TELEMETRY_PG_DSN` (or your `create_sink_from_env` resolution) must have the observability DDL applied via the **telemetry** Alembic chain in `migrations_telemetry/versions/` (see OSS `docs/contracts/TELEMETRY_SCHEMA.md` → *Deployment prerequisite: observability DDL on the telemetry Postgres* for the revision list). Without that chain, projection `INSERT`s fail even though older installs may still have `telemetry_events` alone.
+
+| Stitch goal | Keys |
+| --- | --- |
+| One conversation | `telemetry_events.session_id = conversation_uuid` (emitters set `session_id` from `execution_observability.conversation_id` for `llm.generation.*` and `behaviors.*` when `telemetry_session_id` is passed). |
+| One run / work item | `telemetry_events.run_id`, `payload.execution_observability.run_id` |
+| MCP tools | `execution.tool.*` payloads: `trace_id` = `mcp:{id}`, `span_id` = tool `call_id`, EO `surface: mcp`, optional `conversation_id` |
+| LLM tokens/cost | `llm.generation.completed` / `llm.generation.failed` → `observability_generations` (join via `record_id` / `record_timestamp` to `observability_records`) |
+| Behaviors | `behaviors.search_performed`, `behaviors.task_retrieval_with_role`, `behaviors.task_context_retrieved`, … → `observability_records` (`kind=event`, `phase=behaviors`) |
+
+Full normative tables and access tiers: use the OSS mirror `amprealize/docs/contracts/TELEMETRY_SCHEMA.md` (Execution observability, runtime projection matrix, and governed query notes).
+
 ## Owners & Dependencies
 - **Owners:** Engineering (Telemetry), Compliance (retention policy review), Product Analytics (reporting dashboards).
 - **Dependencies:** MCP server ActionService linkage, warehouse infrastructure, IAM policies for least privilege.

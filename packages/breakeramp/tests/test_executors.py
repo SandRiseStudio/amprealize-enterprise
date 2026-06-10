@@ -494,3 +494,77 @@ class TestSmartCleanup:
         )
 
         assert result["build_cache_cleared"] is True
+
+
+class TestRecommendPodmanCliDefaultConnection:
+    """Tests for host ``podman system connection default`` selection."""
+
+    def test_prefers_dev_when_dev_running(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        assert (
+            recommend_podman_cli_default_connection(
+                machines,
+                connection_exists=lambda _: True,
+            )
+            == "amprealize-dev"
+        )
+
+    def test_falls_back_to_test_when_only_test_running(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        assert (
+            recommend_podman_cli_default_connection(
+                machines,
+                connection_exists=lambda _: True,
+            )
+            == "amprealize-test"
+        )
+
+    def test_when_none_running_prefers_existing_dev_connection(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+            MachineInfo(name="amprealize-test", running=False),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev"
+
+        assert recommend_podman_cli_default_connection(machines, connection_exists=exists) == "amprealize-dev"
+
+    def test_when_none_running_and_only_test_connection(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-test"
+
+        assert recommend_podman_cli_default_connection(machines, connection_exists=exists) == "amprealize-test"
+
+    def test_dev_running_uses_root_connection_when_only_root_registered(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [MachineInfo(name="amprealize-dev", running=True)]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev-root"
+
+        assert (
+            recommend_podman_cli_default_connection(machines, connection_exists=exists)
+            == "amprealize-dev-root"
+        )
