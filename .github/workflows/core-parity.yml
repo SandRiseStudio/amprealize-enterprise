@@ -1,0 +1,49 @@
+name: Core Parity
+
+# Enforces the superset rule: Enterprise core must contain all of OSS core
+# (identical), plus the enterprise-only differentiation. Fails only on NEW
+# drift beyond scripts/core_parity_baseline.txt. See CORE_DRIFT_INVENTORY.md.
+#
+# Lives in the enterprise repo (the superset / prod source) so it can check out
+# the OSS repo without exposing private code in public CI.
+#
+# OSS-side changes (a new OSS core file) won't trigger this on enterprise events,
+# so the nightly schedule catches that within a day.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 7 * * *"  # daily 07:17 UTC — catches OSS-side drift
+  workflow_dispatch:
+
+jobs:
+  core-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout enterprise
+        uses: actions/checkout@v4
+        with:
+          path: amprealize-enterprise
+
+      - name: Checkout OSS core
+        uses: actions/checkout@v4
+        with:
+          repository: SandRiseStudio/amprealize
+          ref: main
+          # Public repo works with the default token; set CORE_PARITY_TOKEN
+          # (read access to the OSS repo) if it is private.
+          token: ${{ secrets.CORE_PARITY_TOKEN || github.token }}
+          path: amprealize
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run core parity gate
+        run: |
+          python amprealize-enterprise/scripts/check_core_parity.py \
+            --oss amprealize \
+            --enterprise amprealize-enterprise
