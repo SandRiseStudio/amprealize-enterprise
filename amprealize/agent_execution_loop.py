@@ -2503,7 +2503,7 @@ class AgentExecutionLoop:
             if not HAS_ENTERPRISE:
                 return
 
-            from amprealize.enterprise.auto_reflection import AutoReflectionHooks
+            from amprealize_enterprise.auto_reflection import AutoReflectionHooks
 
             hooks = AutoReflectionHooks(
                 behavior_service=getattr(self, "_behavior_service", None),

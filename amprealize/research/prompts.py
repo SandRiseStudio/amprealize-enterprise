@@ -1,11 +1,11 @@
-"""Research prompts — delegates to ``amprealize.enterprise.research.prompts``.
+"""Research prompts — delegates to ``amprealize_enterprise.research.prompts``.
 
 When ``amprealize-enterprise`` is not installed, comprehension/evaluation
 constants are empty and format helpers raise ``ImportError``.
 """
 
 try:
-    from amprealize.enterprise.research.prompts import (
+    from amprealize_enterprise.research.prompts import (
         COMPREHENSION_SYSTEM_PROMPT,
         COMPREHENSION_USER_PROMPT,
         CONCLUSION_PROMPT,

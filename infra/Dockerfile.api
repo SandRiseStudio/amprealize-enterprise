@@ -71,6 +71,10 @@ RUN pip install --upgrade pip \
 # App layer — source + wiki content + alembic configs.
 # ---------------------------------------------------------------------------
 COPY amprealize ./amprealize
+# Enterprise add-on package (lifted out of amprealize/ in Phase 1). Must be
+# copied alongside core or every enterprise seam falls back to its OSS stub
+# ("enterprise not installed", orgs=False).
+COPY amprealize_enterprise ./amprealize_enterprise
 COPY wiki ./wiki
 COPY alembic.ini ./alembic.ini
 COPY alembic.telemetry.ini ./alembic.telemetry.ini

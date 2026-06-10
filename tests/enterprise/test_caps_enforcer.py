@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from amprealize.enterprise.caps_enforcer import (
+from amprealize_enterprise.caps_enforcer import (
     CapsEnforcer,
     CapsExceededError,
     _RESOURCE_TO_CAP_FIELD,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
 
-from amprealize.enterprise.auto_reflection import (
+from amprealize_enterprise.auto_reflection import (
     AutoReflectionConfig,
     AutoReflectionHooks,
     AutoReflectionResult,

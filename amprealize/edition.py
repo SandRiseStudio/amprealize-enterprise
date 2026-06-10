@@ -1,7 +1,7 @@
 """Edition resolver — detect OSS vs Enterprise and surface capabilities.
 
-Enterprise fork: ``amprealize.enterprise`` is always present, so this
-module directly imports ``resolve_tier`` from the enterprise subpackage.
+Enterprise fork: ``amprealize_enterprise`` is always present, so this
+module directly imports ``resolve_tier`` from the amprealize_enterprise package.
 Tier (Starter/Premium) is resolved via billing integration or license key.
 
 Part of Phases 1 & 4 of GUIDEAI-748 (Modular Installation System).
@@ -38,7 +38,7 @@ class Edition(str, Enum):
 # ---------------------------------------------------------------------------
 # Tier resolution — enterprise fork: directly import resolve_tier
 # ---------------------------------------------------------------------------
-from amprealize.enterprise.edition_tier import resolve_tier  # noqa: E402
+from amprealize_enterprise.edition_tier import resolve_tier  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ def detect_edition() -> Edition:
     """Detect which edition is running.
 
     Enterprise fork: always resolves to an enterprise tier via
-    ``resolve_tier()`` from ``amprealize.enterprise.edition_tier``.
+    ``resolve_tier()`` from ``amprealize_enterprise.edition_tier``.
     """
     if not HAS_ENTERPRISE:
         return Edition.OSS
