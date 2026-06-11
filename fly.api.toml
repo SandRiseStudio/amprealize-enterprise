@@ -93,12 +93,14 @@ kill_timeout = 30
 
   [[services.http_checks]]
     interval = "30s"
-    grace_period = "30s"
+    grace_period = "45s"
     method = "get"
-    # /nginx-health is answered by nginx without touching uvicorn — machine
-    # reports healthy as soon as the gateway is up, regardless of uvicorn
-    # warm-up time. Use /health for a deeper (uvicorn + DB) probe if needed.
-    path = "/nginx-health"
+    # /health is a deep probe (uvicorn + DB), so a crashed/500ing app FAILS the
+    # check and triggers auto_rollback. Previously /nginx-health (answered by
+    # nginx alone) masked uvicorn crashes — the gateway stayed "healthy" while
+    # the app 502'd. grace_period covers uvicorn warm-up (~10-15s after spawn;
+    # the embedding model is lazy-loaded so startup stays fast).
+    path = "/health"
     protocol = "http"
     timeout = "10s"
 
