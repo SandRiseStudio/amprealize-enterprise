@@ -74,6 +74,10 @@ MCP_TOOL_RBAC_REGISTRY: Final[Dict[str, MCPToolRBACRequirement]] = {
     "runs.create": _req(project=ProjectPermission.CREATE_RUNS),
     "runs.cancel": _req(project=ProjectPermission.CANCEL_RUNS),
     "runs.delete": _req(project=ProjectPermission.DELETE_RUNS),
+    # Observability trace warehouse reads (parity with POST /api/v1/observability/traces/*)
+    "traces.runs": _req(project=ProjectPermission.VIEW_RUNS),
+    "traces.conversations": _req(project=ProjectPermission.VIEW_RUNS),
+    "traces.spans": _req(project=ProjectPermission.VIEW_RUNS),
     # Behaviors (project-scoped authoring)
     "behaviors.create": _req(project=ProjectPermission.CREATE_BEHAVIORS),
     "behaviors.update": _req(project=ProjectPermission.UPDATE_BEHAVIORS),

@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import logging
 import uuid
+import re
+from collections import defaultdict, Counter
 
 from .advanced_retrieval_contracts import (
     RetrievalStrategy, QueryExpansionMethod, QueryExpansion, RerankingResult,

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
@@ -111,6 +112,12 @@ class PostgresStorageConfig(BaseModel):
     def get_raw_telemetry_dsn(self) -> str:
         """Get the telemetry DSN with env vars unexpanded."""
         return self._raw_telemetry_dsn if self._raw_telemetry_dsn else self.telemetry_dsn
+
+    def get_explicit_telemetry_dsn(self) -> str | None:
+        """Return telemetry DSN only when explicitly configured by the user/context."""
+        if self._raw_telemetry_dsn:
+            return self.telemetry_dsn
+        return None
 
     def has_env_vars(self) -> bool:
         """Check if DSN contains environment variable references."""
@@ -211,6 +218,7 @@ class ModulesConfig(BaseModel):
     agents: bool = False
     behaviors: bool = False
     collaboration: bool = False  # Enterprise-only (Starter+)
+    whiteboard: bool = False
 
     @field_validator("goals", mode="before")
     @classmethod

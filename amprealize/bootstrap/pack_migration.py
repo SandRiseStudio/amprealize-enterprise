@@ -10,6 +10,7 @@ Part of E4 — T4.4.2: Backward-compat migration.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from amprealize.bootstrap.profile import ProfileDetectionResult, WorkspaceProfile
 from amprealize.bootstrap.storage_detector import (
+    StorageBackend,
     StorageDetectionResult,
     detect_storage_backend,
 )
@@ -230,6 +232,7 @@ class PackMigrationService:
         try:
             ws_id = str(ws.resolve())
             # Find active pack
+            from amprealize.knowledge_pack.activation_service import Activation
 
             active = self._activation.get_active_pack(ws_id)
             if active is None:

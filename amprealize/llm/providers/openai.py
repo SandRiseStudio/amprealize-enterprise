@@ -421,9 +421,18 @@ class OpenAIProvider(Provider):
         except (TokenBudgetError, RateLimitError, AuthenticationError):
             raise
         except Exception as exc:
+            logger.error(
+                "openai.astream failed provider=%s api_base=%s model=%s: %s",
+                self.config.provider,
+                self.config.api_base or "",
+                self.config.model,
+                exc,
+                exc_info=True,
+            )
             yield StreamChunk(
                 type=StreamChunkType.ERROR,
                 error=str(exc),
+                error_class=type(exc).__name__,
             )
 
     def is_available(self) -> bool:

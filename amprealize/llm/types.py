@@ -466,6 +466,10 @@ class LLMConfig:
             AMPREALIZE_LLM_TIMEOUT, AMPREALIZE_LLM_MAX_RETRIES, AMPREALIZE_LLM_RETRY_DELAY,
             AMPREALIZE_LLM_TOKEN_BUDGET_ENABLED, AMPREALIZE_LLM_TOKEN_BUDGET
 
+        Chat-only override (read in ``ConversationReplyService`` for streaming, not here):
+            AMPREALIZE_CHAT_LLM_TEMPERATURE — when set, overrides effective temperature for
+            chat reply ``astream``/``call`` only; otherwise ``AMPREALIZE_LLM_TEMPERATURE`` applies.
+
         Provider-specific keys:
             OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
             TOGETHER_API_KEY, GROQ_API_KEY, FIREWORKS_API_KEY, OLLAMA_HOST
@@ -551,6 +555,8 @@ class StreamChunk:
     tool_call: Optional[Any] = None  # Completed ToolCall
     response: Optional[LLMResponse] = None  # Final accumulated response
     error: Optional[str] = None
+    # Set on ERROR chunks: original provider/SDK exception name (e.g. APITimeoutError)
+    error_class: Optional[str] = None
 
 
 @dataclass

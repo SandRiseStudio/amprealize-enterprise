@@ -300,9 +300,38 @@ class PlatformManagementActionService:
                 "approved_by": request.approved_by,
                 "payload_keys": sorted(request.payload),
                 "result_present": result is not None,
+                "business_outcome": self._business_outcome_metadata(request, result),
             },
         )
         return record.audit_id
+
+    @staticmethod
+    def _business_outcome_metadata(
+        request: PlatformManagementActionRequest,
+        result: Optional[Any],
+    ) -> Dict[str, Any]:
+        result_payload = result if isinstance(result, dict) else {}
+        resource_id = (
+            result_payload.get("item_id")
+            or result_payload.get("work_item_id")
+            or result_payload.get("project_id")
+            or result_payload.get("board_id")
+            or result_payload.get("invite_id")
+            or result_payload.get("file_id")
+            or result_payload.get("id")
+            or request.resource_id
+        )
+        resource_type = request.resource_type.value
+        return {
+            "outcome_type": f"platform.{resource_type}.{request.action_type.value}",
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "outcome_ref": (
+                f"{resource_type}:{resource_id}"
+                if resource_id
+                else None
+            ),
+        }
 
     @classmethod
     def _permission_surface(
@@ -343,6 +372,71 @@ class BoardPlatformManagementAdapter:
 
     def __init__(self, board_service: Any) -> None:
         self._board_service = board_service
+
+    def list_boards(self, payload: Dict[str, Any]) -> Any:
+        boards = self._board_service.list_boards(
+            project_id=payload.get("project_id"),
+            org_id=payload.get("org_id"),
+            limit=int(payload.get("limit") or 100),
+            offset=int(payload.get("offset") or 0),
+        )
+        return [
+            board.model_dump(mode="json") if hasattr(board, "model_dump") else board
+            for board in boards
+        ]
+
+    def list_work_items(self, payload: Dict[str, Any]) -> Any:
+        """Discover work items scoped to a project/board.
+
+        Accepts text_search for topic-based lookups (e.g. "agent execution").
+        """
+        items, total = self._board_service.list_work_items(
+            project_id=payload.get("project_id"),
+            board_id=payload.get("board_id"),
+            org_id=payload.get("org_id"),
+            status=None,  # let callers pass via payload if needed
+            title_search=payload.get("title_search") or None,
+            text_search=payload.get("text_search") or None,
+            limit=int(payload.get("limit") or 50),
+            offset=int(payload.get("offset") or 0),
+            include_total=True,
+        )
+        return {
+            "items": [
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+                for item in items
+            ],
+            "total": total,
+        }
+
+    def update_work_item(self, payload: Dict[str, Any]) -> Any:
+        """Update a work item field."""
+        from amprealize.boards.contracts import UpdateWorkItemRequest
+
+        actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}
+        actor = Actor(
+            id=str(actor_payload.get("id") or payload.get("user_id") or "chat"),
+            role=str(actor_payload.get("role") or "user"),
+            surface=str(actor_payload.get("surface") or "chat"),
+        )
+        item_id = str(payload.get("item_id") or payload.get("work_item_id") or "")
+        request = UpdateWorkItemRequest(
+            title=payload.get("title"),
+            description=payload.get("description"),
+            status=payload.get("status"),
+            priority=payload.get("priority"),
+            parent_id=payload.get("parent_id"),
+            assignee_id=payload.get("assignee_id"),
+            labels=list(payload["labels"]) if payload.get("labels") else None,
+            points=payload.get("points"),
+        )
+        item = self._board_service.update_work_item(
+            item_id,
+            request,
+            actor,
+            org_id=payload.get("org_id"),
+        )
+        return item.model_dump(mode="json") if hasattr(item, "model_dump") else item
 
     def create_work_item(self, payload: Dict[str, Any]) -> Any:
         actor_payload = payload.get("actor") if isinstance(payload.get("actor"), dict) else {}

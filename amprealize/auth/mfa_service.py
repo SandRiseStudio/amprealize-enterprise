@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 import pyotp
 import qrcode
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
 class MfaService:

@@ -81,6 +81,7 @@ async def handle_evaluate(
 
     Optional params:
         - source_type: url | arxiv | markdown | pdf | docx (auto-detected)
+        - body_markdown: Pasted article (markdown or plain text); when set, ingest skips fetching ``source`` HTML (``source`` must still be the canonical http(s) URL)
         - context_documents: Additional context document paths
         - llm_model: LLM model to use for analysis
         - save_to_db: Whether to persist results (default: true)
@@ -91,9 +92,16 @@ async def handle_evaluate(
     source = params["source"]
     source_type = _parse_enum(SourceType, params.get("source_type"), "source_type")
 
+    body_markdown = params.get("body_markdown")
+    if isinstance(body_markdown, str):
+        body_markdown = body_markdown.strip() or None
+    else:
+        body_markdown = None
+
     request = EvaluatePaperRequest(
         source=source,
         source_type=source_type,
+        body_markdown=body_markdown,
         context_documents=params.get("context_documents", []),
         llm_model=params.get("llm_model"),
         save_to_db=params.get("save_to_db", True),

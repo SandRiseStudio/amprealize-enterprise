@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from amprealize.llm.providers.base import Provider
@@ -19,6 +20,7 @@ from amprealize.llm.types import (
     RateLimitError,
     StreamChunk,
     StreamChunkType,
+    get_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -366,6 +368,7 @@ class AnthropicProvider(Provider):
             yield StreamChunk(
                 type=StreamChunkType.ERROR,
                 error=str(exc),
+                error_class=type(exc).__name__,
             )
 
     def is_available(self) -> bool:

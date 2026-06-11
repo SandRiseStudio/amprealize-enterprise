@@ -18,6 +18,19 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _notify_sync_reload(room_id: str) -> None:
+    """Best-effort: ping the sync sidecar so agent edits appear live in browsers.
+
+    Reads AMPREALIZE_WHITEBOARD_SYNC_URL from the environment. Never raises.
+    """
+    try:
+        from amprealize.services.whiteboard_sync_notify import notify_whiteboard_reload
+
+        notify_whiteboard_reload(room_id)
+    except Exception:  # noqa: BLE001 — best-effort
+        logger.debug("sync reload notify skipped for room=%s", room_id, exc_info=True)
+
+
 class WhiteboardToolValidationError(ValueError):
     """Raised when a whiteboard MCP tool is missing required runtime arguments."""
 
@@ -233,6 +246,7 @@ def handle_save_canvas(
         room = service.save_canvas_state(room_id, canvas_state)
         if room is None:
             return {"success": False, "error": f"Room not found: {room_id}"}
+        _notify_sync_reload(room_id)
         return {
             "success": True,
             "room_id": room_id,
@@ -393,6 +407,7 @@ def handle_add_shape(
             return {"success": False, "error": f"Room not found: {room_id}"}
 
         _, shape_id = result
+        _notify_sync_reload(room_id)
 
         return {
             "success": True,
@@ -495,6 +510,7 @@ def handle_annotate(
             return {"success": False, "error": f"Room not found: {room_id}"}
 
         _, shape_id = result
+        _notify_sync_reload(room_id)
 
         return {
             "success": True,

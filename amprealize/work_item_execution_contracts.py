@@ -115,6 +115,7 @@ SESSION_MODE_TOOL_PERMISSIONS: Dict[str, ToolPermissionLevel] = {
     "fetch_url": ToolPermissionLevel.ALWAYS_ALLOW,
     "search_web": ToolPermissionLevel.ALWAYS_ALLOW,
     "research_evaluate": ToolPermissionLevel.ALWAYS_ALLOW,
+    "resource_analyze": ToolPermissionLevel.ALWAYS_ALLOW,
     # Write tools — require confirmation
     "write_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
     "edit_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
@@ -252,6 +253,68 @@ class ModelPolicy:
 
 
 @dataclass
+class ToolOutboundRule:
+    """Per-tool or per-dependency outbound transport limits (retries, timeout, breaker)."""
+
+    max_retries: Optional[int] = None
+    timeout_seconds: Optional[float] = None
+    circuit_failure_threshold: Optional[int] = None
+    circuit_open_seconds: Optional[float] = 60.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_retries": self.max_retries,
+            "timeout_seconds": self.timeout_seconds,
+            "circuit_failure_threshold": self.circuit_failure_threshold,
+            "circuit_open_seconds": self.circuit_open_seconds,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ToolOutboundRule":
+        return cls(
+            max_retries=data.get("max_retries"),
+            timeout_seconds=data.get("timeout_seconds"),
+            circuit_failure_threshold=data.get("circuit_failure_threshold"),
+            circuit_open_seconds=data.get("circuit_open_seconds", 60.0),
+        )
+
+
+@dataclass
+class OutboundReliabilityPolicy:
+    """Defaults and overrides for tool execution (separate from LLM RetryMiddleware)."""
+
+    default_max_retries: int = 2
+    default_tool_timeout_seconds: float = 120.0
+    per_tool: Dict[str, ToolOutboundRule] = field(default_factory=dict)
+    per_dependency_key: Dict[str, ToolOutboundRule] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "default_max_retries": self.default_max_retries,
+            "default_tool_timeout_seconds": self.default_tool_timeout_seconds,
+            "per_tool": {k: v.to_dict() for k, v in self.per_tool.items()},
+            "per_dependency_key": {k: v.to_dict() for k, v in self.per_dependency_key.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OutboundReliabilityPolicy":
+        per_tool: Dict[str, ToolOutboundRule] = {}
+        for k, v in (data.get("per_tool") or {}).items():
+            if isinstance(v, dict):
+                per_tool[str(k)] = ToolOutboundRule.from_dict(v)
+        per_dep: Dict[str, ToolOutboundRule] = {}
+        for k, v in (data.get("per_dependency_key") or {}).items():
+            if isinstance(v, dict):
+                per_dep[str(k)] = ToolOutboundRule.from_dict(v)
+        return cls(
+            default_max_retries=int(data.get("default_max_retries", 2)),
+            default_tool_timeout_seconds=float(data.get("default_tool_timeout_seconds", 120.0)),
+            per_tool=per_tool,
+            per_dependency_key=per_dep,
+        )
+
+
+@dataclass
 class ExecutionPolicy:
     """Configurable execution policy for an agent.
 
@@ -297,6 +360,9 @@ class ExecutionPolicy:
     # Tools not listed default to ALWAYS_ALLOW in GEP and REQUIRE_CONFIRMATION in SESSION
     tool_permissions: Dict[str, "ToolPermissionLevel"] = field(default_factory=dict)
 
+    # Outbound transport: per-tool retries, timeouts, optional circuit breaker (see RUN_RELIABILITY.md)
+    outbound_reliability: OutboundReliabilityPolicy = field(default_factory=OutboundReliabilityPolicy)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "phase_gates": {k: v.value for k, v in self.phase_gates.items()},
@@ -310,6 +376,7 @@ class ExecutionPolicy:
             "skip_phases": list(self.skip_phases),
             "require_workspace": self.require_workspace,
             "tool_permissions": {k: v.value for k, v in self.tool_permissions.items()},
+            "outbound_reliability": self.outbound_reliability.to_dict(),
         }
 
     @classmethod
@@ -321,6 +388,13 @@ class ExecutionPolicy:
         tool_permissions = {}
         for k, v in data.get("tool_permissions", {}).items():
             tool_permissions[k] = ToolPermissionLevel(v) if isinstance(v, str) else v
+
+        ob_raw = data.get("outbound_reliability")
+        outbound = (
+            OutboundReliabilityPolicy.from_dict(ob_raw)
+            if isinstance(ob_raw, dict)
+            else OutboundReliabilityPolicy()
+        )
 
         return cls(
             phase_gates=phase_gates or cls().phase_gates,
@@ -334,6 +408,7 @@ class ExecutionPolicy:
             skip_phases=set(data.get("skip_phases", [])),
             require_workspace=data.get("require_workspace", True),
             tool_permissions=tool_permissions,
+            outbound_reliability=outbound,
         )
 
     @classmethod
@@ -566,6 +641,25 @@ class ExecutionStatusResponse:
     model_id: Optional[str] = None
     step_count: int = 0
     pending_clarifications: Optional[List[Dict[str, Any]]] = None
+    agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    org_id: Optional[str] = None
+    surface: Optional[str] = None
+    source_type: Optional[str] = None
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    request_id: Optional[str] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
+    queue_metadata: Dict[str, Any] = field(default_factory=dict)
+    phase_timings: Dict[str, Any] = field(default_factory=dict)
+    trace_summary: Dict[str, Any] = field(default_factory=dict)
+    total_tokens: Optional[int] = None
+    total_cost_usd: Optional[float] = None
+    tool_count: int = 0
+    last_error: Optional[str] = None
+    execution_workspace_kind: Optional[str] = None
+    connector_status: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -582,6 +676,25 @@ class ExecutionStatusResponse:
             "model_id": self.model_id,
             "step_count": self.step_count,
             "pending_clarifications": self.pending_clarifications,
+            "agent_id": self.agent_id,
+            "project_id": self.project_id,
+            "org_id": self.org_id,
+            "surface": self.surface,
+            "source_type": self.source_type,
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "request_id": self.request_id,
+            "execution_mode": self.execution_mode,
+            "queue_job_id": self.queue_job_id,
+            "queue_metadata": self.queue_metadata,
+            "phase_timings": self.phase_timings,
+            "trace_summary": self.trace_summary,
+            "total_tokens": self.total_tokens,
+            "total_cost_usd": self.total_cost_usd,
+            "tool_count": self.tool_count,
+            "last_error": self.last_error,
+            "execution_workspace_kind": self.execution_workspace_kind,
+            "connector_status": self.connector_status,
         }
 
 

@@ -26,6 +26,8 @@ from .telemetry import TelemetryClient
 from .trace_analysis_contracts import (
     DetectPatternsRequest,
     DetectPatternsResponse,
+    ExtractionJob,
+    ExtractionJobStatus,
     PatternOccurrence,
     ReusabilityScore,
     ScoreReusabilityRequest,
