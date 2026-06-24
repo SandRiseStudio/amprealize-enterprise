@@ -38,7 +38,7 @@ dependencies = [
   "anthropic>=0.40,<1.0",  # Anthropic Claude API client
   "sqlalchemy>=2.0,<3.0",  # Database ORM for PostgresPool
   "psycopg2-binary>=2.9,<3.0",  # PostgreSQL adapter
-  "redis>=5.0,<6.0",  # Redis cache client
+  "redis>=5.0,<8.0",  # Redis cache client
   "alembic>=1.13,<2.0",  # Database migrations
   "podman>=5.0,<6.0",  # Podman socket API for container management
   "pyyaml>=6.0,<7.0",  # YAML config loader
@@ -71,7 +71,7 @@ telemetry = [
   "psycopg2-binary>=2.9,<3.0",
 ]
 redis = [
-  "redis>=5.0,<6.0",
+  "redis>=5.0,<8.0",
 ]
 postgres = [
   "sqlalchemy>=2.0,<3.0",
