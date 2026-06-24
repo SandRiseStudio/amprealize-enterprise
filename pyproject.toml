@@ -33,7 +33,7 @@ dependencies = [
   "boto3>=1.28,<2.0",  # AWS SDK for S3/MinIO storage
   "PyJWT>=2.8,<3.0",  # JWT tokens for internal auth
   "bcrypt>=4.1,<5.0",  # Password hashing
-  "cryptography>=41.0,<43.0",  # Fernet encryption for BYOK credential storage
+  "cryptography>=41.0,<47.0",  # Fernet encryption for BYOK credential storage
   "openai>=1.0,<2.0",  # OpenAI API client
   "anthropic>=0.40,<1.0",  # Anthropic Claude API client
   "sqlalchemy>=2.0,<3.0",  # Database ORM for PostgresPool
@@ -96,7 +96,7 @@ breakeramp = [
   "breakeramp[cli]>=0.1.0",
 ]
 crypto = [
-  "cryptography>=41.0,<43.0",
+  "cryptography>=41.0,<47.0",
 ]
 research = [
   "pdfplumber>=0.10,<1.0",
